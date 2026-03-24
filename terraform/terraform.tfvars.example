@@ -1,0 +1,13 @@
+project_id = "reselleros-dev"
+region     = "us-central1"
+environment = "dev"
+
+web_image              = "us-central1-docker.pkg.dev/reselleros-dev/containers/reselleros-web:latest"
+api_image              = "us-central1-docker.pkg.dev/reselleros-dev/containers/reselleros-api:latest"
+worker_image           = "us-central1-docker.pkg.dev/reselleros-dev/containers/reselleros-worker:latest"
+connector_runner_image = "us-central1-docker.pkg.dev/reselleros-dev/containers/reselleros-connector-runner:latest"
+jobs_image             = "us-central1-docker.pkg.dev/reselleros-dev/containers/reselleros-jobs:latest"
+
+common_env = {
+  LOG_LEVEL = "info"
+}

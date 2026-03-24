@@ -1,0 +1,25 @@
+{
+  "name": "mollie",
+  "private": true,
+  "packageManager": "pnpm@10.23.0",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "dev:api": "pnpm --filter @reselleros/api dev",
+    "dev:web": "pnpm --filter @reselleros/web dev",
+    "dev:worker": "pnpm --filter @reselleros/worker dev",
+    "dev:connector": "pnpm --filter @reselleros/connector-runner dev",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @reselleros/db db:generate",
+    "db:migrate": "pnpm --filter @reselleros/db db:migrate",
+    "db:seed": "pnpm --filter @reselleros/db db:seed"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.21.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.7.3"
+  }
+}

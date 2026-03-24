@@ -1,0 +1,25 @@
+{
+  "name": "@reselleros/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/apps/worker/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@reselleros/ai": "workspace:*",
+    "@reselleros/config": "workspace:*",
+    "@reselleros/db": "workspace:*",
+    "@reselleros/macbid": "workspace:*",
+    "@reselleros/marketplaces": "workspace:*",
+    "@reselleros/marketplaces-ebay": "workspace:*",
+    "@reselleros/observability": "workspace:*",
+    "@reselleros/queue": "workspace:*",
+    "@reselleros/types": "workspace:*",
+    "bullmq": "^5.43.0",
+    "fastify": "^5.2.1"
+  }
+}

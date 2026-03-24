@@ -1,0 +1,53 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "baseUrl": ".",
+    "paths": {
+      "@reselleros/ai": [
+        "packages/ai/src/index.ts"
+      ],
+      "@reselleros/config": [
+        "packages/config/src/index.ts"
+      ],
+      "@reselleros/db": [
+        "packages/db/src/index.ts"
+      ],
+      "@reselleros/macbid": [
+        "packages/macbid/src/index.ts"
+      ],
+      "@reselleros/marketplaces": [
+        "packages/marketplaces/src/index.ts"
+      ],
+      "@reselleros/marketplaces-depop": [
+        "packages/marketplaces-depop/src/index.ts"
+      ],
+      "@reselleros/marketplaces-ebay": [
+        "packages/marketplaces-ebay/src/index.ts"
+      ],
+      "@reselleros/observability": [
+        "packages/observability/src/index.ts"
+      ],
+      "@reselleros/queue": [
+        "packages/queue/src/index.ts"
+      ],
+      "@reselleros/types": [
+        "packages/types/src/index.ts"
+      ],
+      "@reselleros/ui": [
+        "packages/ui/src/index.tsx"
+      ]
+    }
+  }
+}

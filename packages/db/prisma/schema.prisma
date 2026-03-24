@@ -1,0 +1,288 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum MarketplacePlatform {
+  EBAY
+  DEPOP
+}
+
+enum MarketplaceAccountStatus {
+  PENDING
+  CONNECTED
+  DISABLED
+  ERROR
+}
+
+enum SourceLotStatus {
+  PENDING
+  FETCHED
+  ANALYZED
+  FAILED
+}
+
+enum InventoryStatus {
+  DRAFT
+  READY
+  LISTED
+  SOLD
+  ARCHIVED
+}
+
+enum DraftReviewStatus {
+  DRAFT
+  NEEDS_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum PlatformListingStatus {
+  PENDING
+  PUBLISHED
+  SYNCED
+  SOLD
+  ENDED
+  FAILED
+}
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+  DISPUTED
+}
+
+enum ImageKind {
+  ORIGINAL
+  DERIVED
+}
+
+model User {
+  id          String      @id @default(cuid())
+  email       String      @unique
+  name        String?
+  createdAt   DateTime    @default(now())
+  sessions    Session[]
+  workspaces  Workspace[] @relation("WorkspaceOwner")
+  auditLogs   AuditLog[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Workspace {
+  id                 String               @id @default(cuid())
+  ownerUserId        String
+  name               String
+  plan               String               @default("pilot")
+  billingCustomerId  String?
+  createdAt          DateTime             @default(now())
+  owner              User                 @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  marketplaceAccounts MarketplaceAccount[]
+  sourceLots         SourceLot[]
+  inventoryItems     InventoryItem[]
+  executionLogs      ExecutionLog[]
+  auditLogs          AuditLog[]
+}
+
+model MarketplaceAccount {
+  id             String                   @id @default(cuid())
+  workspaceId    String
+  platform       MarketplacePlatform
+  displayName    String
+  status         MarketplaceAccountStatus @default(PENDING)
+  secretRef      String
+  lastSyncAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  platformListings PlatformListing[]
+
+  @@index([workspaceId, platform])
+}
+
+model SourceLot {
+  id                    String          @id @default(cuid())
+  workspaceId           String
+  sourcePlatform        String          @default("MAC_BID")
+  externalId            String
+  title                 String
+  sourceUrl             String
+  rawMetadataJson       Json
+  estimatedResaleMin    Float?
+  estimatedResaleMax    Float?
+  recommendedMaxBid     Float?
+  confidenceScore       Float?
+  riskScore             Float?
+  analysisSummary       String?
+  analysisRationaleJson Json?
+  status                SourceLotStatus @default(PENDING)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  workspace             Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inventoryItems        InventoryItem[]
+
+  @@index([workspaceId, status])
+  @@unique([workspaceId, externalId])
+}
+
+model InventoryItem {
+  id                   String          @id @default(cuid())
+  workspaceId          String
+  sourceLotId          String?
+  sku                  String          @unique
+  title                String
+  brand                String?
+  category             String
+  condition            String
+  size                 String?
+  color                String?
+  attributesJson       Json
+  imageManifestJson    Json?
+  quantity             Int             @default(1)
+  costBasis            Float           @default(0)
+  estimatedResaleMin   Float?
+  estimatedResaleMax   Float?
+  priceRecommendation  Float?
+  status               InventoryStatus @default(DRAFT)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  workspace            Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceLot            SourceLot?      @relation(fields: [sourceLotId], references: [id], onDelete: SetNull)
+  images               ImageAsset[]
+  listingDrafts        ListingDraft[]
+  platformListings     PlatformListing[]
+  sales                Sale[]
+  executionLogs        ExecutionLog[]
+
+  @@index([workspaceId, status])
+  @@index([sourceLotId])
+}
+
+model ImageAsset {
+  id              String        @id @default(cuid())
+  inventoryItemId String
+  url             String
+  kind            ImageKind     @default(ORIGINAL)
+  width           Int?
+  height          Int?
+  position        Int           @default(0)
+  createdAt       DateTime      @default(now())
+  inventoryItem   InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@index([inventoryItemId, position])
+}
+
+model ListingDraft {
+  id                   String            @id @default(cuid())
+  inventoryItemId      String
+  platform             MarketplacePlatform
+  generatedTitle       String
+  generatedDescription String
+  generatedPrice       Float
+  generatedTagsJson    Json
+  attributesJson       Json
+  reviewStatus         DraftReviewStatus @default(NEEDS_REVIEW)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  inventoryItem        InventoryItem     @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+
+  @@unique([inventoryItemId, platform])
+}
+
+model PlatformListing {
+  id                  String                @id @default(cuid())
+  inventoryItemId     String
+  marketplaceAccountId String
+  platform            MarketplacePlatform
+  externalListingId   String?
+  status              PlatformListingStatus @default(PENDING)
+  publishedTitle      String?
+  publishedPrice      Float?
+  externalUrl         String?
+  lastSyncAt          DateTime?
+  rawLastResponseJson Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  inventoryItem       InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  marketplaceAccount  MarketplaceAccount    @relation(fields: [marketplaceAccountId], references: [id], onDelete: Cascade)
+  sales               Sale[]
+  executionLogs       ExecutionLog[]
+
+  @@index([inventoryItemId, platform])
+}
+
+model Sale {
+  id                String        @id @default(cuid())
+  inventoryItemId   String
+  platformListingId String?
+  soldPrice         Float
+  fees              Float         @default(0)
+  shippingCost      Float?
+  soldAt            DateTime
+  payoutStatus      PayoutStatus  @default(PENDING)
+  createdAt         DateTime      @default(now())
+  inventoryItem     InventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  platformListing   PlatformListing? @relation(fields: [platformListingId], references: [id], onDelete: SetNull)
+
+  @@index([inventoryItemId, soldAt])
+}
+
+model ExecutionLog {
+  id                  String          @id @default(cuid())
+  workspaceId         String
+  inventoryItemId     String?
+  platformListingId   String?
+  jobName             String
+  connector           String?
+  status              ExecutionStatus @default(QUEUED)
+  attempt             Int             @default(1)
+  correlationId       String
+  requestPayloadJson  Json?
+  responsePayloadJson Json?
+  artifactUrlsJson    Json?
+  startedAt           DateTime?
+  finishedAt          DateTime?
+  createdAt           DateTime        @default(now())
+  workspace           Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inventoryItem       InventoryItem?  @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  platformListing     PlatformListing? @relation(fields: [platformListingId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([correlationId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String
+  actorUserId String?
+  action      String
+  targetType  String
+  targetId    String
+  metadataJson Json?
+  createdAt   DateTime @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorUser   User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([targetType, targetId])
+}

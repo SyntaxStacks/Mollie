@@ -1,0 +1,19 @@
+{
+  "name": "@reselleros/jobs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/apps/jobs/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@reselleros/config": "workspace:*",
+    "@reselleros/db": "workspace:*",
+    "@reselleros/observability": "workspace:*",
+    "@reselleros/queue": "workspace:*",
+    "@reselleros/types": "workspace:*"
+  }
+}

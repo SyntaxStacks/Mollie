@@ -1,0 +1,29 @@
+{
+  "name": "@reselleros/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/apps/api/src/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.2.0",
+    "@fastify/sensible": "^5.6.0",
+    "@reselleros/ai": "workspace:*",
+    "@reselleros/config": "workspace:*",
+    "@reselleros/db": "workspace:*",
+    "@reselleros/macbid": "workspace:*",
+    "@reselleros/marketplaces": "workspace:*",
+    "@reselleros/marketplaces-depop": "workspace:*",
+    "@reselleros/marketplaces-ebay": "workspace:*",
+    "@reselleros/observability": "workspace:*",
+    "@reselleros/queue": "workspace:*",
+    "@reselleros/types": "workspace:*",
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
+  }
+}

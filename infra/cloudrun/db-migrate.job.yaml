@@ -1,0 +1,23 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: reselleros-db-migrate
+spec:
+  template:
+    spec:
+      template:
+        spec:
+          containers:
+            - image: us-central1-docker.pkg.dev/PROJECT_ID/reselleros/api:latest
+              command:
+                - pnpm
+                - --filter
+                - @reselleros/db
+                - db:migrate
+              env:
+                - name: DATABASE_URL
+                  value: postgresql://user:password@/db
+                - name: DIRECT_URL
+                  value: postgresql://user:password@/db
+          maxRetries: 1
+          timeoutSeconds: 900
