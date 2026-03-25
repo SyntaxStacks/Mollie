@@ -50,6 +50,15 @@ type EbayResolvedTokenSet = {
   refreshTokenExpiresAt: string | null;
 };
 
+type EbayLiveDefaults = {
+  merchantLocationKey?: string;
+  paymentPolicyId?: string;
+  returnPolicyId?: string;
+  fulfillmentPolicyId?: string;
+  marketplaceId?: string;
+  currency?: string;
+};
+
 function resolveEbayEnvironment(): EbayEnvironment {
   return process.env.EBAY_ENVIRONMENT === "production" ? "production" : "sandbox";
 }
@@ -221,11 +230,32 @@ function resolveConditionCode(condition: string) {
   return "USED_ACCEPTABLE";
 }
 
-function getLivePublishConfig() {
-  const merchantLocationKey = process.env.EBAY_MERCHANT_LOCATION_KEY;
-  const paymentPolicyId = process.env.EBAY_PAYMENT_POLICY_ID;
-  const returnPolicyId = process.env.EBAY_RETURN_POLICY_ID;
-  const fulfillmentPolicyId = process.env.EBAY_FULFILLMENT_POLICY_ID;
+function readOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+export function getEbayLiveDefaults(metadata?: Record<string, unknown> | null): EbayLiveDefaults {
+  const rawDefaults =
+    metadata && typeof metadata.ebayLiveDefaults === "object" && metadata.ebayLiveDefaults
+      ? (metadata.ebayLiveDefaults as Record<string, unknown>)
+      : {};
+
+  return {
+    merchantLocationKey: readOptionalString(rawDefaults.merchantLocationKey),
+    paymentPolicyId: readOptionalString(rawDefaults.paymentPolicyId),
+    returnPolicyId: readOptionalString(rawDefaults.returnPolicyId),
+    fulfillmentPolicyId: readOptionalString(rawDefaults.fulfillmentPolicyId),
+    marketplaceId: readOptionalString(rawDefaults.marketplaceId),
+    currency: readOptionalString(rawDefaults.currency)
+  };
+}
+
+function getLivePublishConfig(metadata?: Record<string, unknown> | null) {
+  const defaults = getEbayLiveDefaults(metadata);
+  const merchantLocationKey = defaults.merchantLocationKey ?? process.env.EBAY_MERCHANT_LOCATION_KEY;
+  const paymentPolicyId = defaults.paymentPolicyId ?? process.env.EBAY_PAYMENT_POLICY_ID;
+  const returnPolicyId = defaults.returnPolicyId ?? process.env.EBAY_RETURN_POLICY_ID;
+  const fulfillmentPolicyId = defaults.fulfillmentPolicyId ?? process.env.EBAY_FULFILLMENT_POLICY_ID;
 
   if (!merchantLocationKey || !paymentPolicyId || !returnPolicyId || !fulfillmentPolicyId) {
     throw new ConnectorError({
@@ -241,18 +271,19 @@ function getLivePublishConfig() {
     paymentPolicyId,
     returnPolicyId,
     fulfillmentPolicyId,
-    marketplaceId: process.env.EBAY_MARKETPLACE_ID ?? "EBAY_US",
-    currency: process.env.EBAY_CURRENCY ?? "USD",
+    marketplaceId: defaults.marketplaceId ?? process.env.EBAY_MARKETPLACE_ID ?? "EBAY_US",
+    currency: defaults.currency ?? process.env.EBAY_CURRENCY ?? "USD",
     environment: resolveEbayEnvironment()
   };
 }
 
-function getLivePublishConfigStatus() {
+function getLivePublishConfigStatus(metadata?: Record<string, unknown> | null) {
+  const defaults = getEbayLiveDefaults(metadata);
   const missing = [
-    ["EBAY_MERCHANT_LOCATION_KEY", process.env.EBAY_MERCHANT_LOCATION_KEY],
-    ["EBAY_PAYMENT_POLICY_ID", process.env.EBAY_PAYMENT_POLICY_ID],
-    ["EBAY_RETURN_POLICY_ID", process.env.EBAY_RETURN_POLICY_ID],
-    ["EBAY_FULFILLMENT_POLICY_ID", process.env.EBAY_FULFILLMENT_POLICY_ID]
+    ["merchantLocationKey", defaults.merchantLocationKey ?? process.env.EBAY_MERCHANT_LOCATION_KEY],
+    ["paymentPolicyId", defaults.paymentPolicyId ?? process.env.EBAY_PAYMENT_POLICY_ID],
+    ["returnPolicyId", defaults.returnPolicyId ?? process.env.EBAY_RETURN_POLICY_ID],
+    ["fulfillmentPolicyId", defaults.fulfillmentPolicyId ?? process.env.EBAY_FULFILLMENT_POLICY_ID]
   ]
     .filter(([, value]) => !value)
     .map(([name]) => name);
@@ -338,12 +369,15 @@ export function getEbayPublishPreflight(input: {
   }
 
   if (liveEnabled) {
-    const configStatus = getLivePublishConfigStatus();
+    const configStatus = getLivePublishConfigStatus(selected.account?.credentialMetadata ?? null);
     checks.push({
       key: "live-config",
       label: "Live publish config",
       status: configStatus.ok ? "READY" : "BLOCKED",
-      detail: configStatus.ok ? "Location and policy env vars are configured" : `Missing ${configStatus.missing.join(", ")}`
+      detail:
+        configStatus.ok
+          ? "Location and policy defaults are configured"
+          : `Missing ${configStatus.missing.join(", ")}`
     });
 
     const categoryId = readCategoryId(input.draftAttributes ?? {});
@@ -455,12 +489,12 @@ export function getEbayAccountReadiness(input: {
     };
   }
 
-  const configStatus = getLivePublishConfigStatus();
+  const configStatus = getLivePublishConfigStatus(account.credentialMetadata ?? null);
 
   if (!configStatus.ok) {
     return {
       status: "WARNING" as const,
-      summary: "OAuth account is connected, but live eBay config is incomplete.",
+      summary: "OAuth account is connected, but live eBay defaults are incomplete.",
       detail: `Missing ${configStatus.missing.join(", ")}`
     };
   }
@@ -872,7 +906,7 @@ function buildInventoryItemPayload(input: PublishListingInput) {
 }
 
 function buildOfferPayload(input: PublishListingInput) {
-  const config = getLivePublishConfig();
+  const config = getLivePublishConfig(input.marketplaceAccount.credentialMetadata ?? null);
   return {
     sku: input.sku,
     marketplaceId: config.marketplaceId,
@@ -897,7 +931,7 @@ function buildOfferPayload(input: PublishListingInput) {
 
 async function publishLiveListing(input: PublishListingInput) {
   const { accessToken, marketplaceAccountUpdate } = await resolveLiveAccessToken(input);
-  const config = getLivePublishConfig();
+  const config = getLivePublishConfig(input.marketplaceAccount.credentialMetadata ?? null);
   const inventoryPayload = buildInventoryItemPayload(input);
   const offerPayload = buildOfferPayload(input);
 

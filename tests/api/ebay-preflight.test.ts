@@ -350,3 +350,83 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   assert.match(readyBody.preflight.summary, /ready for live ebay publish/i);
   assert.equal(readyBody.preflight.checks.find((check) => check.key === "category")?.status, "READY");
 });
+
+test("ebay preflight accepts account-level live defaults when env policy settings are absent", async () => {
+  process.env.EBAY_LIVE_PUBLISH_ENABLED = "true";
+  process.env.EBAY_MERCHANT_LOCATION_KEY = undefined;
+  process.env.EBAY_PAYMENT_POLICY_ID = undefined;
+  process.env.EBAY_RETURN_POLICY_ID = undefined;
+  process.env.EBAY_FULFILLMENT_POLICY_ID = undefined;
+
+  const session = await createWorkspaceSession("ebay-preflight-account-defaults");
+  const item = await createInventoryItem(session);
+
+  const imageResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/images`,
+    headers: session.headers,
+    payload: {
+      url: "https://cdn.example.com/account-defaults-item.jpg",
+      position: 0
+    }
+  });
+  assert.equal(imageResponse.statusCode, 200);
+
+  await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "EBAY",
+      displayName: "OAuth eBay",
+      secretRef: "oauth://ebay/test",
+      credentialType: "OAUTH_TOKEN_SET",
+      validationStatus: "VALID",
+      externalAccountId: `ebay-user-${crypto.randomUUID().slice(0, 8)}`,
+      credentialMetadataJson: {
+        mode: "oauth",
+        publishMode: "foundation-only",
+        ebayLiveDefaults: {
+          merchantLocationKey: "pilot-warehouse",
+          paymentPolicyId: "payment-policy",
+          returnPolicyId: "return-policy",
+          fulfillmentPolicyId: "fulfillment-policy"
+        }
+      },
+      status: "CONNECTED",
+      lastValidatedAt: new Date()
+    }
+  });
+
+  await db.listingDraft.create({
+    data: {
+      inventoryItemId: item.id,
+      platform: "EBAY",
+      generatedTitle: "Live eBay Draft",
+      generatedDescription: "Approved live draft",
+      generatedPrice: 58,
+      generatedTagsJson: [],
+      attributesJson: {
+        ebayCategoryId: "15724"
+      },
+      reviewStatus: "APPROVED"
+    }
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/inventory/${item.id}/preflight/ebay`,
+    headers: session.headers
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    preflight: {
+      ready: boolean;
+      mode: string;
+      checks: Array<{ key: string; status: string; detail: string }>;
+    };
+  };
+
+  assert.equal(body.preflight.ready, true);
+  assert.equal(body.preflight.mode, "live");
+  assert.equal(body.preflight.checks.find((check) => check.key === "live-config")?.status, "READY");
+});

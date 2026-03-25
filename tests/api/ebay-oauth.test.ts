@@ -296,3 +296,59 @@ test("marketplace account list surfaces ebay readiness for oauth refresh failure
   assert.match(ebayAccount.readiness?.summary ?? "", /refresh token expired/i);
   assert.match(ebayAccount.readiness?.detail ?? "", /reconnect/i);
 });
+
+test("ebay oauth account can persist live defaults for operator-managed publish config", async () => {
+  const session = await createWorkspaceSession("ebay-live-defaults");
+
+  const account = await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "EBAY",
+      displayName: "Pilot Seller",
+      secretRef: "db-encrypted://marketplace-account/oauth",
+      credentialType: "OAUTH_TOKEN_SET",
+      validationStatus: "VALID",
+      externalAccountId: "ebay-user-live-defaults",
+      credentialMetadataJson: {
+        mode: "oauth",
+        username: "pilot-seller"
+      },
+      status: "CONNECTED",
+      lastValidatedAt: new Date()
+    }
+  });
+
+  const response = await app.inject({
+    method: "PATCH",
+    url: `/api/marketplace-accounts/${account.id}/ebay-live-defaults`,
+    headers: session.headers,
+    payload: {
+      merchantLocationKey: "pilot-warehouse",
+      paymentPolicyId: "payment-policy",
+      returnPolicyId: "return-policy",
+      fulfillmentPolicyId: "fulfillment-policy",
+      marketplaceId: "EBAY_US",
+      currency: "USD"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    account: {
+      credentialMetadata: {
+        ebayLiveDefaults?: {
+          merchantLocationKey?: string;
+          paymentPolicyId?: string;
+          returnPolicyId?: string;
+          fulfillmentPolicyId?: string;
+          marketplaceId?: string;
+          currency?: string;
+        };
+      } | null;
+    };
+  };
+
+  assert.equal(body.account.credentialMetadata?.ebayLiveDefaults?.merchantLocationKey, "pilot-warehouse");
+  assert.equal(body.account.credentialMetadata?.ebayLiveDefaults?.paymentPolicyId, "payment-policy");
+  assert.equal(body.account.credentialMetadata?.ebayLiveDefaults?.currency, "USD");
+});

@@ -89,6 +89,15 @@ export const ebayOAuthCallbackQuerySchema = z.object({
   mode: z.enum(["json", "redirect"]).default("redirect")
 });
 
+export const ebayLiveDefaultsSchema = z.object({
+  merchantLocationKey: z.string().min(1).max(120).optional().nullable(),
+  paymentPolicyId: z.string().min(1).max(120).optional().nullable(),
+  returnPolicyId: z.string().min(1).max(120).optional().nullable(),
+  fulfillmentPolicyId: z.string().min(1).max(120).optional().nullable(),
+  marketplaceId: z.string().min(1).max(40).optional().nullable(),
+  currency: z.string().min(1).max(12).optional().nullable()
+});
+
 export const sourceLotInputSchema = z.object({
   url: z.string().url(),
   titleHint: z.string().min(2).max(180).optional()

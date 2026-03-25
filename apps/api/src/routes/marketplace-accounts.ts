@@ -5,9 +5,15 @@ import {
   db,
   disableMarketplaceAccountForWorkspace,
   recordAuditLog,
+  updateMarketplaceAccountMetadataForWorkspace,
   upsertMarketplaceAccountConnectionForWorkspace
 } from "@reselleros/db";
-import { ebayOAuthCallbackQuerySchema, ebayOAuthStartSchema, marketplaceAccountSchema } from "@reselleros/types";
+import {
+  ebayLiveDefaultsSchema,
+  ebayOAuthCallbackQuerySchema,
+  ebayOAuthStartSchema,
+  marketplaceAccountSchema
+} from "@reselleros/types";
 import {
   buildEbayAuthorizationUrl,
   encryptEbayCredentialPayload,
@@ -260,6 +266,55 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       action: "marketplace.disabled",
       targetType: "marketplace_account",
       targetId: account.id
+    });
+
+    return { account: serializeMarketplaceAccount(account) };
+  });
+
+  app.patch("/api/marketplace-accounts/:id/ebay-live-defaults", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = ebayLiveDefaultsSchema.parse(request.body);
+    const existing = await db.marketplaceAccount.findFirst({
+      where: {
+        id: params.id,
+        workspaceId: workspace.id
+      }
+    });
+
+    if (!existing) {
+      throw app.httpErrors.notFound("Marketplace account not found");
+    }
+
+    if (existing.platform !== "EBAY") {
+      throw app.httpErrors.badRequest("Live defaults can only be updated for eBay accounts");
+    }
+
+    const currentMetadata = (existing.credentialMetadataJson ?? {}) as Record<string, unknown>;
+    const liveDefaults = Object.fromEntries(
+      Object.entries(body).filter(([, value]) => typeof value === "string" && value.trim().length > 0)
+    );
+    const nextMetadata = {
+      ...currentMetadata,
+      ebayLiveDefaults: liveDefaults
+    };
+
+    const account = await updateMarketplaceAccountMetadataForWorkspace(workspace.id, existing.id, nextMetadata);
+
+    if (!account) {
+      throw app.httpErrors.notFound("Marketplace account not found");
+    }
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "marketplace.ebay.live_defaults.updated",
+      targetType: "marketplace_account",
+      targetId: account.id,
+      metadata: {
+        ebayLiveDefaults: liveDefaults
+      }
     });
 
     return { account: serializeMarketplaceAccount(account) };

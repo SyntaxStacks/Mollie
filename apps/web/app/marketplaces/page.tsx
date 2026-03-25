@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useState, useTransition } from "react";
 
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
@@ -11,8 +12,9 @@ import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
-export default function MarketplacesPage() {
+function MarketplacesPageContent() {
   const auth = useAuth();
+  const searchParams = useSearchParams();
   const { data, refresh, error } = useAuthedResource<{
     accounts: Array<{
       id: string;
@@ -23,7 +25,18 @@ export default function MarketplacesPage() {
       credentialType: string;
       validationStatus: string;
       externalAccountId: string | null;
-      credentialMetadata?: { publishMode?: string; username?: string } | null;
+      credentialMetadata?: {
+        publishMode?: string;
+        username?: string;
+        ebayLiveDefaults?: {
+          merchantLocationKey?: string;
+          paymentPolicyId?: string;
+          returnPolicyId?: string;
+          fulfillmentPolicyId?: string;
+          marketplaceId?: string;
+          currency?: string;
+        };
+      } | null;
       lastValidatedAt?: string | null;
       lastErrorMessage?: string | null;
       readiness?: {
@@ -35,6 +48,16 @@ export default function MarketplacesPage() {
   }>("/api/marketplace-accounts", auth.token);
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const oauthStatus = searchParams.get("ebay_oauth");
+  const oauthMessage = searchParams.get("message");
+  const oauthCode = searchParams.get("code");
+  const oauthAccountId = searchParams.get("accountId");
+
+  useEffect(() => {
+    if (oauthStatus === "connected") {
+      void refresh();
+    }
+  }, [oauthStatus, refresh]);
 
   function launchEbayOAuth(displayName: string) {
     startTransition(async () => {
@@ -112,11 +135,58 @@ export default function MarketplacesPage() {
     };
   }
 
+  function saveEbayLiveDefaults(accountId: string) {
+    return async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+
+      startTransition(async () => {
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${accountId}/ebay-live-defaults`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+              merchantLocationKey: formData.get("merchantLocationKey"),
+              paymentPolicyId: formData.get("paymentPolicyId"),
+              returnPolicyId: formData.get("returnPolicyId"),
+              fulfillmentPolicyId: formData.get("fulfillmentPolicyId"),
+              marketplaceId: formData.get("marketplaceId"),
+              currency: formData.get("currency")
+            })
+          });
+          const payload = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(payload.error ?? "Could not save eBay live defaults");
+          }
+
+          setSubmitError(null);
+          await refresh();
+        } catch (caughtError) {
+          setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not save eBay live defaults");
+        }
+      });
+    };
+  }
+
   return (
     <ProtectedView>
       <AppShell title="Marketplace Accounts">
         {error ? <div className="notice">{error}</div> : null}
         {submitError ? <div className="notice">{submitError}</div> : null}
+        {oauthStatus === "connected" ? (
+          <div className="notice">
+            eBay OAuth connected successfully{oauthAccountId ? ` for account ${oauthAccountId}` : ""}.
+          </div>
+        ) : null}
+        {oauthStatus === "error" ? (
+          <div className="notice">
+            eBay OAuth failed{oauthCode ? ` (${oauthCode})` : ""}: {oauthMessage ?? "Unknown OAuth error"}
+          </div>
+        ) : null}
         <div className="grid-2">
           <Card eyebrow="eBay" title="Primary connector">
             <form className="stack" onSubmit={startEbayOAuth}>
@@ -152,15 +222,81 @@ export default function MarketplacesPage() {
                         <div className="muted">{account.readiness.detail}</div>
                         {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
                         {account.credentialType === "OAUTH_TOKEN_SET" ? (
-                          <div className="actions">
-                            <Button
-                              disabled={pending}
-                              kind={account.readiness.status === "BLOCKED" ? "primary" : "secondary"}
-                              onClick={() => launchEbayOAuth(account.displayName)}
-                            >
-                              {account.readiness.status === "BLOCKED" ? "Reconnect eBay OAuth" : "Refresh eBay OAuth"}
-                            </Button>
-                          </div>
+                          <>
+                            <div className="actions">
+                              <Button
+                                disabled={pending}
+                                kind={account.readiness.status === "BLOCKED" ? "primary" : "secondary"}
+                                onClick={() => launchEbayOAuth(account.displayName)}
+                              >
+                                {account.readiness.status === "BLOCKED" ? "Reconnect eBay OAuth" : "Refresh eBay OAuth"}
+                              </Button>
+                            </div>
+                            <form className="stack" onSubmit={saveEbayLiveDefaults(account.id)}>
+                              <label className="label">
+                                Merchant location key
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.merchantLocationKey ?? ""}
+                                  name="merchantLocationKey"
+                                  placeholder="pilot-warehouse"
+                                />
+                              </label>
+                              <label className="label">
+                                Payment policy ID
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.paymentPolicyId ?? ""}
+                                  name="paymentPolicyId"
+                                  placeholder="payment-policy"
+                                />
+                              </label>
+                              <label className="label">
+                                Return policy ID
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.returnPolicyId ?? ""}
+                                  name="returnPolicyId"
+                                  placeholder="return-policy"
+                                />
+                              </label>
+                              <label className="label">
+                                Fulfillment policy ID
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.fulfillmentPolicyId ?? ""}
+                                  name="fulfillmentPolicyId"
+                                  placeholder="fulfillment-policy"
+                                />
+                              </label>
+                              <label className="label">
+                                Marketplace ID
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.marketplaceId ?? ""}
+                                  name="marketplaceId"
+                                  placeholder="EBAY_US"
+                                />
+                              </label>
+                              <label className="label">
+                                Currency
+                                <input
+                                  className="field"
+                                  defaultValue={account.credentialMetadata?.ebayLiveDefaults?.currency ?? ""}
+                                  name="currency"
+                                  placeholder="USD"
+                                />
+                              </label>
+                              <div className="muted">
+                                These defaults are stored on the eBay account and used for live publish before env fallbacks.
+                              </div>
+                              <div className="actions">
+                                <Button disabled={pending} kind="secondary" type="submit">
+                                  Save live defaults
+                                </Button>
+                              </div>
+                            </form>
+                          </>
                         ) : null}
                       </div>
                     ) : null}
@@ -249,5 +385,21 @@ export default function MarketplacesPage() {
         </Card>
       </AppShell>
     </ProtectedView>
+  );
+}
+
+export default function MarketplacesPage() {
+  return (
+    <Suspense
+      fallback={
+        <ProtectedView>
+          <AppShell title="Marketplace Accounts">
+            <div className="center-state">Loading marketplace accounts...</div>
+          </AppShell>
+        </ProtectedView>
+      }
+    >
+      <MarketplacesPageContent />
+    </Suspense>
   );
 }

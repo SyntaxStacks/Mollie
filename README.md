@@ -91,7 +91,7 @@ The CI workflow validates:
 8. Inspect runs on `/executions`
 9. Record sold items on `/sales`
 
-The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually.
+The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually, the page shows the OAuth return result after redirect, and live eBay location/policy defaults can now be stored on the account instead of relying only on env configuration.
 
 Inventory detail now includes an eBay preflight view that surfaces whether a specific item is ready for simulated or live eBay publish, including blocked checks for images, approved draft, account state, live config, and category mapping. The same screen now lets operators edit the eBay draft title, price, and `ebayCategoryId` without leaving the item detail page.
 
@@ -131,7 +131,7 @@ Example deploy:
 ## Notes
 
 - eBay now has a real OAuth foundation: the API can start the authorization-code flow, exchange the callback code, validate the connected eBay account, and store the token set encrypted in the database-backed credential vault path. When live publish is not enabled, OAuth-backed accounts fail closed instead of faking successful listings.
-- If `EBAY_LIVE_PUBLISH_ENABLED=true`, OAuth-backed eBay accounts can now use the real Inventory API path. That path expects `ebayCategoryId` on the approved draft attributes plus the eBay marketplace/policy/location env values (`EBAY_MERCHANT_LOCATION_KEY`, `EBAY_PAYMENT_POLICY_ID`, `EBAY_RETURN_POLICY_ID`, and `EBAY_FULFILLMENT_POLICY_ID`).
+- If `EBAY_LIVE_PUBLISH_ENABLED=true`, OAuth-backed eBay accounts can now use the real Inventory API path. That path expects `ebayCategoryId` on the approved draft attributes plus eBay live defaults for merchant location and listing policies. Those defaults can now be stored on the OAuth account from `/marketplaces`, with env values remaining as fallback.
 - The manual eBay secret-ref connector remains in place for simulated pilot publish jobs while the live eBay offer/create path is still being built.
 - Depop publishing is still a simulated automation adapter with auditable queue flow and artifact hooks, so the MVP can be exercised before live connector hardening.
 - OpenAI usage is optional. If `OPENAI_API_KEY` is unset, deterministic fallback heuristics drive lot analysis and draft generation.

@@ -376,6 +376,30 @@ export async function disableMarketplaceAccountForWorkspace(workspaceId: string,
   });
 }
 
+export async function updateMarketplaceAccountMetadataForWorkspace(
+  workspaceId: string,
+  accountId: string,
+  metadata: Prisma.InputJsonValue
+) {
+  const account = await db.marketplaceAccount.findFirst({
+    where: {
+      id: accountId,
+      workspaceId
+    }
+  });
+
+  if (!account) {
+    return null;
+  }
+
+  return db.marketplaceAccount.update({
+    where: { id: account.id },
+    data: {
+      credentialMetadataJson: metadata
+    }
+  });
+}
+
 export async function findSourceLotForWorkspace(workspaceId: string, lotId: string) {
   return db.sourceLot.findFirst({
     where: {
