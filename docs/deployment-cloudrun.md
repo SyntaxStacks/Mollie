@@ -82,6 +82,16 @@ pwsh infra/scripts/deploy-cloudrun.ps1 `
 
 Use the API image for Prisma migrations, but do not reuse the API service config directly. Provide database secrets and the Cloud SQL attachment only for the job runtime.
 
+## Config Validation
+
+Use the local validator before deploy to catch missing files or a missing service account on non-public services:
+
+```powershell
+pwsh infra/scripts/validate-cloudrun-config.ps1 `
+  -App connector-runner `
+  -ServiceAccount reselleros-connector@my-project.iam.gserviceaccount.com
+```
+
 ## Notes
 
 - Keep `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, auth secrets, Stripe secrets, and marketplace secrets in Secret Manager.

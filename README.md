@@ -32,11 +32,24 @@ The default local ports are:
 - worker health: `http://localhost:4001/health`
 - connector-runner health: `http://localhost:4010/health`
 
+Local infra ports are now overrideable through `.env`:
+
+- `POSTGRES_HOST_PORT`
+- `REDIS_HOST_PORT`
+
+If you change those host ports, keep `DATABASE_URL`, `DIRECT_URL`, and `REDIS_URL` aligned with the same values.
+
 ## Validation
 
 - `pnpm typecheck`
 - `pnpm build`
 - `pnpm test:e2e`
+
+The E2E suite covers:
+
+- happy-path eBay publish workflow
+- Depop failure artifacts and connector health degradation
+- cross-workspace inventory isolation
 
 ## Key flows
 
@@ -55,7 +68,9 @@ The default local ports are:
 - Dockerfiles live in each runnable app directory.
 - Cloud Run helper files live in `infra/cloudrun`.
 - PowerShell deployment helper: `infra/scripts/deploy-cloudrun.ps1`
+- Cloud Run config validator: `infra/scripts/validate-cloudrun-config.ps1`
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
+- Local E2E helper: `infra/scripts/test-e2e.ps1`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
 
 Cloud Run is now configured around per-service runtime config:
