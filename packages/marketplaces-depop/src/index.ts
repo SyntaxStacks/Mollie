@@ -22,7 +22,7 @@ function simulateDepopPublish(input: PublishListingInput) {
     rawResponse: {
       mode: "simulated",
       platform: "DEPOP",
-      account: input.marketplaceAccountDisplayName
+      account: input.marketplaceAccount.displayName
     },
     artifactUrls: [
       `${process.env.GCS_BUCKET_ARTIFACTS ?? "local-artifacts"}/screenshots/${externalListingId}-step-1.png`
@@ -38,10 +38,10 @@ export const depopAdapter: MarketplaceAdapter = {
   async syncListing({ currentStatus }) {
     return { status: currentStatus === "PUBLISHED" ? "SYNCED" : currentStatus };
   },
-  async testConnection({ displayName }) {
+  async testConnection({ marketplaceAccount }) {
     return {
       ok: true,
-      detail: `Simulated Depop automation session ready for ${displayName}`
+      detail: `Simulated Depop automation session ready for ${marketplaceAccount.displayName}`
     };
   }
 };

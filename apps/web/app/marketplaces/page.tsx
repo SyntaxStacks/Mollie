@@ -14,10 +14,66 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 export default function MarketplacesPage() {
   const auth = useAuth();
   const { data, refresh, error } = useAuthedResource<{
-    accounts: Array<{ id: string; platform: string; displayName: string; status: string; secretRef: string }>;
+    accounts: Array<{
+      id: string;
+      platform: string;
+      displayName: string;
+      status: string;
+      secretRef: string;
+      credentialType: string;
+      validationStatus: string;
+      externalAccountId: string | null;
+      credentialMetadata?: { publishMode?: string; username?: string } | null;
+      lastValidatedAt?: string | null;
+      lastErrorMessage?: string | null;
+      readiness?: {
+        status: string;
+        summary: string;
+        detail: string;
+      } | null;
+    }>;
   }>("/api/marketplace-accounts", auth.token);
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  function launchEbayOAuth(displayName: string) {
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/ebay/oauth/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            displayName
+          })
+        });
+        const payload = (await response.json()) as { authorizeUrl?: string; error?: string };
+
+        if (!response.ok || !payload.authorizeUrl) {
+          throw new Error(payload.error ?? "Could not start eBay OAuth");
+        }
+
+        window.location.assign(payload.authorizeUrl);
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not start eBay OAuth");
+      }
+    });
+  }
+
+  function startEbayOAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+    const displayName = String(formData.get("ebayOauthDisplayName") ?? "").trim();
+
+    if (!displayName) {
+      setSubmitError("Enter an eBay OAuth display name.");
+      return;
+    }
+
+    launchEbayOAuth(displayName);
+  }
 
   function connect(platform: "EBAY" | "DEPOP") {
     return async (event: FormEvent<HTMLFormElement>) => {
@@ -63,17 +119,66 @@ export default function MarketplacesPage() {
         {submitError ? <div className="notice">{submitError}</div> : null}
         <div className="grid-2">
           <Card eyebrow="eBay" title="Primary connector">
+            <form className="stack" onSubmit={startEbayOAuth}>
+              <label className="label">
+                OAuth display name
+                <input className="field" name="ebayOauthDisplayName" placeholder="Main eBay account" required />
+              </label>
+              <Button type="submit" disabled={pending}>
+                Start eBay OAuth
+              </Button>
+            </form>
+
+            <div className="notice">
+              OAuth now validates a real eBay account and stores encrypted tokens. Live eBay publish is still gated, so the
+              manual secret-ref connector remains available for simulated pilot publish jobs.
+            </div>
+
+            <div className="stack" style={{ marginTop: "1rem" }}>
+              {(data?.accounts ?? [])
+                .filter((account) => account.platform === "EBAY")
+                .map((account) => (
+                  <div className="rs-card" key={account.id}>
+                    <div className="split">
+                      <div>
+                        <strong>{account.displayName}</strong>
+                        <div className="muted">{account.credentialMetadata?.username ?? account.externalAccountId ?? account.secretRef}</div>
+                      </div>
+                      {account.readiness ? <StatusPill status={account.readiness.status} /> : null}
+                    </div>
+                    {account.readiness ? (
+                      <div className="stack" style={{ marginTop: "0.75rem" }}>
+                        <div>{account.readiness.summary}</div>
+                        <div className="muted">{account.readiness.detail}</div>
+                        {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
+                        {account.credentialType === "OAUTH_TOKEN_SET" ? (
+                          <div className="actions">
+                            <Button
+                              disabled={pending}
+                              kind={account.readiness.status === "BLOCKED" ? "primary" : "secondary"}
+                              onClick={() => launchEbayOAuth(account.displayName)}
+                            >
+                              {account.readiness.status === "BLOCKED" ? "Reconnect eBay OAuth" : "Refresh eBay OAuth"}
+                            </Button>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
+
             <form className="stack" onSubmit={connect("EBAY")}>
               <label className="label">
-                Display name
-                <input className="field" name="ebayDisplayName" placeholder="Main eBay account" required />
+                Manual display name
+                <input className="field" name="ebayDisplayName" placeholder="Simulated eBay account" required />
               </label>
               <label className="label">
-                Secret reference
+                Manual secret reference
                 <input className="field" name="ebaySecretRef" placeholder="secret://ebay/main" required />
               </label>
               <Button type="submit" disabled={pending}>
-                Connect eBay
+                Connect simulated eBay
               </Button>
             </form>
           </Card>
@@ -102,7 +207,10 @@ export default function MarketplacesPage() {
                 <th>Platform</th>
                 <th>Display name</th>
                 <th>Status</th>
-                <th>Secret ref</th>
+                <th>Auth</th>
+                <th>Validation</th>
+                <th>Readiness</th>
+                <th>Account</th>
               </tr>
             </thead>
             <tbody>
@@ -113,7 +221,27 @@ export default function MarketplacesPage() {
                   <td>
                     <StatusPill status={account.status} />
                   </td>
-                  <td>{account.secretRef}</td>
+                  <td>{account.credentialType}</td>
+                  <td>{account.validationStatus}</td>
+                  <td>
+                    {account.readiness ? (
+                      <div>
+                        <StatusPill status={account.readiness.status} />
+                        <div className="muted" style={{ marginTop: "0.35rem" }}>
+                          {account.readiness.summary}
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="muted">n/a</span>
+                    )}
+                  </td>
+                  <td>
+                    <div>{account.credentialMetadata?.username ?? account.externalAccountId ?? account.secretRef}</div>
+                    {account.lastValidatedAt ? (
+                      <div className="muted">Last validated: {new Date(account.lastValidatedAt).toLocaleString()}</div>
+                    ) : null}
+                    {account.lastErrorMessage ? <div className="muted">{account.lastErrorMessage}</div> : null}
+                  </td>
                 </tr>
               ))}
             </tbody>

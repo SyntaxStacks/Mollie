@@ -1,21 +1,43 @@
-import type { ConnectorFailureCode, Platform, PublishResult } from "@reselleros/types";
+import type {
+  ConnectorFailureCode,
+  CredentialValidationStatus,
+  MarketplaceCredentialType,
+  Platform,
+  PublishResult
+} from "@reselleros/types";
+
+export type MarketplaceAccountContext = {
+  id: string;
+  platform: Platform;
+  displayName: string;
+  secretRef: string;
+  credentialType: MarketplaceCredentialType;
+  validationStatus: CredentialValidationStatus;
+  externalAccountId?: string | null;
+  credentialMetadata?: Record<string, unknown> | null;
+  credentialPayload?: Record<string, unknown> | null;
+};
 
 export type PublishListingInput = {
   inventoryItemId: string;
+  sku: string;
+  quantity: number;
   title: string;
   description: string;
   price: number;
   images: string[];
+  category: string;
+  condition: string;
+  brand?: string | null;
   attributes: Record<string, unknown>;
-  marketplaceAccountId: string;
-  marketplaceAccountDisplayName: string;
+  marketplaceAccount: MarketplaceAccountContext;
 };
 
 export type MarketplaceAdapter = {
   platform: Platform;
   publishListing(input: PublishListingInput): Promise<PublishResult>;
   syncListing(input: { externalListingId: string; currentStatus: string }): Promise<{ status: string }>;
-  testConnection(input: { displayName: string }): Promise<{ ok: boolean; detail: string }>;
+  testConnection(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
 };
 
 export class ConnectorError extends Error {

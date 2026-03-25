@@ -20,6 +20,18 @@ enum MarketplaceAccountStatus {
   ERROR
 }
 
+enum MarketplaceCredentialType {
+  SECRET_REF
+  OAUTH_TOKEN_SET
+}
+
+enum CredentialValidationStatus {
+  UNVERIFIED
+  VALID
+  INVALID
+  NEEDS_REFRESH
+}
+
 enum SourceLotStatus {
   PENDING
   FETCHED
@@ -153,6 +165,12 @@ model MarketplaceAccount {
   displayName    String
   status         MarketplaceAccountStatus @default(PENDING)
   secretRef      String
+  credentialType MarketplaceCredentialType @default(SECRET_REF)
+  validationStatus CredentialValidationStatus @default(UNVERIFIED)
+  externalAccountId String?
+  credentialMetadataJson Json?
+  credentialPayloadJson Json?
+  lastValidatedAt DateTime?
   consecutiveFailureCount Int             @default(0)
   lastFailureAt  DateTime?
   lastErrorCode  String?

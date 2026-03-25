@@ -1,6 +1,7 @@
-import { Prisma, db, recordAuditLog } from "@reselleros/db";
+import { Prisma, db, recordAuditLog, updateMarketplaceAccountCredentials } from "@reselleros/db";
 import { generateListingDraft, generateLotAnalysis } from "@reselleros/ai";
 import { ebayAdapter } from "@reselleros/marketplaces-ebay";
+import { classifyConnectorError, ConnectorError } from "@reselleros/marketplaces";
 import type { JobName, JobPayload } from "@reselleros/queue";
 
 export async function processWorkerJob(name: JobName, data: JobPayload<JobName>) {
@@ -156,74 +157,149 @@ export async function processWorkerJob(name: JobName, data: JobPayload<JobName>)
       ]);
 
       if (!item || !draft || !account) {
-        throw new Error("Publish prerequisites missing");
+        const connectorError = new ConnectorError({
+          code: "PREREQUISITE_MISSING",
+          message: "Publish prerequisites missing",
+          retryable: false
+        });
+
+        await db.executionLog.update({
+          where: { id: payload.executionLogId },
+          data: {
+            status: "FAILED",
+            responsePayloadJson: {
+              code: connectorError.code,
+              message: connectorError.message,
+              retryable: connectorError.retryable
+            } as Prisma.InputJsonValue,
+            finishedAt: new Date()
+          }
+        });
+
+        throw connectorError;
       }
 
-      const publishResult = await ebayAdapter.publishListing({
-        inventoryItemId: item.id,
-        marketplaceAccountId: account.id,
-        marketplaceAccountDisplayName: account.displayName,
-        title: draft.generatedTitle,
-        description: draft.generatedDescription,
-        price: draft.generatedPrice,
-        images: item.images.map((image) => image.url),
-        attributes: draft.attributesJson as Record<string, unknown>
-      });
-
-      const existingListing = await db.platformListing.findFirst({
-        where: {
+      try {
+        const publishResult = await ebayAdapter.publishListing({
           inventoryItemId: item.id,
-          marketplaceAccountId: account.id,
-          platform: "EBAY"
-        }
-      });
+          sku: item.sku,
+          quantity: item.quantity,
+          title: draft.generatedTitle,
+          description: draft.generatedDescription,
+          price: draft.generatedPrice,
+          images: item.images.map((image) => image.url),
+          category: item.category,
+          condition: item.condition,
+          brand: item.brand,
+          attributes: draft.attributesJson as Record<string, unknown>,
+          marketplaceAccount: {
+            id: account.id,
+            platform: "EBAY",
+            displayName: account.displayName,
+            secretRef: account.secretRef,
+            credentialType: account.credentialType,
+            validationStatus: account.validationStatus,
+            externalAccountId: account.externalAccountId,
+            credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null,
+            credentialPayload: (account.credentialPayloadJson ?? null) as Record<string, unknown> | null
+          }
+        });
 
-      const listing = existingListing
-        ? await db.platformListing.update({
-            where: { id: existingListing.id },
-            data: {
-              externalListingId: publishResult.externalListingId,
-              externalUrl: publishResult.externalUrl,
-              publishedTitle: publishResult.title,
-              publishedPrice: publishResult.price,
-              rawLastResponseJson: publishResult.rawResponse as Prisma.InputJsonValue,
-              lastSyncAt: new Date(),
-              status: "PUBLISHED"
-            }
-          })
-        : await db.platformListing.create({
-            data: {
-              inventoryItemId: item.id,
-              marketplaceAccountId: account.id,
-              platform: "EBAY",
-              externalListingId: publishResult.externalListingId,
-              externalUrl: publishResult.externalUrl,
-              publishedTitle: publishResult.title,
-              publishedPrice: publishResult.price,
-              rawLastResponseJson: publishResult.rawResponse as Prisma.InputJsonValue,
-              lastSyncAt: new Date(),
-              status: "PUBLISHED"
-            }
+        if (publishResult.marketplaceAccountUpdate) {
+          await updateMarketplaceAccountCredentials(account.id, {
+            validationStatus: publishResult.marketplaceAccountUpdate.validationStatus,
+            credentialMetadata: publishResult.marketplaceAccountUpdate.credentialMetadata as Prisma.InputJsonValue,
+            credentialPayload: publishResult.marketplaceAccountUpdate.credentialPayload as Prisma.InputJsonValue,
+            lastValidatedAt: publishResult.marketplaceAccountUpdate.lastValidatedAt
+              ? new Date(publishResult.marketplaceAccountUpdate.lastValidatedAt)
+              : undefined,
+            lastErrorCode: null,
+            lastErrorMessage: null
           });
-
-      await db.inventoryItem.update({
-        where: { id: item.id },
-        data: {
-          status: "LISTED"
         }
-      });
 
-      await db.executionLog.update({
-        where: { id: payload.executionLogId },
-        data: {
-          platformListingId: listing.id,
-          status: "SUCCEEDED",
-          responsePayloadJson: publishResult.rawResponse as Prisma.InputJsonValue,
-          finishedAt: new Date()
-        }
-      });
+        const existingListing = await db.platformListing.findFirst({
+          where: {
+            inventoryItemId: item.id,
+            marketplaceAccountId: account.id,
+            platform: "EBAY"
+          }
+        });
 
-      return listing;
+        const listing = existingListing
+          ? await db.platformListing.update({
+              where: { id: existingListing.id },
+              data: {
+                externalListingId: publishResult.externalListingId,
+                externalUrl: publishResult.externalUrl,
+                publishedTitle: publishResult.title,
+                publishedPrice: publishResult.price,
+                rawLastResponseJson: publishResult.rawResponse as Prisma.InputJsonValue,
+                lastSyncAt: new Date(),
+                status: "PUBLISHED"
+              }
+            })
+          : await db.platformListing.create({
+              data: {
+                inventoryItemId: item.id,
+                marketplaceAccountId: account.id,
+                platform: "EBAY",
+                externalListingId: publishResult.externalListingId,
+                externalUrl: publishResult.externalUrl,
+                publishedTitle: publishResult.title,
+                publishedPrice: publishResult.price,
+                rawLastResponseJson: publishResult.rawResponse as Prisma.InputJsonValue,
+                lastSyncAt: new Date(),
+                status: "PUBLISHED"
+              }
+            });
+
+        await db.inventoryItem.update({
+          where: { id: item.id },
+          data: {
+            status: "LISTED"
+          }
+        });
+
+        await db.executionLog.update({
+          where: { id: payload.executionLogId },
+          data: {
+            platformListingId: listing.id,
+            status: "SUCCEEDED",
+            responsePayloadJson: publishResult.rawResponse as Prisma.InputJsonValue,
+            finishedAt: new Date()
+          }
+        });
+
+        return listing;
+      } catch (error) {
+        const connectorError = classifyConnectorError(error);
+
+        await updateMarketplaceAccountCredentials(account.id, {
+          validationStatus:
+            account.credentialType === "OAUTH_TOKEN_SET" && connectorError.code === "ACCOUNT_UNAVAILABLE"
+              ? "NEEDS_REFRESH"
+              : undefined,
+          lastErrorCode: connectorError.code,
+          lastErrorMessage: connectorError.message
+        });
+
+        await db.executionLog.update({
+          where: { id: payload.executionLogId },
+          data: {
+            status: "FAILED",
+            responsePayloadJson: {
+              code: connectorError.code,
+              message: connectorError.message,
+              retryable: connectorError.retryable,
+              metadata: connectorError.metadata ?? {}
+            } as Prisma.InputJsonValue,
+            finishedAt: new Date()
+          }
+        });
+
+        throw connectorError;
+      }
     }
 
     case "listing.syncStatus": {

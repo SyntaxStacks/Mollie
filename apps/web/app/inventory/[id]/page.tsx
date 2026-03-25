@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { FormEvent, useState, useTransition } from "react";
+import { FormEvent, useEffect, useState, useTransition } from "react";
 
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
@@ -17,6 +17,12 @@ export default function InventoryDetailPage() {
   const params = useParams<{ id: string }>();
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [ebayDraftForm, setEbayDraftForm] = useState({
+    generatedTitle: "",
+    generatedPrice: "",
+    ebayCategoryId: "",
+    ebayStoreCategoryId: ""
+  });
   const { data, error, refresh } = useAuthedResource<{
     item: {
       id: string;
@@ -29,11 +35,62 @@ export default function InventoryDetailPage() {
       estimatedResaleMin: number | null;
       estimatedResaleMax: number | null;
       images: Array<{ id: string; url: string }>;
-      listingDrafts: Array<{ id: string; platform: string; reviewStatus: string }>;
+      listingDrafts: Array<{
+        id: string;
+        platform: string;
+        reviewStatus: string;
+        generatedTitle: string;
+        generatedPrice: number;
+        attributesJson: Record<string, unknown> | null;
+      }>;
       platformListings: Array<{ id: string; platform: string; status: string; externalUrl: string | null }>;
       sales: Array<{ id: string; soldPrice: number; soldAt: string }>;
     };
   }>(`/api/inventory/${params.id}`, auth.token, [params.id]);
+  const ebayPreflight = useAuthedResource<{
+    preflight: {
+      mode: "live" | "simulated";
+      ready: boolean;
+      summary: string;
+      selectedCredentialType: string | null;
+      checks: Array<{
+        key: string;
+        label: string;
+        status: string;
+        detail: string;
+      }>;
+    };
+  }>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
+  const ebayDraft =
+    data?.item.listingDrafts.find((draft) => draft.platform === "EBAY" && draft.reviewStatus === "APPROVED") ??
+    data?.item.listingDrafts.find((draft) => draft.platform === "EBAY") ??
+    null;
+  const ebayDraftAttributes = (ebayDraft?.attributesJson ?? {}) as Record<string, unknown>;
+
+  useEffect(() => {
+    if (!ebayDraft) {
+      setEbayDraftForm({
+        generatedTitle: "",
+        generatedPrice: "",
+        ebayCategoryId: "",
+        ebayStoreCategoryId: ""
+      });
+      return;
+    }
+
+    setEbayDraftForm({
+      generatedTitle: ebayDraft.generatedTitle ?? "",
+      generatedPrice: String(ebayDraft.generatedPrice ?? ""),
+      ebayCategoryId: String(ebayDraftAttributes.ebayCategoryId ?? ""),
+      ebayStoreCategoryId: String(ebayDraftAttributes.ebayStoreCategoryId ?? "")
+    });
+  }, [
+    ebayDraft?.id,
+    ebayDraft?.generatedTitle,
+    ebayDraft?.generatedPrice,
+    ebayDraftAttributes.ebayCategoryId,
+    ebayDraftAttributes.ebayStoreCategoryId
+  ]);
 
   async function addImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -60,9 +117,67 @@ export default function InventoryDetailPage() {
 
         event.currentTarget.reset();
         setSubmitError(null);
-        await refresh();
+        await Promise.all([refresh(), ebayPreflight.refresh()]);
       } catch (caughtError) {
         setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not add image");
+      }
+    });
+  }
+
+  async function saveEbayDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!ebayDraft) {
+      setSubmitError("Generate an eBay draft before saving eBay listing fields.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const attributes = { ...ebayDraftAttributes };
+        const trimmedCategoryId = ebayDraftForm.ebayCategoryId.trim();
+        const trimmedStoreCategoryId = ebayDraftForm.ebayStoreCategoryId.trim();
+
+        if (trimmedCategoryId) {
+          attributes.ebayCategoryId = trimmedCategoryId;
+        } else {
+          delete attributes.ebayCategoryId;
+        }
+
+        if (trimmedStoreCategoryId) {
+          attributes.ebayStoreCategoryId = trimmedStoreCategoryId;
+        } else {
+          delete attributes.ebayStoreCategoryId;
+        }
+
+        const generatedPrice = Number(ebayDraftForm.generatedPrice);
+
+        if (!Number.isFinite(generatedPrice) || generatedPrice < 0) {
+          throw new Error("Enter a valid eBay price.");
+        }
+
+        const response = await fetch(`${API_BASE_URL}/api/drafts/${ebayDraft.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            generatedTitle: ebayDraftForm.generatedTitle.trim(),
+            generatedPrice,
+            attributes
+          })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not save eBay draft");
+        }
+
+        setSubmitError(null);
+        await Promise.all([refresh(), ebayPreflight.refresh()]);
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not save eBay draft");
       }
     });
   }
@@ -85,7 +200,7 @@ export default function InventoryDetailPage() {
       }
 
       setSubmitError(null);
-      await refresh();
+      await Promise.all([refresh(), ebayPreflight.refresh()]);
     });
   }
 
@@ -93,8 +208,9 @@ export default function InventoryDetailPage() {
     <ProtectedView>
       <AppShell title="Inventory Detail">
         {error ? <div className="notice">{error}</div> : null}
+        {ebayPreflight.error ? <div className="notice">{ebayPreflight.error}</div> : null}
         {!data ? (
-          <div className="center-state">Loading inventory item…</div>
+          <div className="center-state">Loading inventory item...</div>
         ) : (
           <>
             <Card eyebrow={data.item.sku} title={data.item.title} action={<StatusPill status={data.item.status} />}>
@@ -180,6 +296,113 @@ export default function InventoryDetailPage() {
                 </div>
               </Card>
             </div>
+
+            <Card eyebrow="eBay draft" title="Live listing fields">
+              {!ebayDraft ? (
+                <div className="muted">Generate an eBay draft first, then map the live listing category here.</div>
+              ) : (
+                <form className="stack" onSubmit={saveEbayDraft}>
+                  <label className="label">
+                    eBay title
+                    <input
+                      className="field"
+                      name="generatedTitle"
+                      required
+                      value={ebayDraftForm.generatedTitle}
+                      onChange={(event) =>
+                        setEbayDraftForm((current) => ({ ...current, generatedTitle: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="label">
+                    eBay price
+                    <input
+                      className="field"
+                      min="0"
+                      name="generatedPrice"
+                      required
+                      step="0.01"
+                      type="number"
+                      value={ebayDraftForm.generatedPrice}
+                      onChange={(event) =>
+                        setEbayDraftForm((current) => ({ ...current, generatedPrice: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="label">
+                    eBay category ID
+                    <input
+                      className="field"
+                      name="ebayCategoryId"
+                      placeholder="15724"
+                      value={ebayDraftForm.ebayCategoryId}
+                      onChange={(event) =>
+                        setEbayDraftForm((current) => ({ ...current, ebayCategoryId: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="label">
+                    eBay store category ID
+                    <input
+                      className="field"
+                      name="ebayStoreCategoryId"
+                      placeholder="Optional"
+                      value={ebayDraftForm.ebayStoreCategoryId}
+                      onChange={(event) =>
+                        setEbayDraftForm((current) => ({ ...current, ebayStoreCategoryId: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <div className="muted">
+                    Save the category mapping here before live eBay publish. The preflight card below updates after each save.
+                  </div>
+                  <div className="actions">
+                    <Button disabled={pending} type="submit">
+                      Save eBay draft
+                    </Button>
+                    {ebayDraft.reviewStatus !== "APPROVED" ? (
+                      <Button
+                        disabled={pending}
+                        kind="secondary"
+                        onClick={() => void runMutation(`/api/drafts/${ebayDraft.id}/approve`)}
+                        type="button"
+                      >
+                        Approve eBay draft
+                      </Button>
+                    ) : null}
+                  </div>
+                </form>
+              )}
+            </Card>
+
+            <Card
+              eyebrow={ebayPreflight.data?.preflight.mode === "live" ? "Live eBay" : "Simulated eBay"}
+              title="eBay publish preflight"
+              action={
+                ebayPreflight.data?.preflight ? <StatusPill status={ebayPreflight.data.preflight.ready ? "READY" : "BLOCKED"} /> : null
+              }
+            >
+              {!ebayPreflight.data ? (
+                <div className="muted">Checking eBay readiness...</div>
+              ) : (
+                <div className="stack">
+                  <div className="notice">{ebayPreflight.data.preflight.summary}</div>
+                  <div className="muted">
+                    Account mode: {ebayPreflight.data.preflight.selectedCredentialType ?? "none"} | Publish mode:{" "}
+                    {ebayPreflight.data.preflight.mode}
+                  </div>
+                  {ebayPreflight.data.preflight.checks.map((check) => (
+                    <div className="split" key={check.key}>
+                      <div>
+                        <strong>{check.label}</strong>
+                        <div className="muted">{check.detail}</div>
+                      </div>
+                      <StatusPill status={check.status} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
           </>
         )}
       </AppShell>

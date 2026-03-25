@@ -157,13 +157,27 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
   try {
     const publishResult = await depopAdapter.publishListing({
       inventoryItemId: item.id,
-      marketplaceAccountId: account.id,
-      marketplaceAccountDisplayName: account.displayName,
+      sku: item.sku,
+      quantity: item.quantity,
       title: draft.generatedTitle,
       description: draft.generatedDescription,
       price: draft.generatedPrice,
       images: item.images.map((image) => image.url),
-      attributes: draft.attributesJson as Record<string, unknown>
+      category: item.category,
+      condition: item.condition,
+      brand: item.brand,
+      attributes: draft.attributesJson as Record<string, unknown>,
+      marketplaceAccount: {
+        id: account.id,
+        platform: "DEPOP",
+        displayName: account.displayName,
+        secretRef: account.secretRef,
+        credentialType: account.credentialType,
+        validationStatus: account.validationStatus,
+        externalAccountId: account.externalAccountId,
+        credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null,
+        credentialPayload: (account.credentialPayloadJson ?? null) as Record<string, unknown> | null
+      }
     });
 
     const existingListing = await db.platformListing.findFirst({

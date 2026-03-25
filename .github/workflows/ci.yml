@@ -92,6 +92,9 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Run API Contract Tests
+        run: pnpm test:contracts
+
       - name: Build
         run: pnpm build
 

@@ -6,6 +6,12 @@ export type Platform = (typeof platforms)[number];
 export const marketplaceAccountStatuses = ["PENDING", "CONNECTED", "DISABLED", "ERROR"] as const;
 export type MarketplaceAccountStatus = (typeof marketplaceAccountStatuses)[number];
 
+export const marketplaceCredentialTypes = ["SECRET_REF", "OAUTH_TOKEN_SET"] as const;
+export type MarketplaceCredentialType = (typeof marketplaceCredentialTypes)[number];
+
+export const credentialValidationStatuses = ["UNVERIFIED", "VALID", "INVALID", "NEEDS_REFRESH"] as const;
+export type CredentialValidationStatus = (typeof credentialValidationStatuses)[number];
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 
@@ -67,7 +73,20 @@ export const createWorkspaceSchema = z.object({
 export const marketplaceAccountSchema = z.object({
   platform: z.enum(platforms),
   displayName: z.string().min(2).max(120),
-  secretRef: z.string().min(4).max(255)
+  secretRef: z.string().min(4).max(255),
+  credentialType: z.enum(marketplaceCredentialTypes).default("SECRET_REF")
+});
+
+export const ebayOAuthStartSchema = z.object({
+  displayName: z.string().min(2).max(120)
+});
+
+export const ebayOAuthCallbackQuerySchema = z.object({
+  code: z.string().min(1).optional(),
+  state: z.string().min(1),
+  error: z.string().min(1).optional(),
+  error_description: z.string().min(1).optional(),
+  mode: z.enum(["json", "redirect"]).default("redirect")
 });
 
 export const sourceLotInputSchema = z.object({
@@ -161,4 +180,19 @@ export type PublishResult = {
   price: number;
   rawResponse: Record<string, unknown>;
   artifactUrls?: string[];
+  marketplaceAccountUpdate?: {
+    validationStatus?: CredentialValidationStatus;
+    credentialPayload?: Record<string, unknown>;
+    credentialMetadata?: Record<string, unknown>;
+    lastValidatedAt?: string | null;
+  };
+};
+
+export type PreflightCheckStatus = "READY" | "BLOCKED" | "WARNING";
+
+export type ConnectorPreflightCheck = {
+  key: string;
+  label: string;
+  status: PreflightCheckStatus;
+  detail: string;
 };

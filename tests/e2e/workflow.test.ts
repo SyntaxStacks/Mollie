@@ -35,14 +35,29 @@ type DbModule = typeof import("@reselleros/db");
 type QueueModule = typeof import("@reselleros/queue");
 type WorkerModule = typeof import("../../apps/worker/src/jobs.js");
 type ConnectorModule = typeof import("../../apps/connector-runner/src/jobs.js");
+type EbayModule = typeof import("../../packages/marketplaces-ebay/src/index.js");
 
 let app: Awaited<ReturnType<AppModule["buildApiApp"]>>;
 let db: DbModule["db"];
 let setEnqueueHandler: QueueModule["setEnqueueHandler"];
 let processWorkerJob: WorkerModule["processWorkerJob"];
 let processConnectorJob: ConnectorModule["processConnectorJob"];
+let encryptEbayCredentialPayload: EbayModule["encryptEbayCredentialPayload"];
 const queuedJobs: EnqueuedJob[] = [];
 const createdEmails = new Set<string>();
+const originalFetch = global.fetch;
+const originalLiveFlag = process.env.EBAY_LIVE_PUBLISH_ENABLED;
+const originalMarketplaceId = process.env.EBAY_MARKETPLACE_ID;
+const originalCurrency = process.env.EBAY_CURRENCY;
+const originalMerchantLocationKey = process.env.EBAY_MERCHANT_LOCATION_KEY;
+const originalPaymentPolicyId = process.env.EBAY_PAYMENT_POLICY_ID;
+const originalReturnPolicyId = process.env.EBAY_RETURN_POLICY_ID;
+const originalFulfillmentPolicyId = process.env.EBAY_FULFILLMENT_POLICY_ID;
+const originalScopes = process.env.EBAY_SCOPES;
+const originalClientId = process.env.EBAY_CLIENT_ID;
+const originalClientSecret = process.env.EBAY_CLIENT_SECRET;
+const originalRedirectUri = process.env.EBAY_REDIRECT_URI;
+const originalEnvironment = process.env.EBAY_ENVIRONMENT;
 
 function buildHeaders(token: string, workspaceId?: string) {
   const headers: Record<string, string> = {
@@ -263,12 +278,13 @@ async function queuePublish(session: WorkspaceSession, inventoryItemId: string, 
 }
 
 before(async () => {
-  const [apiModule, dbModule, queueModule, workerModule, connectorModule] = await Promise.all([
+  const [apiModule, dbModule, queueModule, workerModule, connectorModule, ebayModule] = await Promise.all([
     import("../../apps/api/src/index.js"),
     import("@reselleros/db"),
     import("@reselleros/queue"),
     import("../../apps/worker/src/jobs.js"),
-    import("../../apps/connector-runner/src/jobs.js")
+    import("../../apps/connector-runner/src/jobs.js"),
+    import("../../packages/marketplaces-ebay/src/index.js")
   ]);
 
   app = apiModule.buildApiApp();
@@ -276,6 +292,7 @@ before(async () => {
   setEnqueueHandler = queueModule.setEnqueueHandler;
   processWorkerJob = workerModule.processWorkerJob;
   processConnectorJob = connectorModule.processConnectorJob;
+  encryptEbayCredentialPayload = ebayModule.encryptEbayCredentialPayload;
 
   setEnqueueHandler(async (name, payload) => {
     queuedJobs.push({
@@ -295,9 +312,36 @@ before(async () => {
 
 beforeEach(() => {
   queuedJobs.length = 0;
+  global.fetch = originalFetch;
+  process.env.EBAY_LIVE_PUBLISH_ENABLED = originalLiveFlag;
+  process.env.EBAY_MARKETPLACE_ID = originalMarketplaceId;
+  process.env.EBAY_CURRENCY = originalCurrency;
+  process.env.EBAY_MERCHANT_LOCATION_KEY = originalMerchantLocationKey;
+  process.env.EBAY_PAYMENT_POLICY_ID = originalPaymentPolicyId;
+  process.env.EBAY_RETURN_POLICY_ID = originalReturnPolicyId;
+  process.env.EBAY_FULFILLMENT_POLICY_ID = originalFulfillmentPolicyId;
+  process.env.EBAY_SCOPES = originalScopes;
+  process.env.EBAY_CLIENT_ID = originalClientId;
+  process.env.EBAY_CLIENT_SECRET = originalClientSecret;
+  process.env.EBAY_REDIRECT_URI = originalRedirectUri;
+  process.env.EBAY_ENVIRONMENT = originalEnvironment;
 });
 
 after(async () => {
+  global.fetch = originalFetch;
+  process.env.EBAY_LIVE_PUBLISH_ENABLED = originalLiveFlag;
+  process.env.EBAY_MARKETPLACE_ID = originalMarketplaceId;
+  process.env.EBAY_CURRENCY = originalCurrency;
+  process.env.EBAY_MERCHANT_LOCATION_KEY = originalMerchantLocationKey;
+  process.env.EBAY_PAYMENT_POLICY_ID = originalPaymentPolicyId;
+  process.env.EBAY_RETURN_POLICY_ID = originalReturnPolicyId;
+  process.env.EBAY_FULFILLMENT_POLICY_ID = originalFulfillmentPolicyId;
+  process.env.EBAY_SCOPES = originalScopes;
+  process.env.EBAY_CLIENT_ID = originalClientId;
+  process.env.EBAY_CLIENT_SECRET = originalClientSecret;
+  process.env.EBAY_REDIRECT_URI = originalRedirectUri;
+  process.env.EBAY_ENVIRONMENT = originalEnvironment;
+
   setEnqueueHandler(null);
   queuedJobs.length = 0;
 
@@ -342,6 +386,182 @@ test("operator can import, analyze, inventory, draft, approve, and publish an eb
 
   assert.ok(persistedExecutionLog);
   assert.equal(persistedExecutionLog.status, "SUCCEEDED");
+});
+
+test("worker publishes a live ebay listing for an oauth account and persists refreshed credentials", async () => {
+  process.env.EBAY_LIVE_PUBLISH_ENABLED = "true";
+  process.env.EBAY_ENVIRONMENT = "sandbox";
+  process.env.EBAY_CLIENT_ID = "pilot-ebay-client-id";
+  process.env.EBAY_CLIENT_SECRET = "pilot-ebay-client-secret";
+  process.env.EBAY_REDIRECT_URI = "http://localhost:4000/api/marketplace-accounts/ebay/oauth/callback";
+  process.env.EBAY_SCOPES =
+    "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/commerce.identity.readonly";
+  process.env.EBAY_MARKETPLACE_ID = "EBAY_US";
+  process.env.EBAY_CURRENCY = "USD";
+  process.env.EBAY_MERCHANT_LOCATION_KEY = "pilot-warehouse";
+  process.env.EBAY_PAYMENT_POLICY_ID = "payment-policy";
+  process.env.EBAY_RETURN_POLICY_ID = "return-policy";
+  process.env.EBAY_FULFILLMENT_POLICY_ID = "fulfillment-policy";
+
+  const requests: Array<{ url: string; method: string; body: unknown }> = [];
+  global.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const method = init?.method ?? "GET";
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) : init?.body ?? null;
+    requests.push({ url, method, body });
+
+    if (url.includes("/identity/v1/oauth2/token")) {
+      return new Response(
+        JSON.stringify({
+          access_token: "fresh-access-token",
+          token_type: "User Access Token",
+          expires_in: 7200,
+          refresh_token: "fresh-refresh-token",
+          refresh_token_expires_in: 47304000,
+          scope: process.env.EBAY_SCOPES
+        }),
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    }
+
+    if (url.includes("/sell/inventory/v1/inventory_item/")) {
+      return new Response(null, { status: 204 });
+    }
+
+    if (url.endsWith("/sell/inventory/v1/offer")) {
+      return new Response(JSON.stringify({ offerId: "offer-live-123" }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    if (url.endsWith("/sell/inventory/v1/offer/offer-live-123/publish")) {
+      return new Response(JSON.stringify({ listingId: "2200000002" }), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json"
+        }
+      });
+    }
+
+    throw new Error(`Unexpected fetch request: ${method} ${url}`);
+  }) as typeof fetch;
+
+  const session = await createWorkspaceSession("pilot-live-ebay");
+  const item = await createInventoryItem(session, {
+    title: "Vintage Jacket",
+    brand: "Levi's",
+    category: "Outerwear",
+    condition: "Good used condition"
+  });
+
+  const imageResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/images`,
+    headers: session.headers,
+    payload: {
+      url: "https://cdn.example.com/jacket-live-1.jpg",
+      position: 0
+    }
+  });
+  assert.equal(imageResponse.statusCode, 200);
+
+  const oauthAccount = await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "EBAY",
+      displayName: "Pilot Seller",
+      secretRef: "db-encrypted://marketplace-account/oauth",
+      credentialType: "OAUTH_TOKEN_SET",
+      validationStatus: "VALID",
+      externalAccountId: "ebay-user-live",
+      credentialMetadataJson: {
+        mode: "oauth",
+        username: "pilot-seller",
+        accessTokenExpiresAt: new Date(Date.now() - 30_000).toISOString(),
+        publishMode: "foundation-only"
+      },
+      credentialPayloadJson: encryptEbayCredentialPayload({
+        accessToken: "expired-access-token",
+        refreshToken: "refresh-token",
+        tokenType: "User Access Token",
+        scopes: process.env.EBAY_SCOPES?.split(" ") ?? [],
+        issuedAt: new Date(Date.now() - 60_000).toISOString(),
+        accessTokenExpiresAt: new Date(Date.now() - 30_000).toISOString(),
+        refreshTokenExpiresAt: new Date(Date.now() + 86400000).toISOString()
+      }),
+      status: "CONNECTED",
+      lastValidatedAt: new Date()
+    }
+  });
+
+  const draft = await generateAndApproveDraft(session, item.id, "EBAY");
+
+  const updateDraftResponse = await app.inject({
+    method: "PATCH",
+    url: `/api/drafts/${draft.id}`,
+    headers: session.headers,
+    payload: {
+      attributes: {
+        ebayCategoryId: "57988"
+      }
+    }
+  });
+  assert.equal(updateDraftResponse.statusCode, 200);
+
+  const executionLog = await queuePublish(session, item.id, "EBAY");
+  await drainQueuedJobs();
+
+  const [publishedItem, listing, persistedExecutionLog, refreshedAccount] = await Promise.all([
+    db.inventoryItem.findUnique({
+      where: { id: item.id }
+    }),
+    db.platformListing.findFirst({
+      where: {
+        inventoryItemId: item.id,
+        marketplaceAccountId: oauthAccount.id,
+        platform: "EBAY"
+      }
+    }),
+    db.executionLog.findUnique({
+      where: { id: executionLog.id }
+    }),
+    db.marketplaceAccount.findUnique({
+      where: { id: oauthAccount.id }
+    })
+  ]);
+
+  assert.ok(publishedItem);
+  assert.equal(publishedItem.status, "LISTED");
+
+  assert.ok(listing);
+  assert.equal(listing.status, "PUBLISHED");
+  assert.equal(listing.externalListingId, "2200000002");
+  assert.equal(listing.externalUrl, "https://www.sandbox.ebay.com/itm/2200000002");
+  assert.equal((listing.rawLastResponseJson as { mode?: string }).mode, "live");
+
+  assert.ok(persistedExecutionLog);
+  assert.equal(persistedExecutionLog.status, "SUCCEEDED");
+
+  assert.ok(refreshedAccount);
+  assert.equal(refreshedAccount.validationStatus, "VALID");
+  assert.equal(refreshedAccount.lastErrorCode, null);
+  assert.equal(refreshedAccount.lastErrorMessage, null);
+  assert.equal((refreshedAccount.credentialMetadataJson as { publishMode?: string }).publishMode, "live-api");
+  assert.equal(JSON.stringify(refreshedAccount.credentialPayloadJson).includes("fresh-access-token"), false);
+  assert.equal(requests.length, 4);
+  assert.match(requests[0]?.url ?? "", /identity\/v1\/oauth2\/token/i);
+  assert.match(requests[1]?.url ?? "", /sell\/inventory\/v1\/inventory_item/i);
+  assert.equal((requests[2]?.body as { categoryId?: string })?.categoryId, "57988");
+
+  global.fetch = originalFetch;
 });
 
 test("depop failure captures artifacts and degrades connector health", async () => {

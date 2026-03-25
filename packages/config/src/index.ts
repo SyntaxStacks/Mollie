@@ -15,7 +15,16 @@ const baseEnvSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   EBAY_CLIENT_ID: z.string().optional(),
   EBAY_CLIENT_SECRET: z.string().optional(),
-  EBAY_REDIRECT_URI: z.string().optional()
+  EBAY_REDIRECT_URI: z.string().url().optional(),
+  EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+  EBAY_SCOPES: z.string().optional(),
+  EBAY_LIVE_PUBLISH_ENABLED: z.coerce.boolean().default(false),
+  EBAY_MARKETPLACE_ID: z.string().default("EBAY_US"),
+  EBAY_CURRENCY: z.string().default("USD"),
+  EBAY_MERCHANT_LOCATION_KEY: z.string().optional(),
+  EBAY_PAYMENT_POLICY_ID: z.string().optional(),
+  EBAY_RETURN_POLICY_ID: z.string().optional(),
+  EBAY_FULFILLMENT_POLICY_ID: z.string().optional()
 });
 
 const apiEnvSchema = baseEnvSchema.extend({

@@ -220,6 +220,11 @@ export async function createMarketplaceAccountForWorkspace(
     platform: "EBAY" | "DEPOP";
     displayName: string;
     secretRef: string;
+    credentialType?: "SECRET_REF" | "OAUTH_TOKEN_SET";
+    validationStatus?: "UNVERIFIED" | "VALID" | "INVALID" | "NEEDS_REFRESH";
+    externalAccountId?: string | null;
+    credentialMetadata?: Prisma.InputJsonValue;
+    credentialPayload?: Prisma.InputJsonValue;
   }
 ) {
   return db.marketplaceAccount.create({
@@ -228,7 +233,84 @@ export async function createMarketplaceAccountForWorkspace(
       platform: input.platform,
       displayName: input.displayName,
       secretRef: input.secretRef,
+      credentialType: input.credentialType ?? "SECRET_REF",
+      validationStatus: input.validationStatus ?? "VALID",
+      externalAccountId: input.externalAccountId ?? null,
+      credentialMetadataJson: input.credentialMetadata,
+      credentialPayloadJson: input.credentialPayload,
+      lastValidatedAt: input.validationStatus === "VALID" ? new Date() : null,
       status: "CONNECTED"
+    }
+  });
+}
+
+export async function upsertMarketplaceAccountConnectionForWorkspace(
+  workspaceId: string,
+  input: {
+    platform: "EBAY" | "DEPOP";
+    displayName: string;
+    secretRef: string;
+    credentialType: "SECRET_REF" | "OAUTH_TOKEN_SET";
+    validationStatus: "UNVERIFIED" | "VALID" | "INVALID" | "NEEDS_REFRESH";
+    externalAccountId?: string | null;
+    credentialMetadata?: Prisma.InputJsonValue;
+    credentialPayload?: Prisma.InputJsonValue;
+  }
+) {
+  const existing =
+    input.externalAccountId
+      ? await db.marketplaceAccount.findFirst({
+          where: {
+            workspaceId,
+            platform: input.platform,
+            externalAccountId: input.externalAccountId
+          }
+        })
+      : null;
+
+  if (!existing) {
+    return createMarketplaceAccountForWorkspace(workspaceId, input);
+  }
+
+  return db.marketplaceAccount.update({
+    where: { id: existing.id },
+    data: {
+      displayName: input.displayName,
+      secretRef: input.secretRef,
+      credentialType: input.credentialType,
+      validationStatus: input.validationStatus,
+      credentialMetadataJson: input.credentialMetadata,
+      credentialPayloadJson: input.credentialPayload,
+      lastValidatedAt: input.validationStatus === "VALID" ? new Date() : null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      consecutiveFailureCount: 0,
+      lastFailureAt: null,
+      status: "CONNECTED"
+    }
+  });
+}
+
+export async function updateMarketplaceAccountCredentials(
+  marketplaceAccountId: string,
+  input: {
+    validationStatus?: "UNVERIFIED" | "VALID" | "INVALID" | "NEEDS_REFRESH";
+    credentialMetadata?: Prisma.InputJsonValue;
+    credentialPayload?: Prisma.InputJsonValue;
+    lastValidatedAt?: Date | null;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+  }
+) {
+  return db.marketplaceAccount.update({
+    where: { id: marketplaceAccountId },
+    data: {
+      validationStatus: input.validationStatus,
+      credentialMetadataJson: input.credentialMetadata,
+      credentialPayloadJson: input.credentialPayload,
+      lastValidatedAt: input.lastValidatedAt,
+      lastErrorCode: input.lastErrorCode,
+      lastErrorMessage: input.lastErrorMessage
     }
   });
 }

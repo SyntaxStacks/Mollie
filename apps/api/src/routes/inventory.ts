@@ -12,6 +12,7 @@ import {
   recordAuditLog,
   updateInventoryItemForWorkspace
 } from "@reselleros/db";
+import { getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
 import { buildIdempotencyKey, enqueueJob } from "@reselleros/queue";
 import { imageInputSchema, inventoryInputSchema } from "@reselleros/types";
 
@@ -23,14 +24,15 @@ async function queuePublish(
   inventoryItemId: string,
   workspaceId: string
 ) {
-  const [item, account, draft] = await Promise.all([
+  const [item, accounts, draft] = await Promise.all([
     findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId),
-    db.marketplaceAccount.findFirst({
+    db.marketplaceAccount.findMany({
       where: {
         workspaceId,
         platform,
         status: "CONNECTED"
-      }
+      },
+      orderBy: { createdAt: "asc" }
     }),
     db.listingDraft.findFirst({
       where: {
@@ -45,7 +47,29 @@ async function queuePublish(
     throw app.httpErrors.notFound("Inventory item not found");
   }
 
+  const account =
+    platform === "EBAY"
+      ? selectEbayMarketplaceAccount(
+          accounts.map((candidate) => ({
+            id: candidate.id,
+            platform: "EBAY" as const,
+            displayName: candidate.displayName,
+            secretRef: candidate.secretRef,
+            credentialType: candidate.credentialType,
+            validationStatus: candidate.validationStatus,
+            externalAccountId: candidate.externalAccountId,
+            credentialMetadata: (candidate.credentialMetadataJson ?? null) as Record<string, unknown> | null
+          }))
+        ).account
+      : accounts.at(0) ?? null;
+
   if (!account) {
+    if (platform === "EBAY" && accounts.some((candidate) => candidate.credentialType === "OAUTH_TOKEN_SET")) {
+      throw app.httpErrors.preconditionFailed(
+        "eBay OAuth is connected, but live eBay publish is not enabled yet. Keep using the simulated eBay connector for pilot publish jobs."
+      );
+    }
+
     throw app.httpErrors.preconditionFailed(`Connect a ${platform} account first`);
   }
 
@@ -223,6 +247,55 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     });
 
     return { drafts };
+  });
+
+  app.get("/api/inventory/:id/preflight/ebay", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+
+    const [item, accounts, draft] = await Promise.all([
+      findInventoryItemWithImagesForWorkspace(workspace.id, params.id),
+      db.marketplaceAccount.findMany({
+        where: {
+          workspaceId: workspace.id,
+          platform: "EBAY",
+          status: {
+            in: ["CONNECTED", "ERROR"]
+          }
+        },
+        orderBy: { createdAt: "asc" }
+      }),
+      db.listingDraft.findFirst({
+        where: {
+          inventoryItemId: params.id,
+          platform: "EBAY",
+          reviewStatus: "APPROVED"
+        }
+      })
+    ]);
+
+    if (!item) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    const preflight = getEbayPublishPreflight({
+      accounts: accounts.map((account) => ({
+        id: account.id,
+        platform: "EBAY",
+        displayName: account.displayName,
+        secretRef: account.secretRef,
+        credentialType: account.credentialType,
+        validationStatus: account.validationStatus,
+        externalAccountId: account.externalAccountId,
+        credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null
+      })),
+      images: item.images.map((image) => image.url),
+      draftApproved: Boolean(draft),
+      draftAttributes: draft ? ((draft.attributesJson ?? {}) as Record<string, unknown>) : null
+    });
+
+    return { preflight };
   });
 
   app.post("/api/inventory/:id/publish/ebay", async (request) => {

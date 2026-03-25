@@ -10,6 +10,7 @@
     "dev:worker": "pnpm --filter @reselleros/worker dev",
     "dev:connector": "pnpm --filter @reselleros/connector-runner dev",
     "test": "tsx --test tests/**/*.test.ts",
+    "test:contracts": "tsx --test tests/api/**/*.test.ts",
     "test:e2e": "node ./infra/scripts/run-e2e.mjs",
     "test:e2e:raw": "tsx --test tests/e2e/workflow.test.ts",
     "test:e2e:local": "powershell -ExecutionPolicy Bypass -File infra/scripts/test-e2e.ps1",
