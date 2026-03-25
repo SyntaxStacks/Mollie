@@ -47,7 +47,7 @@ async function queuePublish(
     throw app.httpErrors.notFound("Inventory item not found");
   }
 
-  const account =
+  const ebaySelection =
     platform === "EBAY"
       ? selectEbayMarketplaceAccount(
           accounts.map((candidate) => ({
@@ -55,19 +55,22 @@ async function queuePublish(
             platform: "EBAY" as const,
             displayName: candidate.displayName,
             secretRef: candidate.secretRef,
+            status: candidate.status,
             credentialType: candidate.credentialType,
             validationStatus: candidate.validationStatus,
             externalAccountId: candidate.externalAccountId,
             credentialMetadata: (candidate.credentialMetadataJson ?? null) as Record<string, unknown> | null
           }))
-        ).account
+        )
+      : null;
+  const account =
+    platform === "EBAY"
+      ? ebaySelection?.account ?? null
       : accounts.at(0) ?? null;
 
   if (!account) {
-    if (platform === "EBAY" && accounts.some((candidate) => candidate.credentialType === "OAUTH_TOKEN_SET")) {
-      throw app.httpErrors.preconditionFailed(
-        "eBay OAuth is connected, but live eBay publish is not enabled yet. Keep using the simulated eBay connector for pilot publish jobs."
-      );
+    if (platform === "EBAY" && ebaySelection?.evaluation) {
+      throw app.httpErrors.preconditionFailed(`${ebaySelection.evaluation.summary} ${ebaySelection.evaluation.detail}`.trim());
     }
 
     throw app.httpErrors.preconditionFailed(`Connect a ${platform} account first`);
@@ -86,7 +89,13 @@ async function queuePublish(
     correlationId,
     requestPayload: {
       draftId: draft.id,
-      marketplaceAccountId: account.id
+      marketplaceAccountId: account.id,
+      ...(platform === "EBAY"
+        ? {
+            ebayState: ebaySelection?.evaluation?.state ?? null,
+            ebayPublishMode: ebaySelection?.evaluation?.publishMode ?? null
+          }
+        : {})
     }
   });
 
@@ -285,6 +294,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
         platform: "EBAY",
         displayName: account.displayName,
         secretRef: account.secretRef,
+        status: account.status,
         credentialType: account.credentialType,
         validationStatus: account.validationStatus,
         externalAccountId: account.externalAccountId,

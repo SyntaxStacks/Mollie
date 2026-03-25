@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 
 import { ConnectorError, type MarketplaceAdapter, type MarketplaceAccountContext, type PublishListingInput } from "@reselleros/marketplaces";
-import type { ConnectorPreflightCheck } from "@reselleros/types";
+import type { ConnectorPreflightCheck, EbayOperationalState } from "@reselleros/types";
 
 const DEFAULT_EBAY_SCOPES = [
   "https://api.ebay.com/oauth/api_scope",
@@ -57,6 +57,15 @@ type EbayLiveDefaults = {
   fulfillmentPolicyId?: string;
   marketplaceId?: string;
   currency?: string;
+};
+
+type EbayOperationalEvaluation = {
+  state: EbayOperationalState;
+  status: "READY" | "WARNING" | "BLOCKED";
+  publishMode: "live" | "simulated";
+  summary: string;
+  detail: string;
+  missingConfig: string[];
 };
 
 function resolveEbayEnvironment(): EbayEnvironment {
@@ -279,12 +288,13 @@ function getLivePublishConfig(metadata?: Record<string, unknown> | null) {
 
 function getLivePublishConfigStatus(metadata?: Record<string, unknown> | null) {
   const defaults = getEbayLiveDefaults(metadata);
-  const missing = [
+  const configEntries: ReadonlyArray<readonly [string, string | undefined]> = [
     ["merchantLocationKey", defaults.merchantLocationKey ?? process.env.EBAY_MERCHANT_LOCATION_KEY],
     ["paymentPolicyId", defaults.paymentPolicyId ?? process.env.EBAY_PAYMENT_POLICY_ID],
     ["returnPolicyId", defaults.returnPolicyId ?? process.env.EBAY_RETURN_POLICY_ID],
     ["fulfillmentPolicyId", defaults.fulfillmentPolicyId ?? process.env.EBAY_FULFILLMENT_POLICY_ID]
-  ]
+  ];
+  const missing = configEntries
     .filter(([, value]) => !value)
     .map(([name]) => name);
 
@@ -294,23 +304,144 @@ function getLivePublishConfigStatus(metadata?: Record<string, unknown> | null) {
   };
 }
 
-export function selectEbayMarketplaceAccount(accounts: MarketplaceAccountContext[], liveEnabled = getLivePublishEnabledFlag()) {
-  if (liveEnabled) {
+export function getEbayOperationalState(input: {
+  account: MarketplaceAccountContext;
+  accountStatus?: string;
+  lastErrorMessage?: string | null;
+  liveEnabled?: boolean;
+}): EbayOperationalEvaluation {
+  const liveEnabled = input.liveEnabled ?? getLivePublishEnabledFlag();
+  const accountStatus = input.accountStatus ?? input.account.status;
+  const { account } = input;
+  const isOauth = account.credentialType === "OAUTH_TOKEN_SET";
+
+  if (!isOauth) {
     return {
-      account:
-        accounts.find((candidate) => candidate.credentialType === "OAUTH_TOKEN_SET") ??
-        accounts.find((candidate) => candidate.credentialType === "SECRET_REF") ??
-        null,
-      mode: "live" as const
+      state: "SIMULATED",
+      status: liveEnabled ? "WARNING" : "READY",
+      publishMode: "simulated",
+      summary: liveEnabled
+        ? "Manual eBay account will stay on the simulated pilot path."
+        : "Manual eBay account is ready for simulated publish.",
+      detail: liveEnabled
+        ? "Connect and configure OAuth if you want this workspace to publish live eBay listings."
+        : "This account uses the simulated pilot connector.",
+      missingConfig: []
+    };
+  }
+
+  if (accountStatus === "ERROR") {
+    return {
+      state: "LIVE_ERROR",
+      status: "BLOCKED",
+      publishMode: "live",
+      summary: input.lastErrorMessage?.trim() || "This eBay account is in a live connector error state.",
+      detail: "Reconnect the account or clear the live connector error before publishing again.",
+      missingConfig: []
+    };
+  }
+
+  if (accountStatus === "DISABLED") {
+    return {
+      state: "LIVE_BLOCKED",
+      status: "BLOCKED",
+      publishMode: "live",
+      summary: "This eBay account is disabled.",
+      detail: "Re-enable or reconnect the account before publishing live listings.",
+      missingConfig: []
+    };
+  }
+
+  if (account.validationStatus === "INVALID") {
+    return {
+      state: "LIVE_BLOCKED",
+      status: "BLOCKED",
+      publishMode: "live",
+      summary: "OAuth credentials are invalid.",
+      detail: "Reconnect eBay before attempting another live publish.",
+      missingConfig: []
+    };
+  }
+
+  if (account.validationStatus === "NEEDS_REFRESH") {
+    return {
+      state: "LIVE_BLOCKED",
+      status: "BLOCKED",
+      publishMode: "live",
+      summary: input.lastErrorMessage?.trim() || "OAuth token needs refresh.",
+      detail: "Reconnect eBay to refresh the account token set before publishing.",
+      missingConfig: []
+    };
+  }
+
+  if (account.validationStatus === "UNVERIFIED") {
+    return {
+      state: "LIVE_BLOCKED",
+      status: "BLOCKED",
+      publishMode: "live",
+      summary: "OAuth account has not been validated yet.",
+      detail: "Finish the eBay OAuth flow before attempting live publish.",
+      missingConfig: []
+    };
+  }
+
+  if (!liveEnabled) {
+    return {
+      state: "OAUTH_CONNECTED",
+      status: "WARNING",
+      publishMode: "simulated",
+      summary: "OAuth account is connected, but live eBay publish is disabled.",
+      detail: "Enable EBAY_LIVE_PUBLISH_ENABLED or keep using a simulated manual account for pilot publish jobs.",
+      missingConfig: []
+    };
+  }
+
+  const configStatus = getLivePublishConfigStatus(account.credentialMetadata ?? null);
+
+  if (!configStatus.ok) {
+    return {
+      state: "LIVE_CONFIG_MISSING",
+      status: "WARNING",
+      publishMode: "live",
+      summary: "OAuth account is connected, but live eBay defaults are incomplete.",
+      detail: `Missing ${configStatus.missing.join(", ")}.`,
+      missingConfig: configStatus.missing
     };
   }
 
   return {
-    account:
-      accounts.find((candidate) => candidate.credentialType === "SECRET_REF") ??
-      accounts.find((candidate) => candidate.credentialType === "OAUTH_TOKEN_SET") ??
-      null,
-    mode: "simulated" as const
+    state: "LIVE_READY",
+    status: "READY",
+    publishMode: "live",
+    summary: "OAuth account is ready for live eBay publish.",
+    detail: "Live token validation and required eBay defaults are in place.",
+    missingConfig: []
+  };
+}
+
+export function selectEbayMarketplaceAccount(accounts: MarketplaceAccountContext[], liveEnabled = getLivePublishEnabledFlag()) {
+  const evaluatedAccounts = accounts.map((account) => ({
+    account,
+    evaluation: getEbayOperationalState({
+      account,
+      liveEnabled
+    })
+  }));
+  const preferredPublishableOrder = liveEnabled ? ["LIVE_READY", "SIMULATED"] : ["SIMULATED", "LIVE_READY"];
+  const publishable =
+    preferredPublishableOrder
+      .map((state) => evaluatedAccounts.find((candidate) => candidate.evaluation.state === state))
+      .find(Boolean) ?? null;
+  const fallbackOrder = ["LIVE_CONFIG_MISSING", "OAUTH_CONNECTED", "LIVE_BLOCKED", "LIVE_ERROR"];
+  const fallback =
+    fallbackOrder
+      .map((state) => evaluatedAccounts.find((candidate) => candidate.evaluation.state === state))
+      .find(Boolean) ?? null;
+
+  return {
+    account: publishable?.account ?? null,
+    evaluation: publishable?.evaluation ?? fallback?.evaluation ?? null,
+    mode: publishable?.evaluation.publishMode ?? (liveEnabled ? "live" : "simulated")
   };
 }
 
@@ -339,7 +470,7 @@ export function getEbayPublishPreflight(input: {
     detail: input.draftApproved ? "Approved eBay draft found" : "Approve an eBay draft before publishing"
   });
 
-  if (!selected.account) {
+  if (!selected.account && !selected.evaluation) {
     checks.push({
       key: "account",
       label: "eBay account",
@@ -347,28 +478,18 @@ export function getEbayPublishPreflight(input: {
       detail: "Connect an eBay account before publishing"
     });
   } else {
-    const isOauth = selected.account.credentialType === "OAUTH_TOKEN_SET";
-    const validationStatus = selected.account.validationStatus;
-    const accountStatus =
-      isOauth && validationStatus === "NEEDS_REFRESH"
-        ? "BLOCKED"
-        : validationStatus === "INVALID"
-          ? "BLOCKED"
-          : "READY";
-
     checks.push({
       key: "account",
       label: "eBay account",
-      status: accountStatus,
-      detail: isOauth
-        ? validationStatus === "NEEDS_REFRESH"
-          ? "OAuth token needs refresh"
-          : `OAuth account ${selected.account.displayName} is connected`
-        : `Manual simulated account ${selected.account.displayName} is connected`
+      status: selected.evaluation?.status ?? "BLOCKED",
+      detail:
+        selected.account && selected.evaluation
+          ? `${selected.account.displayName}: ${selected.evaluation.summary}`
+          : (selected.evaluation?.summary ?? "Connect an eBay account before publishing")
     });
   }
 
-  if (liveEnabled) {
+  if (selected.evaluation?.publishMode === "live") {
     const configStatus = getLivePublishConfigStatus(selected.account?.credentialMetadata ?? null);
     checks.push({
       key: "live-config",
@@ -388,7 +509,7 @@ export function getEbayPublishPreflight(input: {
       detail: categoryId ? `Using category ${categoryId}` : "Set ebayCategoryId on the approved eBay draft attributes"
     });
 
-    if (selected.account?.credentialType !== "OAUTH_TOKEN_SET") {
+    if (selected.evaluation?.state !== "LIVE_READY" && selected.account?.credentialType !== "OAUTH_TOKEN_SET") {
       checks.push({
         key: "oauth-mode",
         label: "Live account type",
@@ -400,15 +521,19 @@ export function getEbayPublishPreflight(input: {
     checks.push({
       key: "publish-mode",
       label: "Publish mode",
-      status: "WARNING",
-      detail: "Live eBay publish is disabled. Manual secret-ref accounts will use the simulated pilot path."
+      status: selected.evaluation?.state === "OAUTH_CONNECTED" ? "BLOCKED" : "WARNING",
+      detail:
+        selected.evaluation?.state === "OAUTH_CONNECTED"
+          ? "OAuth is connected, but live eBay publish is disabled and no simulated account is selected."
+          : "This item will use the simulated eBay pilot path."
     });
   }
 
   const blockingChecks = checks.filter((check) => check.status === "BLOCKED");
 
   return {
-    mode: liveEnabled ? "live" : "simulated",
+    state: selected.evaluation?.state ?? null,
+    mode: selected.evaluation?.publishMode ?? (liveEnabled ? "live" : "simulated"),
     ready: blockingChecks.length === 0,
     selectedAccountId: selected.account?.id ?? null,
     selectedCredentialType: selected.account?.credentialType ?? null,
@@ -427,82 +552,14 @@ export function getEbayAccountReadiness(input: {
   accountStatus?: string;
   lastErrorMessage?: string | null;
 }) {
-  const liveEnabled = getLivePublishEnabledFlag();
-  const { account } = input;
-  const isOauth = account.credentialType === "OAUTH_TOKEN_SET";
-
-  if (input.accountStatus === "DISABLED") {
-    return {
-      status: "BLOCKED" as const,
-      summary: "This eBay account is disabled.",
-      detail: "Re-enable or reconnect the account before publishing."
-    };
-  }
-
-  if (input.accountStatus === "ERROR") {
-    return {
-      status: "BLOCKED" as const,
-      summary: input.lastErrorMessage?.trim() || "This eBay account is in an error state.",
-      detail: "Clear the connector error or reconnect the account before publishing."
-    };
-  }
-
-  if (!isOauth) {
-    return {
-      status: liveEnabled ? ("WARNING" as const) : ("READY" as const),
-      summary: liveEnabled
-        ? "Manual secret-ref accounts stay on the simulated pilot path. Connect OAuth for live eBay publish."
-        : "Ready for simulated eBay publish.",
-      detail: "This account does not support the live Inventory API path."
-    };
-  }
-
-  if (account.validationStatus === "INVALID") {
-    return {
-      status: "BLOCKED" as const,
-      summary: "OAuth credentials are invalid.",
-      detail: "Reconnect eBay before attempting another live publish."
-    };
-  }
-
-  if (account.validationStatus === "NEEDS_REFRESH") {
-    return {
-      status: "BLOCKED" as const,
-      summary: "OAuth token needs refresh.",
-      detail: "Reconnect eBay to refresh the account token set."
-    };
-  }
-
-  if (account.validationStatus === "UNVERIFIED") {
-    return {
-      status: "BLOCKED" as const,
-      summary: "OAuth account has not been validated yet.",
-      detail: "Finish the eBay OAuth connection before publishing."
-    };
-  }
-
-  if (!liveEnabled) {
-    return {
-      status: "WARNING" as const,
-      summary: "OAuth account is connected, but live eBay publish is disabled.",
-      detail: "Enable EBAY_LIVE_PUBLISH_ENABLED before this account can publish live listings."
-    };
-  }
-
-  const configStatus = getLivePublishConfigStatus(account.credentialMetadata ?? null);
-
-  if (!configStatus.ok) {
-    return {
-      status: "WARNING" as const,
-      summary: "OAuth account is connected, but live eBay defaults are incomplete.",
-      detail: `Missing ${configStatus.missing.join(", ")}`
-    };
-  }
+  const evaluation = getEbayOperationalState(input);
 
   return {
-    status: "READY" as const,
-    summary: "OAuth account is ready for live eBay publish.",
-    detail: "Live token validation and required environment config are in place."
+    state: evaluation.state,
+    status: evaluation.status,
+    publishMode: evaluation.publishMode,
+    summary: evaluation.summary,
+    detail: evaluation.detail
   };
 }
 
@@ -1011,24 +1068,31 @@ async function publishLiveListing(input: PublishListingInput) {
 export const ebayAdapter: MarketplaceAdapter = {
   platform: "EBAY",
   async publishListing(input) {
-    if (input.marketplaceAccount.credentialType === "OAUTH_TOKEN_SET") {
-      if (isLivePublishEnabled()) {
-        return publishLiveListing(input);
-      }
+    const evaluation = getEbayOperationalState({
+      account: input.marketplaceAccount
+    });
 
-      throw new ConnectorError({
-        code: "ACCOUNT_UNAVAILABLE",
-        message: "eBay OAuth is connected and validated, but live eBay publish is not enabled yet.",
-        retryable: false,
-        metadata: {
-          accountId: input.marketplaceAccount.id,
-          externalAccountId: input.marketplaceAccount.externalAccountId ?? null,
-          publishPlan: buildEbayPublishPlan(input)
-        }
-      });
+    if (evaluation.state === "SIMULATED") {
+      return simulatePublish(input);
     }
 
-    return simulatePublish(input);
+    if (evaluation.state === "LIVE_READY") {
+      return publishLiveListing(input);
+    }
+
+    throw new ConnectorError({
+      code: "ACCOUNT_UNAVAILABLE",
+      message: evaluation.summary,
+      retryable: false,
+      metadata: {
+        accountId: input.marketplaceAccount.id,
+        externalAccountId: input.marketplaceAccount.externalAccountId ?? null,
+        ebayState: evaluation.state,
+        publishMode: evaluation.publishMode,
+        detail: evaluation.detail,
+        publishPlan: buildEbayPublishPlan(input)
+      }
+    });
   },
   async syncListing({ currentStatus }) {
     return { status: currentStatus === "PUBLISHED" ? "SYNCED" : currentStatus };

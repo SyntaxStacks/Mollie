@@ -158,6 +158,7 @@ test("ebay preflight shows blocked checks when inventory is not publishable", as
   assert.equal(response.statusCode, 200);
   const body = response.json() as {
     preflight: {
+      state: string | null;
       ready: boolean;
       mode: string;
       summary: string;
@@ -166,6 +167,7 @@ test("ebay preflight shows blocked checks when inventory is not publishable", as
   };
 
   assert.equal(body.preflight.ready, false);
+  assert.equal(body.preflight.state, null);
   assert.equal(body.preflight.mode, "simulated");
   assert.match(body.preflight.summary, /add at least one image/i);
   assert.equal(body.preflight.checks.find((check) => check.key === "images")?.status, "BLOCKED");
@@ -223,6 +225,7 @@ test("ebay preflight shows ready for the simulated pilot path when account, draf
   assert.equal(response.statusCode, 200);
   const body = response.json() as {
     preflight: {
+      state: string | null;
       ready: boolean;
       mode: string;
       selectedCredentialType: string | null;
@@ -232,6 +235,7 @@ test("ebay preflight shows ready for the simulated pilot path when account, draf
   };
 
   assert.equal(body.preflight.ready, true);
+  assert.equal(body.preflight.state, "SIMULATED");
   assert.equal(body.preflight.mode, "simulated");
   assert.equal(body.preflight.selectedCredentialType, "SECRET_REF");
   assert.match(body.preflight.summary, /ready for simulated ebay publish/i);
@@ -301,6 +305,7 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   assert.equal(blockedResponse.statusCode, 200);
   const blockedBody = blockedResponse.json() as {
     preflight: {
+      state: string | null;
       ready: boolean;
       mode: string;
       checks: Array<{ key: string; status: string }>;
@@ -308,6 +313,7 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   };
 
   assert.equal(blockedBody.preflight.ready, false);
+  assert.equal(blockedBody.preflight.state, "LIVE_READY");
   assert.equal(blockedBody.preflight.mode, "live");
   assert.equal(blockedBody.preflight.checks.find((check) => check.key === "category")?.status, "BLOCKED");
   assert.equal(blockedBody.preflight.checks.find((check) => check.key === "account")?.status, "READY");
@@ -338,6 +344,7 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   assert.equal(readyResponse.statusCode, 200);
   const readyBody = readyResponse.json() as {
     preflight: {
+      state: string | null;
       ready: boolean;
       mode: string;
       summary: string;
@@ -346,6 +353,7 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   };
 
   assert.equal(readyBody.preflight.ready, true);
+  assert.equal(readyBody.preflight.state, "LIVE_READY");
   assert.equal(readyBody.preflight.mode, "live");
   assert.match(readyBody.preflight.summary, /ready for live ebay publish/i);
   assert.equal(readyBody.preflight.checks.find((check) => check.key === "category")?.status, "READY");
@@ -420,6 +428,7 @@ test("ebay preflight accepts account-level live defaults when env policy setting
   assert.equal(response.statusCode, 200);
   const body = response.json() as {
     preflight: {
+      state: string | null;
       ready: boolean;
       mode: string;
       checks: Array<{ key: string; status: string; detail: string }>;
@@ -427,6 +436,7 @@ test("ebay preflight accepts account-level live defaults when env policy setting
   };
 
   assert.equal(body.preflight.ready, true);
+  assert.equal(body.preflight.state, "LIVE_READY");
   assert.equal(body.preflight.mode, "live");
   assert.equal(body.preflight.checks.find((check) => check.key === "live-config")?.status, "READY");
 });

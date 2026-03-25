@@ -24,6 +24,7 @@ import {
 } from "@reselleros/marketplaces-ebay";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+import { redactSecretRef } from "../lib/redaction.js";
 
 function serializeMarketplaceAccount(account: Awaited<ReturnType<typeof db.marketplaceAccount.findFirstOrThrow>>) {
   const credentialMetadata = (account.credentialMetadataJson ?? null) as Record<string, unknown> | null;
@@ -51,7 +52,7 @@ function serializeMarketplaceAccount(account: Awaited<ReturnType<typeof db.marke
     platform: account.platform,
     displayName: account.displayName,
     status: account.status,
-    secretRef: account.secretRef,
+    secretRef: redactSecretRef(account.secretRef),
     credentialType: account.credentialType,
     validationStatus: account.validationStatus,
     externalAccountId: account.externalAccountId,
@@ -60,6 +61,8 @@ function serializeMarketplaceAccount(account: Awaited<ReturnType<typeof db.marke
     lastErrorCode: account.lastErrorCode,
     lastErrorMessage: account.lastErrorMessage,
     createdAt: account.createdAt,
+    ebayState: readiness?.state ?? null,
+    publishMode: readiness?.publishMode ?? null,
     readiness
   };
 }

@@ -29,6 +29,22 @@ type ExecutionLogView = {
   responsePayload: Record<string, unknown> | null;
   artifactUrls: string[];
   retryable: boolean;
+  ebayState: string | null;
+  publishMode: string | null;
+};
+
+type ExecutionDetailView = {
+  log: ExecutionLogView;
+  relatedAttempts: ExecutionLogView[];
+  auditLogs: Array<{
+    id: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    metadata: Record<string, unknown> | null;
+    createdAt: string;
+    actorUserId: string | null;
+  }>;
 };
 
 function buildExecutionLogPath(status: string, correlationId: string) {
@@ -54,8 +70,32 @@ export default function ExecutionsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
+  const [selectedLogId, setSelectedLogId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<ExecutionDetailView | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const path = buildExecutionLogPath(statusFilter, correlationFilter);
   const { data, error, loading, refresh } = useAuthedResource<{ logs: ExecutionLogView[] }>(path, auth.token, [path]);
+
+  async function loadExecutionDetail(logId: string) {
+    if (!auth.token) {
+      return;
+    }
+
+    setSelectedLogId(logId);
+    setDetailLoading(true);
+    setDetailError(null);
+
+    try {
+      const result = await apiFetch<ExecutionDetailView>(`/api/execution-logs/${logId}`, auth.token);
+      setDetail(result);
+    } catch (caughtError) {
+      setDetail(null);
+      setDetailError(caughtError instanceof Error ? caughtError.message : "Unable to load execution detail");
+    } finally {
+      setDetailLoading(false);
+    }
+  }
 
   async function retryExecutionLog(logId: string) {
     if (!auth.token) {
@@ -72,6 +112,7 @@ export default function ExecutionsPage() {
       });
       setActionMessage(`Queued retry attempt ${result.executionLog.attempt} for correlation ${result.executionLog.correlationId}.`);
       await refresh();
+      await loadExecutionDetail(result.executionLog.id);
     } catch (caughtError) {
       setActionError(caughtError instanceof Error ? caughtError.message : "Retry failed");
     } finally {
@@ -154,10 +195,20 @@ export default function ExecutionsPage() {
                       <strong>{log.jobName}</strong>
                       <div className="muted">
                         {log.connector ?? "core"} | attempt {log.attempt}
+                        {log.ebayState ? ` | ${log.ebayState}` : ""}
+                        {log.publishMode ? ` | ${log.publishMode}` : ""}
                       </div>
                     </div>
                     <div className="inline-actions">
                       <StatusPill status={log.status} />
+                      <Button
+                        kind={selectedLogId === log.id ? "secondary" : "ghost"}
+                        onClick={() => {
+                          void loadExecutionDetail(log.id);
+                        }}
+                      >
+                        {selectedLogId === log.id ? "Inspecting" : "Inspect"}
+                      </Button>
                       {log.retryable ? (
                         <Button
                           kind="secondary"
@@ -241,6 +292,70 @@ export default function ExecutionsPage() {
               );
             })}
           </div>
+
+          {selectedLogId ? (
+            <div className="execution-detail-panel">
+              <div className="split">
+                <div>
+                  <p className="eyebrow">Selected Execution</p>
+                  <h4 className="execution-detail-heading">{detail?.log.jobName ?? "Loading execution detail"}</h4>
+                </div>
+                <Button
+                  kind="ghost"
+                  onClick={() => {
+                    setSelectedLogId(null);
+                    setDetail(null);
+                    setDetailError(null);
+                  }}
+                >
+                  Close
+                </Button>
+              </div>
+
+              {detailLoading ? <div className="center-state">Loading execution detail...</div> : null}
+              {detailError ? <div className="notice">{detailError}</div> : null}
+
+              {detail ? (
+                <div className="grid-2 execution-log-grid">
+                  <div className="execution-log-detail">
+                    <p className="eyebrow">Attempts</p>
+                    <div className="stack">
+                      {detail.relatedAttempts.map((attempt) => (
+                        <div className="execution-attempt-row" key={attempt.id}>
+                          <div>
+                            <strong>Attempt {attempt.attempt}</strong>
+                            <div className="muted">{formatDate(attempt.createdAt)}</div>
+                          </div>
+                          <div className="inline-actions">
+                            <StatusPill status={attempt.status} />
+                            <code className="execution-inline-code">{attempt.id.slice(0, 12)}</code>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="execution-log-detail">
+                    <p className="eyebrow">Audit Trail</p>
+                    <div className="stack">
+                      {detail.auditLogs.length === 0 ? <div className="muted">No related audit entries yet.</div> : null}
+                      {detail.auditLogs.map((entry) => (
+                        <div className="execution-attempt-row" key={entry.id}>
+                          <div>
+                            <strong>{entry.action}</strong>
+                            <div className="muted">
+                              {entry.targetType} | {formatDate(entry.createdAt)}
+                            </div>
+                          </div>
+                          <code className="execution-inline-code">{entry.targetId.slice(0, 12)}</code>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
       </AppShell>
     </ProtectedView>

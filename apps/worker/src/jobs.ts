@@ -197,6 +197,7 @@ export async function processWorkerJob(name: JobName, data: JobPayload<JobName>)
             platform: "EBAY",
             displayName: account.displayName,
             secretRef: account.secretRef,
+            status: account.status,
             credentialType: account.credentialType,
             validationStatus: account.validationStatus,
             externalAccountId: account.externalAccountId,

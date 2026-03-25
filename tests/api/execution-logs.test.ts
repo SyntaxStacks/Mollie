@@ -172,7 +172,10 @@ test("execution logs can be filtered by correlationId and include failure detail
         responsePayloadJson: {
           code: "ACCOUNT_UNAVAILABLE",
           message: "Depop session expired",
-          retryable: true
+          retryable: true,
+          accessToken: "raw-access-token",
+          authorization: "Bearer raw-token",
+          secretRef: "secret://depop/private"
         },
         artifactUrlsJson: ["artifact://failure/screenshot.png"]
       },
@@ -199,7 +202,16 @@ test("execution logs can be filtered by correlationId and include failure detail
     logs: Array<{
       correlationId: string;
       status: string;
-      responsePayload: { code?: string; message?: string } | null;
+      responsePayload:
+        | {
+            code?: string;
+            message?: string;
+            accessToken?: string;
+            authorization?: string;
+            secretRef?: string | null;
+          }
+        | null;
+      requestPayload: Record<string, unknown> | null;
       artifactUrls: string[];
       retryable: boolean;
     }>;
@@ -210,6 +222,9 @@ test("execution logs can be filtered by correlationId and include failure detail
   assert.equal(body.logs[0]?.status, "FAILED");
   assert.equal(body.logs[0]?.responsePayload?.code, "ACCOUNT_UNAVAILABLE");
   assert.equal(body.logs[0]?.responsePayload?.message, "Depop session expired");
+  assert.equal(body.logs[0]?.responsePayload?.accessToken, "[REDACTED]");
+  assert.equal(body.logs[0]?.responsePayload?.authorization, "[REDACTED]");
+  assert.equal(body.logs[0]?.responsePayload?.secretRef, "secret://...rivate");
   assert.deepEqual(body.logs[0]?.artifactUrls, ["artifact://failure/screenshot.png"]);
   assert.equal(body.logs[0]?.retryable, true);
 });
@@ -273,12 +288,16 @@ test("failed publish execution logs can be retried from the log route", async ()
       correlationId: string;
       attempt: number;
       status: string;
+      ebayState: string | null;
+      publishMode: string | null;
     };
   };
 
   assert.equal(body.executionLog.attempt, 2);
   assert.equal(body.executionLog.correlationId, failedLog.correlationId);
   assert.equal(body.executionLog.status, "QUEUED");
+  assert.equal(body.executionLog.ebayState, "SIMULATED");
+  assert.equal(body.executionLog.publishMode, "simulated");
   assert.equal(queuedJobs.length, 1);
   assert.equal(queuedJobs[0]?.name, "listing.publishEbay");
   assert.deepEqual(queuedJobs[0]?.payload, {
@@ -301,4 +320,95 @@ test("failed publish execution logs can be retried from the log route", async ()
   });
 
   assert.ok(auditLog);
+});
+
+test("execution log detail returns related attempts and audit trail", async () => {
+  const session = await createWorkspaceSession("execution-log-detail");
+  const item = await createInventoryItem(session);
+  const firstLog = await db.executionLog.create({
+    data: {
+      workspaceId: session.workspaceId,
+      inventoryItemId: item.id,
+      jobName: "listing.publishDepop",
+      connector: "DEPOP",
+      status: "FAILED",
+      attempt: 1,
+      correlationId: "pilot-correlation-detail-001",
+      requestPayloadJson: {
+        draftId: "draft-detail-1",
+        marketplaceAccountId: "account-detail-1"
+      },
+      responsePayloadJson: {
+        code: "RATE_LIMITED",
+        message: "Connector pacing limit hit"
+      }
+    }
+  });
+  await db.executionLog.create({
+    data: {
+      workspaceId: session.workspaceId,
+      inventoryItemId: item.id,
+      jobName: "listing.publishDepop",
+      connector: "DEPOP",
+      status: "QUEUED",
+      attempt: 2,
+      correlationId: "pilot-correlation-detail-001",
+      requestPayloadJson: {
+        draftId: "draft-detail-1",
+        marketplaceAccountId: "account-detail-1"
+      }
+    }
+  });
+  await db.auditLog.createMany({
+    data: [
+      {
+        workspaceId: session.workspaceId,
+        action: "inventory.updated",
+        targetType: "inventory_item",
+        targetId: item.id,
+        metadataJson: {
+          source: "test"
+        }
+      },
+      {
+        workspaceId: session.workspaceId,
+        action: "execution.retried",
+        targetType: "execution_log",
+        targetId: firstLog.id,
+        metadataJson: {
+          attempt: 2
+        }
+      }
+    ]
+  });
+
+  const response = await app.inject({
+    method: "GET",
+    url: `/api/execution-logs/${firstLog.id}`,
+    headers: session.headers
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    log: {
+      id: string;
+      correlationId: string;
+      ebayState: string | null;
+    };
+    relatedAttempts: Array<{ attempt: number; correlationId: string }>;
+    auditLogs: Array<{ action: string; targetType: string }>;
+  };
+
+  assert.equal(body.log.id, firstLog.id);
+  assert.equal(body.log.correlationId, "pilot-correlation-detail-001");
+  assert.equal(body.log.ebayState, null);
+  assert.equal(body.relatedAttempts.length, 2);
+  assert.deepEqual(
+    body.relatedAttempts.map((entry) => entry.attempt),
+    [1, 2]
+  );
+  assert.equal(body.relatedAttempts[0]?.correlationId, "pilot-correlation-detail-001");
+  assert.equal(body.auditLogs.length >= 2, true);
+  assert.equal(body.auditLogs.some((entry) => entry.action === "inventory.updated" && entry.targetType === "inventory_item"), true);
+  assert.equal(body.auditLogs.some((entry) => entry.action === "execution.retried" && entry.targetType === "execution_log"), true);
 });

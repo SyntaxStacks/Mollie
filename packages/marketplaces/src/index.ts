@@ -1,5 +1,6 @@
 import type {
   ConnectorFailureCode,
+  MarketplaceAccountStatus,
   CredentialValidationStatus,
   MarketplaceCredentialType,
   Platform,
@@ -11,6 +12,7 @@ export type MarketplaceAccountContext = {
   platform: Platform;
   displayName: string;
   secretRef: string;
+  status?: MarketplaceAccountStatus;
   credentialType: MarketplaceCredentialType;
   validationStatus: CredentialValidationStatus;
   externalAccountId?: string | null;

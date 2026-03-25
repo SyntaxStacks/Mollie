@@ -216,6 +216,9 @@ test("ebay oauth callback stores a validated encrypted token set without exposin
   const callbackBody = callbackResponse.json() as {
     account: {
       id: string;
+      secretRef: string | null;
+      ebayState: string | null;
+      publishMode: string | null;
       credentialType: string;
       validationStatus: string;
       externalAccountId: string | null;
@@ -225,6 +228,9 @@ test("ebay oauth callback stores a validated encrypted token set without exposin
 
   assert.equal(callbackBody.account.credentialType, "OAUTH_TOKEN_SET");
   assert.equal(callbackBody.account.validationStatus, "VALID");
+  assert.equal(callbackBody.account.secretRef, "db-encrypted://.../oauth");
+  assert.equal(callbackBody.account.ebayState, "OAUTH_CONNECTED");
+  assert.equal(callbackBody.account.publishMode, "simulated");
   assert.equal(callbackBody.account.externalAccountId, "ebay-user-123");
   assert.equal(callbackBody.account.credentialMetadata?.username, "pilot-seller");
   assert.equal(callbackBody.account.credentialMetadata?.publishMode, "foundation-only");
@@ -278,10 +284,15 @@ test("marketplace account list surfaces ebay readiness for oauth refresh failure
   const body = response.json() as {
     accounts: Array<{
       platform: string;
+      secretRef: string | null;
+      ebayState: string | null;
+      publishMode: string | null;
       validationStatus: string;
       lastErrorMessage: string | null;
       readiness: {
+        state: string;
         status: string;
+        publishMode: string;
         summary: string;
         detail: string;
       } | null;
@@ -290,9 +301,14 @@ test("marketplace account list surfaces ebay readiness for oauth refresh failure
 
   const ebayAccount = body.accounts.find((account) => account.platform === "EBAY");
   assert.ok(ebayAccount);
+  assert.equal(ebayAccount.secretRef, "db-encrypted://.../oauth");
+  assert.equal(ebayAccount.ebayState, "LIVE_ERROR");
+  assert.equal(ebayAccount.publishMode, "live");
   assert.equal(ebayAccount.validationStatus, "NEEDS_REFRESH");
   assert.equal(ebayAccount.lastErrorMessage, "Refresh token expired");
+  assert.equal(ebayAccount.readiness?.state, "LIVE_ERROR");
   assert.equal(ebayAccount.readiness?.status, "BLOCKED");
+  assert.equal(ebayAccount.readiness?.publishMode, "live");
   assert.match(ebayAccount.readiness?.summary ?? "", /refresh token expired/i);
   assert.match(ebayAccount.readiness?.detail ?? "", /reconnect/i);
 });

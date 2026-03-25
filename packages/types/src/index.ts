@@ -12,6 +12,16 @@ export type MarketplaceCredentialType = (typeof marketplaceCredentialTypes)[numb
 export const credentialValidationStatuses = ["UNVERIFIED", "VALID", "INVALID", "NEEDS_REFRESH"] as const;
 export type CredentialValidationStatus = (typeof credentialValidationStatuses)[number];
 
+export const ebayOperationalStates = [
+  "SIMULATED",
+  "OAUTH_CONNECTED",
+  "LIVE_CONFIG_MISSING",
+  "LIVE_READY",
+  "LIVE_BLOCKED",
+  "LIVE_ERROR"
+] as const;
+export type EbayOperationalState = (typeof ebayOperationalStates)[number];
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 

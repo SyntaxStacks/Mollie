@@ -24,6 +24,8 @@ function MarketplacesPageContent() {
       secretRef: string;
       credentialType: string;
       validationStatus: string;
+      ebayState?: string | null;
+      publishMode?: string | null;
       externalAccountId: string | null;
       credentialMetadata?: {
         publishMode?: string;
@@ -40,7 +42,9 @@ function MarketplacesPageContent() {
       lastValidatedAt?: string | null;
       lastErrorMessage?: string | null;
       readiness?: {
+        state: string;
         status: string;
+        publishMode: string;
         summary: string;
         detail: string;
       } | null;
@@ -214,10 +218,13 @@ function MarketplacesPageContent() {
                         <strong>{account.displayName}</strong>
                         <div className="muted">{account.credentialMetadata?.username ?? account.externalAccountId ?? account.secretRef}</div>
                       </div>
-                      {account.readiness ? <StatusPill status={account.readiness.status} /> : null}
+                      {account.ebayState ? <StatusPill status={account.ebayState} /> : account.readiness ? <StatusPill status={account.readiness.status} /> : null}
                     </div>
                     {account.readiness ? (
                       <div className="stack" style={{ marginTop: "0.75rem" }}>
+                        <div className="muted">
+                          State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
+                        </div>
                         <div>{account.readiness.summary}</div>
                         <div className="muted">{account.readiness.detail}</div>
                         {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
@@ -362,9 +369,9 @@ function MarketplacesPageContent() {
                   <td>
                     {account.readiness ? (
                       <div>
-                        <StatusPill status={account.readiness.status} />
+                        <StatusPill status={account.readiness.state} />
                         <div className="muted" style={{ marginTop: "0.35rem" }}>
-                          {account.readiness.summary}
+                          {account.readiness.summary} ({account.readiness.publishMode})
                         </div>
                       </div>
                     ) : (

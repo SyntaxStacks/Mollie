@@ -49,6 +49,7 @@ export default function InventoryDetailPage() {
   }>(`/api/inventory/${params.id}`, auth.token, [params.id]);
   const ebayPreflight = useAuthedResource<{
     preflight: {
+      state: string | null;
       mode: "live" | "simulated";
       ready: boolean;
       summary: string;
@@ -376,10 +377,12 @@ export default function InventoryDetailPage() {
             </Card>
 
             <Card
-              eyebrow={ebayPreflight.data?.preflight.mode === "live" ? "Live eBay" : "Simulated eBay"}
+              eyebrow={ebayPreflight.data?.preflight.state ?? (ebayPreflight.data?.preflight.mode === "live" ? "Live eBay" : "Simulated eBay")}
               title="eBay publish preflight"
               action={
-                ebayPreflight.data?.preflight ? <StatusPill status={ebayPreflight.data.preflight.ready ? "READY" : "BLOCKED"} /> : null
+                ebayPreflight.data?.preflight ? (
+                  <StatusPill status={ebayPreflight.data.preflight.state ?? (ebayPreflight.data.preflight.ready ? "READY" : "BLOCKED")} />
+                ) : null
               }
             >
               {!ebayPreflight.data ? (
@@ -388,8 +391,8 @@ export default function InventoryDetailPage() {
                 <div className="stack">
                   <div className="notice">{ebayPreflight.data.preflight.summary}</div>
                   <div className="muted">
-                    Account mode: {ebayPreflight.data.preflight.selectedCredentialType ?? "none"} | Publish mode:{" "}
-                    {ebayPreflight.data.preflight.mode}
+                    eBay state: {ebayPreflight.data.preflight.state ?? "none"} | Account mode:{" "}
+                    {ebayPreflight.data.preflight.selectedCredentialType ?? "none"} | Publish mode: {ebayPreflight.data.preflight.mode}
                   </div>
                   {ebayPreflight.data.preflight.checks.map((check) => (
                     <div className="split" key={check.key}>
