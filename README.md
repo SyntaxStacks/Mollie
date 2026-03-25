@@ -52,6 +52,8 @@ Helpers that derive local connection URLs automatically:
 - `pnpm docker:smoke-build`
 - `pnpm docker:smoke-start`
 
+`pnpm test:e2e` now loads `.env` or `.env.example`, clears ambient connection leakage, prints the resolved local DB and Redis targets, and fails fast if the effective E2E URLs do not point at local `reselleros` test infrastructure.
+
 The E2E suite covers:
 
 - happy-path eBay publish workflow
@@ -90,6 +92,7 @@ The CI workflow validates:
 - container smoke-start helper: `infra/scripts/smoke-start-containers.ps1`
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
 - Local E2E helper: `infra/scripts/test-e2e.ps1`
+- Deterministic E2E runner: `infra/scripts/run-e2e.mjs`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
 
 Cloud Run is now configured around per-service runtime config:
