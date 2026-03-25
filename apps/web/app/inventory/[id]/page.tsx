@@ -35,7 +35,7 @@ export default function InventoryDetailPage() {
       priceRecommendation: number | null;
       estimatedResaleMin: number | null;
       estimatedResaleMax: number | null;
-      images: Array<{ id: string; url: string }>;
+      images: Array<{ id: string; url: string; position: number }>;
       listingDrafts: Array<{
         id: string;
         platform: string;
@@ -123,6 +123,82 @@ export default function InventoryDetailPage() {
         setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not upload image");
       }
     });
+  }
+
+  async function deleteImage(imageId: string) {
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}/images/${imageId}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${auth.token}`
+          }
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not delete image");
+        }
+
+        setSubmitError(null);
+        setUploadStatus("Image deleted");
+        await Promise.all([refresh(), ebayPreflight.refresh()]);
+      } catch (caughtError) {
+        setUploadStatus(null);
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not delete image");
+      }
+    });
+  }
+
+  async function reorderImages(imageIds: string[], successMessage: string) {
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}/images/reorder`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({ imageIds })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not reorder images");
+        }
+
+        setSubmitError(null);
+        setUploadStatus(successMessage);
+        await Promise.all([refresh(), ebayPreflight.refresh()]);
+      } catch (caughtError) {
+        setUploadStatus(null);
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not reorder images");
+      }
+    });
+  }
+
+  function moveImage(imageId: string, direction: -1 | 1) {
+    const images = data?.item.images ?? [];
+    const currentIndex = images.findIndex((image) => image.id === imageId);
+    const nextIndex = currentIndex + direction;
+
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= images.length) {
+      return;
+    }
+
+    const nextOrder = [...images];
+    const [image] = nextOrder.splice(currentIndex, 1);
+
+    if (!image) {
+      return;
+    }
+
+    nextOrder.splice(nextIndex, 0, image);
+
+    void reorderImages(
+      nextOrder.map((candidate) => candidate.id),
+      direction < 0 ? "Image moved up" : "Image moved down"
+    );
   }
 
   async function saveEbayDraft(event: FormEvent<HTMLFormElement>) {
@@ -272,10 +348,35 @@ export default function InventoryDetailPage() {
                 </form>
                 {uploadStatus ? <div className="notice execution-notice-success" style={{ marginTop: "1rem" }}>{uploadStatus}</div> : null}
                 <div className="stack" style={{ marginTop: "1rem" }}>
-                  {data.item.images.map((image) => (
-                    <div className="image-upload-row" key={image.id}>
+                  {data.item.images.length === 0 ? <div className="muted">No images uploaded yet.</div> : null}
+                  {data.item.images.map((image, index) => (
+                    <div className="image-upload-row" data-image-id={image.id} key={image.id}>
                       <img alt={`${data.item.title} image`} className="image-upload-preview" src={image.url} />
-                      <span className="muted">{image.url}</span>
+                      <div className="stack">
+                        <strong>Image {index + 1}</strong>
+                        <span className="muted">{image.url}</span>
+                        <div className="actions">
+                          <Button
+                            disabled={pending || index === 0}
+                            kind="secondary"
+                            onClick={() => moveImage(image.id, -1)}
+                            type="button"
+                          >
+                            Move up
+                          </Button>
+                          <Button
+                            disabled={pending || index === data.item.images.length - 1}
+                            kind="secondary"
+                            onClick={() => moveImage(image.id, 1)}
+                            type="button"
+                          >
+                            Move down
+                          </Button>
+                          <Button disabled={pending} kind="secondary" onClick={() => void deleteImage(image.id)} type="button">
+                            Delete image
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>

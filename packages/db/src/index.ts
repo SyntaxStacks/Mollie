@@ -517,6 +517,74 @@ export async function addInventoryImageForWorkspace(
   return { item, image };
 }
 
+export async function deleteInventoryImageForWorkspace(workspaceId: string, inventoryItemId: string, imageId: string) {
+  const item = await findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  const image = item.images.find((candidate) => candidate.id === imageId);
+
+  if (!image) {
+    return null;
+  }
+
+  await db.$transaction([
+    db.imageAsset.delete({
+      where: { id: image.id }
+    }),
+    ...item.images
+      .filter((candidate) => candidate.id !== image.id)
+      .sort((left, right) => left.position - right.position)
+      .map((candidate, index) =>
+        db.imageAsset.update({
+          where: { id: candidate.id },
+          data: {
+            position: index
+          }
+        })
+      )
+  ]);
+
+  return { item, image };
+}
+
+export async function reorderInventoryImagesForWorkspace(
+  workspaceId: string,
+  inventoryItemId: string,
+  orderedImageIds: string[]
+) {
+  const item = await findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  const existingImageIds = item.images.map((image) => image.id).sort();
+  const requestedImageIds = [...orderedImageIds].sort();
+
+  if (
+    existingImageIds.length !== requestedImageIds.length ||
+    existingImageIds.some((imageId, index) => imageId !== requestedImageIds[index])
+  ) {
+    throw new Error("Image reorder must include every image exactly once");
+  }
+
+  await db.$transaction(
+    orderedImageIds.map((imageId, index) =>
+      db.imageAsset.update({
+        where: { id: imageId },
+        data: {
+          position: index
+        }
+      })
+    )
+  );
+
+  return findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId);
+}
+
 export async function findDraftForWorkspace(workspaceId: string, draftId: string) {
   return db.listingDraft.findFirst({
     where: {

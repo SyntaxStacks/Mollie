@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { access, mkdir, writeFile } from "node:fs/promises";
+import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { Storage } from "@google-cloud/storage";
@@ -23,6 +23,11 @@ export type UploadedObject = {
   storageKey: string;
   contentType: string;
   size: number;
+};
+
+export type DeleteStoredObjectResult = {
+  managed: boolean;
+  deleted: boolean;
 };
 
 function sanitizeSegment(value: string) {
@@ -82,6 +87,14 @@ function encodeStorageKeyForUrl(storageKey: string) {
     .join("/");
 }
 
+function decodeStorageKeyFromUrlPath(pathname: string) {
+  return pathname
+    .split("/")
+    .filter(Boolean)
+    .map((segment) => decodeURIComponent(segment))
+    .join("/");
+}
+
 export function inferContentTypeFromStorageKey(storageKey: string) {
   const extension = path.extname(storageKey).toLowerCase();
 
@@ -136,6 +149,25 @@ export async function localUploadExists(storageKey: string) {
   }
 }
 
+async function deleteLocalUpload(storageKey: string) {
+  const resolved = resolveLocalUploadPath(storageKey);
+
+  if (!resolved) {
+    return false;
+  }
+
+  try {
+    await unlink(resolved);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 async function uploadToLocalStorage(input: UploadInventoryImageInput): Promise<UploadedObject> {
   const storageKey = buildStorageKey(input.workspaceId, input.inventoryItemId, input.filename, input.contentType);
   const filePath = resolveLocalUploadPath(storageKey);
@@ -187,6 +219,77 @@ async function uploadToGcs(input: UploadInventoryImageInput): Promise<UploadedOb
   };
 }
 
+function extractManagedStorageKey(url: string) {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return null;
+  }
+
+  if (parsedUrl.pathname.startsWith("/api/uploads/")) {
+    return {
+      backend: "local" as const,
+      storageKey: decodeStorageKeyFromUrlPath(parsedUrl.pathname.replace(/^\/api\/uploads\//, ""))
+    };
+  }
+
+  const configuredPublicBase = process.env.GCS_UPLOAD_PUBLIC_BASE_URL?.trim()?.replace(/\/$/, "");
+
+  if (configuredPublicBase) {
+    const configuredUrl = new URL(configuredPublicBase);
+
+    if (parsedUrl.origin === configuredUrl.origin && parsedUrl.pathname.startsWith(configuredUrl.pathname.replace(/\/$/, "") + "/")) {
+      return {
+        backend: "gcs" as const,
+        storageKey: decodeStorageKeyFromUrlPath(
+          parsedUrl.pathname.replace(new RegExp(`^${configuredUrl.pathname.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&").replace(/\/$/, "")}/`), "")
+        )
+      };
+    }
+  }
+
+  const bucketName = process.env.GCS_BUCKET_UPLOADS?.trim();
+
+  if (
+    bucketName &&
+    parsedUrl.hostname === "storage.googleapis.com" &&
+    parsedUrl.pathname.startsWith(`/${bucketName}/`)
+  ) {
+    return {
+      backend: "gcs" as const,
+      storageKey: decodeStorageKeyFromUrlPath(parsedUrl.pathname.replace(`/${bucketName}/`, ""))
+    };
+  }
+
+  return null;
+}
+
+async function deleteGcsUpload(storageKey: string) {
+  const bucketName = process.env.GCS_BUCKET_UPLOADS;
+
+  if (!bucketName) {
+    throw new Error("GCS_BUCKET_UPLOADS is required for GCS deletes");
+  }
+
+  const storage = new Storage();
+  const file = storage.bucket(bucketName).file(storageKey);
+
+  try {
+    await file.delete();
+    return true;
+  } catch (error) {
+    const deleteError = error as { code?: number };
+
+    if (deleteError.code === 404) {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 export async function uploadInventoryImage(input: UploadInventoryImageInput) {
   if (!acceptedImageContentTypes.has(input.contentType)) {
     throw new Error(`Unsupported image type: ${input.contentType}`);
@@ -199,4 +302,23 @@ export async function uploadInventoryImage(input: UploadInventoryImageInput) {
   const backend = resolveStorageBackend();
 
   return backend === "gcs" ? uploadToGcs(input) : uploadToLocalStorage(input);
+}
+
+export async function deleteManagedInventoryImage(url: string): Promise<DeleteStoredObjectResult> {
+  const managed = extractManagedStorageKey(url);
+
+  if (!managed) {
+    return {
+      managed: false,
+      deleted: false
+    };
+  }
+
+  const deleted =
+    managed.backend === "gcs" ? await deleteGcsUpload(managed.storageKey) : await deleteLocalUpload(managed.storageKey);
+
+  return {
+    managed: true,
+    deleted
+  };
 }

@@ -5,17 +5,20 @@ import {
   createExecutionLog,
   createInventoryItem,
   db,
+  deleteInventoryImageForWorkspace,
   findInventoryItemDetailForWorkspace,
   findInventoryItemForWorkspace,
   findInventoryItemWithImagesForWorkspace,
   listWorkspaceInventory,
   recordAuditLog,
+  reorderInventoryImagesForWorkspace,
   updateInventoryItemForWorkspace
 } from "@reselleros/db";
 import { getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
 import { buildIdempotencyKey, enqueueJob } from "@reselleros/queue";
 import {
   acceptedImageContentTypes,
+  deleteManagedInventoryImage,
   inferContentTypeFromStorageKey,
   localUploadExists,
   maxInventoryImageBytes,
@@ -313,6 +316,82 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     });
 
     return { image: createdImage.image };
+  });
+
+  app.delete("/api/inventory/:id/images/:imageId", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z
+      .object({
+        id: z.string().min(1),
+        imageId: z.string().min(1)
+      })
+      .parse(request.params);
+    const deletedImage = await deleteInventoryImageForWorkspace(workspace.id, params.id, params.imageId);
+
+    if (!deletedImage) {
+      throw app.httpErrors.notFound("Inventory image not found");
+    }
+
+    const storageDeletion = await deleteManagedInventoryImage(deletedImage.image.url);
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "inventory.image_deleted",
+      targetType: "inventory_item",
+      targetId: params.id,
+      metadata: {
+        imageId: deletedImage.image.id,
+        url: deletedImage.image.url,
+        storageManaged: storageDeletion.managed,
+        storageDeleted: storageDeletion.deleted
+      }
+    });
+
+    return {
+      ok: true,
+      imageId: deletedImage.image.id,
+      storageDeletion
+    };
+  });
+
+  app.post("/api/inventory/:id/images/reorder", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = z
+      .object({
+        imageIds: z.array(z.string().min(1))
+      })
+      .parse(request.body);
+
+    try {
+      const item = await reorderInventoryImagesForWorkspace(workspace.id, params.id, body.imageIds);
+
+      if (!item) {
+        throw app.httpErrors.notFound("Inventory item not found");
+      }
+
+      await recordAuditLog({
+        workspaceId: workspace.id,
+        actorUserId: auth.userId,
+        action: "inventory.images_reordered",
+        targetType: "inventory_item",
+        targetId: item.id,
+        metadata: {
+          imageIds: body.imageIds
+        }
+      });
+
+      return { images: item.images };
+    } catch (error) {
+      if (error instanceof Error && error.message === "Image reorder must include every image exactly once") {
+        throw app.httpErrors.badRequest(error.message);
+      }
+
+      throw error;
+    }
   });
 
   app.get("/api/uploads/*", async (request, reply) => {

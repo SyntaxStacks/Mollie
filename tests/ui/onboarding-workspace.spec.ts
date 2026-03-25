@@ -64,7 +64,7 @@ test("operators can onboard, create a workspace, and get redirected into the app
   await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
 });
 
-test("operators can create inventory and upload a real image file from the browser", async ({ page }) => {
+test("operators can create inventory, reorder photos, and delete a bad upload from the browser", async ({ page }) => {
   const title = `UI Upload Item ${Date.now()}`;
 
   await onboardOperator(page, {
@@ -81,13 +81,33 @@ test("operators can create inventory and upload a real image file from the brows
 
   await expect(page).toHaveURL(/\/inventory\/.+/);
   await page.setInputFiles('input[name="image"]', {
-    name: "pilot-photo.png",
+    name: "pilot-photo-1.png",
     mimeType: "image/png",
     buffer: tinyPng
   });
   await page.locator('button[type="submit"]').filter({ hasText: /^Upload image$/i }).click();
 
   await expect(page.getByText(/image uploaded/i)).toBeVisible();
-  await expect(page.locator("img.image-upload-preview")).toBeVisible();
+  await expect(page.locator(".image-upload-row")).toHaveCount(1);
+
+  await page.setInputFiles('input[name="image"]', {
+    name: "pilot-photo-2.png",
+    mimeType: "image/png",
+    buffer: tinyPng
+  });
+  await page.locator('button[type="submit"]').filter({ hasText: /^Upload image$/i }).click();
+
+  await expect(page.locator(".image-upload-row")).toHaveCount(2);
+  const secondImageId = await page.locator(".image-upload-row").nth(1).getAttribute("data-image-id");
+  expect(secondImageId).toBeTruthy();
+  await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /move up/i }).click();
+
+  await expect(page.getByText(/image moved up/i)).toBeVisible();
+  await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
+
+  await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /delete image/i }).click();
+
+  await expect(page.getByText(/image deleted/i)).toBeVisible();
+  await expect(page.locator(".image-upload-row")).toHaveCount(1);
   await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();
 });

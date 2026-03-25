@@ -56,6 +56,51 @@ function buildMultipartPayload(input: { position: number; filename: string; cont
   };
 }
 
+async function createInventoryItem(session: Awaited<ReturnType<typeof createWorkspaceSession>>, title: string) {
+  const createInventoryResponse = await app.inject({
+    method: "POST",
+    url: "/api/inventory",
+    headers: session.headers,
+    payload: {
+      title,
+      category: "Apparel",
+      condition: "New with tags",
+      quantity: 1,
+      costBasis: 12,
+      attributes: {}
+    }
+  });
+
+  assert.equal(createInventoryResponse.statusCode, 200);
+  return (createInventoryResponse.json() as { item: { id: string } }).item;
+}
+
+async function uploadInventoryImage(
+  session: Awaited<ReturnType<typeof createWorkspaceSession>>,
+  itemId: string,
+  options?: { position?: number; filename?: string }
+) {
+  const multipart = buildMultipartPayload({
+    position: options?.position ?? 0,
+    filename: options?.filename ?? "pilot-photo.png",
+    contentType: "image/png",
+    file: tinyPng
+  });
+
+  const uploadResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${itemId}/images/upload`,
+    headers: {
+      ...session.headers,
+      "content-type": multipart.contentType
+    },
+    payload: multipart.body
+  });
+
+  assert.equal(uploadResponse.statusCode, 200);
+  return uploadResponse.json<{ image: { id: string; url: string; position: number } }>().image;
+}
+
 async function createWorkspaceSession(label: string) {
   const email = `${label}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}@example.com`;
   createdEmails.add(email);
@@ -132,42 +177,8 @@ after(async () => {
 
 test("inventory image upload stores a local object and creates an image asset", async () => {
   const session = await createWorkspaceSession("inventory-upload");
-
-  const createInventoryResponse = await app.inject({
-    method: "POST",
-    url: "/api/inventory",
-    headers: session.headers,
-    payload: {
-      title: "Uploaded Photo Item",
-      category: "Apparel",
-      condition: "New with tags",
-      quantity: 1,
-      costBasis: 12,
-      attributes: {}
-    }
-  });
-
-  assert.equal(createInventoryResponse.statusCode, 200);
-  const item = (createInventoryResponse.json() as { item: { id: string } }).item;
-  const multipart = buildMultipartPayload({
-    position: 0,
-    filename: "pilot-photo.png",
-    contentType: "image/png",
-    file: tinyPng
-  });
-
-  const uploadResponse = await app.inject({
-    method: "POST",
-    url: `/api/inventory/${item.id}/images/upload`,
-    headers: {
-      ...session.headers,
-      "content-type": multipart.contentType
-    },
-    payload: multipart.body
-  });
-
-  assert.equal(uploadResponse.statusCode, 200);
-  const image = uploadResponse.json<{ image: { id: string; url: string; position: number } }>().image;
+  const item = await createInventoryItem(session, "Uploaded Photo Item");
+  const image = await uploadInventoryImage(session, item.id);
   assert.ok(image.id);
   assert.equal(image.position, 0);
   assert.match(image.url, /\/api\/uploads\/workspaces\//i);
@@ -199,6 +210,150 @@ test("inventory image upload stores a local object and creates an image asset", 
       action: "inventory.image_uploaded",
       targetId: item.id
     }
+  });
+
+  assert.ok(auditLog);
+});
+
+test("deleting a managed uploaded image removes the image row and local file", async () => {
+  const session = await createWorkspaceSession("inventory-image-delete");
+  const item = await createInventoryItem(session, "Delete Uploaded Photo Item");
+  const image = await uploadInventoryImage(session, item.id, {
+    filename: "delete-photo.png"
+  });
+
+  const deleteResponse = await app.inject({
+    method: "DELETE",
+    url: `/api/inventory/${item.id}/images/${image.id}`,
+    headers: session.headers
+  });
+
+  assert.equal(deleteResponse.statusCode, 200);
+  const deleteBody = deleteResponse.json<{
+    ok: boolean;
+    imageId: string;
+    storageDeletion: { managed: boolean; deleted: boolean };
+  }>();
+  assert.equal(deleteBody.ok, true);
+  assert.equal(deleteBody.imageId, image.id);
+  assert.equal(deleteBody.storageDeletion.managed, true);
+  assert.equal(deleteBody.storageDeletion.deleted, true);
+
+  const itemDetailResponse = await app.inject({
+    method: "GET",
+    url: `/api/inventory/${item.id}`,
+    headers: session.headers
+  });
+
+  assert.equal(itemDetailResponse.statusCode, 200);
+  const itemDetail = itemDetailResponse.json<{ item: { images: Array<{ id: string }> } }>().item;
+  assert.equal(itemDetail.images.length, 0);
+
+  const fetchUploadedResponse = await app.inject({
+    method: "GET",
+    url: new URL(image.url).pathname
+  });
+
+  assert.equal(fetchUploadedResponse.statusCode, 404);
+
+  const auditLog = await db.auditLog.findFirst({
+    where: {
+      workspaceId: session.workspaceId,
+      action: "inventory.image_deleted",
+      targetId: item.id
+    },
+    orderBy: { createdAt: "desc" }
+  });
+
+  assert.ok(auditLog);
+});
+
+test("deleting an external image only removes the database row", async () => {
+  const session = await createWorkspaceSession("inventory-external-image-delete");
+  const item = await createInventoryItem(session, "External Image Delete");
+
+  const attachResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/images`,
+    headers: session.headers,
+    payload: {
+      url: "https://images.example.com/test-photo.jpg",
+      kind: "ORIGINAL",
+      position: 0
+    }
+  });
+
+  assert.equal(attachResponse.statusCode, 200);
+  const image = attachResponse.json<{ image: { id: string } }>().image;
+
+  const deleteResponse = await app.inject({
+    method: "DELETE",
+    url: `/api/inventory/${item.id}/images/${image.id}`,
+    headers: session.headers
+  });
+
+  assert.equal(deleteResponse.statusCode, 200);
+  const deleteBody = deleteResponse.json<{ storageDeletion: { managed: boolean; deleted: boolean } }>();
+  assert.equal(deleteBody.storageDeletion.managed, false);
+  assert.equal(deleteBody.storageDeletion.deleted, false);
+});
+
+test("reordering inventory images persists deterministic position order", async () => {
+  const session = await createWorkspaceSession("inventory-image-reorder");
+  const item = await createInventoryItem(session, "Reorder Uploaded Photos");
+  const firstImage = await uploadInventoryImage(session, item.id, {
+    position: 0,
+    filename: "first-photo.png"
+  });
+  const secondImage = await uploadInventoryImage(session, item.id, {
+    position: 1,
+    filename: "second-photo.png"
+  });
+
+  const reorderResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/images/reorder`,
+    headers: session.headers,
+    payload: {
+      imageIds: [secondImage.id, firstImage.id]
+    }
+  });
+
+  assert.equal(reorderResponse.statusCode, 200);
+  const reorderedImages = reorderResponse.json<{ images: Array<{ id: string; position: number }> }>().images;
+  assert.deepEqual(
+    reorderedImages.map((image) => ({ id: image.id, position: image.position })),
+    [
+      { id: secondImage.id, position: 0 },
+      { id: firstImage.id, position: 1 }
+    ]
+  );
+
+  const itemDetailResponse = await app.inject({
+    method: "GET",
+    url: `/api/inventory/${item.id}`,
+    headers: session.headers
+  });
+
+  assert.equal(itemDetailResponse.statusCode, 200);
+  const itemDetail = itemDetailResponse.json<{
+    item: { images: Array<{ id: string; position: number }> };
+  }>().item;
+  assert.deepEqual(
+    itemDetail.images.map((image) => ({ id: image.id, position: image.position })),
+    [
+      { id: secondImage.id, position: 0 },
+      { id: firstImage.id, position: 1 }
+    ]
+  );
+
+  const auditLog = await db.auditLog.findFirst({
+    where: {
+      workspaceId: session.workspaceId,
+      action: "inventory.images_reordered",
+      targetId: item.id
+    },
+    orderBy: { createdAt: "desc" }
   });
 
   assert.ok(auditLog);
