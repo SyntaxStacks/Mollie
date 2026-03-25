@@ -13,6 +13,13 @@ test("logged-out operators can access the onboarding form without a redirect tra
   await expect(page.getByLabel(/email/i)).toBeVisible();
 });
 
+test("protected routes redirect logged-out operators into onboarding with client navigation", async ({ page }) => {
+  await page.goto("/inventory");
+
+  await expect(page).toHaveURL(/\/onboarding$/);
+  await expect(page.getByRole("heading", { name: /create your operator session/i })).toBeVisible();
+});
+
 test("operators can onboard, create a workspace, and get redirected into the app shell", async ({ page }) => {
   const email = uniqueEmail("ui-onboarding");
 

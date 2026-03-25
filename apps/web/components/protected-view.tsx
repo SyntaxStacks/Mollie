@@ -30,11 +30,6 @@ export function ProtectedView({
     }
 
     router.replace(decision.location);
-    window.setTimeout(() => {
-      if (window.location.pathname !== decision.location) {
-        window.location.replace(decision.location);
-      }
-    }, 150);
   }, [decision, router]);
 
   if (decision.kind === "loading" || decision.kind === "redirect") {

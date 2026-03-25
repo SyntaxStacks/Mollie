@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 
 process.env.NODE_ENV = "test";
 process.env.RESELLEROS_DISABLE_API_BOOTSTRAP = "1";
-process.env.DATABASE_URL ??= "postgresql://localhost:5432/reselleros";
+process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/reselleros";
 process.env.DIRECT_URL ??= process.env.DATABASE_URL;
 process.env.REDIS_URL ??= "redis://localhost:6379";
 process.env.SESSION_SECRET ??= "test-session-secret";
