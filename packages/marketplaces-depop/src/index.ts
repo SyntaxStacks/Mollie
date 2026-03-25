@@ -1,6 +1,17 @@
-import type { MarketplaceAdapter, PublishListingInput } from "@reselleros/marketplaces";
+import { ConnectorError, type MarketplaceAdapter, type PublishListingInput } from "@reselleros/marketplaces";
 
 function simulateDepopPublish(input: PublishListingInput) {
+  if (!input.images.length) {
+    throw new ConnectorError({
+      code: "PREREQUISITE_MISSING",
+      message: "Depop publish requires at least one image",
+      retryable: false,
+      metadata: {
+        inventoryItemId: input.inventoryItemId
+      }
+    });
+  }
+
   const externalListingId = `depop_${crypto.randomUUID().slice(0, 12)}`;
 
   return {

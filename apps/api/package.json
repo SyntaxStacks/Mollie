@@ -12,8 +12,9 @@
   "dependencies": {
     "@fastify/cors": "^10.0.2",
     "@fastify/rate-limit": "^10.2.0",
-    "@fastify/sensible": "^5.6.0",
+    "@fastify/sensible": "^6.0.3",
     "@reselleros/ai": "workspace:*",
+    "@reselleros/auth": "workspace:*",
     "@reselleros/config": "workspace:*",
     "@reselleros/db": "workspace:*",
     "@reselleros/macbid": "workspace:*",

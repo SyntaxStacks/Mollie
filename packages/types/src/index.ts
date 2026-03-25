@@ -24,6 +24,20 @@ export type ExecutionStatus = (typeof executionStatuses)[number];
 export const payoutStatuses = ["PENDING", "PAID", "DISPUTED"] as const;
 export type PayoutStatus = (typeof payoutStatuses)[number];
 
+export const workspaceRoles = ["OWNER", "MEMBER"] as const;
+export type WorkspaceRole = (typeof workspaceRoles)[number];
+
+export const connectorFailureCodes = [
+  "PREREQUISITE_MISSING",
+  "ACCOUNT_UNAVAILABLE",
+  "WORKSPACE_AUTOMATION_DISABLED",
+  "RATE_LIMITED",
+  "AUTOMATION_FAILED",
+  "ARTIFACT_CAPTURE_FAILED",
+  "UNKNOWN"
+] as const;
+export type ConnectorFailureCode = (typeof connectorFailureCodes)[number];
+
 export const sourcePlatformSchema = z.literal("MAC_BID");
 
 export const sessionSchema = z.object({
@@ -36,9 +50,14 @@ export const sessionSchema = z.object({
 
 export type Session = z.infer<typeof sessionSchema>;
 
-export const authPayloadSchema = z.object({
+export const authRequestSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(120).optional()
+});
+
+export const authVerifySchema = z.object({
+  email: z.string().email(),
+  code: z.string().length(6).regex(/^\d+$/)
 });
 
 export const createWorkspaceSchema = z.object({

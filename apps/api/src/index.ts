@@ -1,30 +1,51 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 import { z } from "zod";
 
 import { generateLotAnalysis } from "@reselleros/ai";
+import {
+  authenticateSessionToken,
+  issueLoginChallenge,
+  revokeSessionToken,
+  selectWorkspaceForSession,
+  verifyLoginChallenge
+} from "@reselleros/auth";
 import { loadApiEnv } from "@reselleros/config";
 import {
   Prisma,
+  addInventoryImageForWorkspace,
+  approveDraftForWorkspace,
   createExecutionLog,
   createInventoryItem,
-  createSession,
+  createManualSaleForWorkspace,
+  createMarketplaceAccountForWorkspace,
   createWorkspaceForUser,
   db,
-  getSessionByToken,
-  getWorkspaceForUser,
+  disableMarketplaceAccountForWorkspace,
+  findInventoryItemDetailForWorkspace,
+  findInventoryItemForWorkspace,
+  findInventoryItemWithImagesForWorkspace,
+  findPlatformListingDetailForWorkspace,
+  findPlatformListingForWorkspace,
+  findSourceLotDetailForWorkspace,
+  findSourceLotForWorkspace,
   listWorkspaceInventory,
   listWorkspaceLots,
+  listWorkspaceMembershipsForUser,
   listWorkspaceSummary,
-  recordAuditLog
+  recordAuditLog,
+  updateDraftForWorkspace,
+  updateInventoryItemForWorkspace,
+  updateWorkspaceConnectorAutomation
 } from "@reselleros/db";
 import { fetchMockLot, lotToInventoryCandidates } from "@reselleros/macbid";
 import { createLogger } from "@reselleros/observability";
 import { buildIdempotencyKey, enqueueJob } from "@reselleros/queue";
 import {
-  authPayloadSchema,
+  authRequestSchema,
+  authVerifySchema,
   createWorkspaceSchema,
   draftUpdateSchema,
   imageInputSchema,
@@ -37,7 +58,7 @@ import {
 const env = loadApiEnv();
 const logger = createLogger("api");
 const app = Fastify({
-  logger
+  loggerInstance: logger
 });
 
 app.register(cors, {
@@ -53,9 +74,26 @@ type AuthContext = {
   userId: string;
   email: string;
   workspaceId: string | null;
+  memberships: Array<{
+    workspaceId: string;
+    role: string;
+    workspace: {
+      id: string;
+      name: string;
+      plan: string;
+      billingCustomerId: string | null;
+    };
+  }>;
 };
 
-async function requireAuth(request: { headers: Record<string, unknown> }) {
+function getRequestMetadata(request: { headers: Record<string, unknown>; ip?: string }) {
+  return {
+    ipAddress: request.ip ?? null,
+    userAgent: typeof request.headers["user-agent"] === "string" ? request.headers["user-agent"] : null
+  };
+}
+
+async function requireAuth(request: { headers: Record<string, unknown>; ip?: string }) {
   const authorization = request.headers.authorization;
   const token = typeof authorization === "string" ? authorization.replace(/^Bearer\s+/i, "") : null;
 
@@ -63,18 +101,31 @@ async function requireAuth(request: { headers: Record<string, unknown> }) {
     throw app.httpErrors.unauthorized("Missing bearer token");
   }
 
-  const session = await getSessionByToken(token);
+  const session = await authenticateSessionToken(token);
 
-  if (!session || session.expiresAt < new Date()) {
+  if (!session) {
     throw app.httpErrors.unauthorized("Session is invalid or expired");
   }
 
-  const workspace = await getWorkspaceForUser(session.userId);
+  const requestedWorkspaceId =
+    typeof request.headers["x-workspace-id"] === "string" ? request.headers["x-workspace-id"] : null;
+  const activeMembership = selectWorkspaceForSession(session, requestedWorkspaceId);
+  const memberships = session.user.memberships.map((membership) => ({
+    workspaceId: membership.workspaceId,
+    role: membership.role,
+    workspace: {
+      id: membership.workspace.id,
+      name: membership.workspace.name,
+      plan: membership.workspace.plan,
+      billingCustomerId: membership.workspace.billingCustomerId
+    }
+  }));
 
   return {
     userId: session.userId,
     email: session.user.email,
-    workspaceId: workspace?.id ?? null
+    workspaceId: activeMembership?.workspaceId ?? null,
+    memberships
   } satisfies AuthContext;
 }
 
@@ -100,71 +151,81 @@ app.get("/health", async () => ({
   timestamp: new Date().toISOString()
 }));
 
-app.post("/api/auth/login", async (request) => {
-  const body = authPayloadSchema.parse(request.body);
-  const { user, session, workspace } = await createSession(body.email, body.name);
+app.post("/api/auth/request-code", async (request) => {
+  const body = authRequestSchema.parse(request.body);
+  const challenge = await issueLoginChallenge({
+    email: body.email,
+    name: body.name,
+    ...getRequestMetadata(request)
+  });
 
   return {
-    token: session.token,
+    ok: true,
+    email: challenge.email,
+    expiresAt: challenge.expiresAt.toISOString(),
+    devCode: challenge.devCode
+  };
+});
+
+app.post("/api/auth/verify-code", async (request) => {
+  const body = authVerifySchema.parse(request.body);
+  const { user, token, workspace, memberships } = await verifyLoginChallenge({
+    email: body.email,
+    code: body.code,
+    ...getRequestMetadata(request)
+  });
+
+  return {
+    token,
     user: {
       id: user.id,
       email: user.email,
       name: user.name
     },
-    workspace
+    workspace,
+    workspaces: memberships.map((membership) => membership.workspace)
   };
 });
 
 app.post("/api/auth/logout", async (request) => {
   const auth = await requireAuth(request);
   const authorization = String(request.headers.authorization).replace(/^Bearer\s+/i, "");
-  await db.session.deleteMany({
-    where: {
-      token: authorization,
-      userId: auth.userId
-    }
-  });
+  await revokeSessionToken(authorization, auth.userId);
 
   return { ok: true };
 });
 
 app.get("/api/auth/me", async (request) => {
   const auth = await requireAuth(request);
-  const workspace = auth.workspaceId
-    ? await db.workspace.findUnique({
-        where: { id: auth.workspaceId }
-      })
-    : null;
+  const workspace = auth.memberships.find((membership) => membership.workspaceId === auth.workspaceId)?.workspace ?? null;
 
   return {
     user: {
       id: auth.userId,
       email: auth.email
     },
-    workspace
+    workspace,
+    workspaces: auth.memberships.map((membership) => membership.workspace)
   };
 });
 
 app.get("/api/workspace", async (request) => {
   const auth = await requireAuth(request);
 
-  if (!auth.workspaceId) {
-    return { workspace: null };
-  }
+  const workspace = auth.memberships.find((membership) => membership.workspaceId === auth.workspaceId)?.workspace ?? null;
 
-  const workspace = await db.workspace.findUnique({
-    where: { id: auth.workspaceId }
-  });
-
-  return { workspace };
+  return {
+    workspace,
+    workspaces: auth.memberships.map((membership) => membership.workspace)
+  };
 });
 
 app.post("/api/workspace", async (request) => {
   const auth = await requireAuth(request);
   const body = createWorkspaceSchema.parse(request.body);
-  const existing = await getWorkspaceForUser(auth.userId);
+  const existingMemberships = await listWorkspaceMembershipsForUser(auth.userId);
 
-  if (existing) {
+  if (existingMemberships.length > 0) {
     throw app.httpErrors.conflict("User already has a workspace");
   }
 
@@ -181,6 +242,28 @@ app.post("/api/workspace", async (request) => {
   });
 
   return { workspace };
+});
+
+app.patch("/api/workspace/connector-automation", async (request) => {
+  const auth = await requireAuth(request);
+  const workspace = await requireWorkspace(auth);
+  const body = z
+    .object({
+      enabled: z.boolean()
+    })
+    .parse(request.body);
+
+  const updatedWorkspace = await updateWorkspaceConnectorAutomation(workspace.id, body.enabled);
+
+  await recordAuditLog({
+    workspaceId: workspace.id,
+    actorUserId: auth.userId,
+    action: body.enabled ? "workspace.connector_automation.enabled" : "workspace.connector_automation.disabled",
+    targetType: "workspace",
+    targetId: workspace.id
+  });
+
+  return { workspace: updatedWorkspace };
 });
 
 app.get("/api/marketplace-accounts", async (request) => {
@@ -202,14 +285,10 @@ app.post("/api/marketplace-accounts/ebay/connect", async (request) => {
     platform: "EBAY"
   });
 
-  const account = await db.marketplaceAccount.create({
-    data: {
-      workspaceId: workspace.id,
-      platform: body.platform,
-      displayName: body.displayName,
-      secretRef: body.secretRef,
-      status: "CONNECTED"
-    }
+  const account = await createMarketplaceAccountForWorkspace(workspace.id, {
+    platform: body.platform,
+    displayName: body.displayName,
+    secretRef: body.secretRef
   });
 
   await recordAuditLog({
@@ -234,14 +313,10 @@ app.post("/api/marketplace-accounts/depop/session", async (request) => {
     platform: "DEPOP"
   });
 
-  const account = await db.marketplaceAccount.create({
-    data: {
-      workspaceId: workspace.id,
-      platform: body.platform,
-      displayName: body.displayName,
-      secretRef: body.secretRef,
-      status: "CONNECTED"
-    }
+  const account = await createMarketplaceAccountForWorkspace(workspace.id, {
+    platform: body.platform,
+    displayName: body.displayName,
+    secretRef: body.secretRef
   });
 
   await recordAuditLog({
@@ -263,10 +338,11 @@ app.post("/api/marketplace-accounts/:id/disable", async (request) => {
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
 
-  const account = await db.marketplaceAccount.update({
-    where: { id: params.id, workspaceId: workspace.id },
-    data: { status: "DISABLED" }
-  });
+  const account = await disableMarketplaceAccountForWorkspace(workspace.id, params.id);
+
+  if (!account) {
+    throw app.httpErrors.notFound("Marketplace account not found");
+  }
 
   await recordAuditLog({
     workspaceId: workspace.id,
@@ -345,20 +421,7 @@ app.get("/api/source-lots/:id", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const lot = await db.sourceLot.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    },
-    include: {
-      inventoryItems: {
-        include: {
-          images: true,
-          listingDrafts: true
-        }
-      }
-    }
-  });
+  const lot = await findSourceLotDetailForWorkspace(workspace.id, params.id);
 
   if (!lot) {
     throw app.httpErrors.notFound("Lot not found");
@@ -371,12 +434,7 @@ app.post("/api/source-lots/:id/analyze", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const lot = await db.sourceLot.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    }
-  });
+  const lot = await findSourceLotForWorkspace(workspace.id, params.id);
 
   if (!lot) {
     throw app.httpErrors.notFound("Lot not found");
@@ -401,12 +459,7 @@ app.post("/api/source-lots/:id/create-inventory", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const lot = await db.sourceLot.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    }
-  });
+  const lot = await findSourceLotForWorkspace(workspace.id, params.id);
 
   if (!lot) {
     throw app.httpErrors.notFound("Lot not found");
@@ -489,21 +542,7 @@ app.get("/api/inventory/:id", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const item = await db.inventoryItem.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    },
-    include: {
-      images: {
-        orderBy: { position: "asc" }
-      },
-      sourceLot: true,
-      listingDrafts: true,
-      platformListings: true,
-      sales: true
-    }
-  });
+  const item = await findInventoryItemDetailForWorkspace(workspace.id, params.id);
 
   if (!item) {
     throw app.httpErrors.notFound("Inventory item not found");
@@ -517,26 +556,24 @@ app.patch("/api/inventory/:id", async (request) => {
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
   const body = inventoryInputSchema.partial().parse(request.body);
-  const item = await db.inventoryItem.update({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    },
-    data: {
-      title: body.title,
-      brand: body.brand,
-      category: body.category,
-      condition: body.condition,
-      size: body.size,
-      color: body.color,
-      quantity: body.quantity,
-      costBasis: body.costBasis,
-      estimatedResaleMin: body.estimatedResaleMin,
-      estimatedResaleMax: body.estimatedResaleMax,
-      priceRecommendation: body.priceRecommendation,
-      attributesJson: body.attributes
-    }
+  const item = await updateInventoryItemForWorkspace(workspace.id, params.id, {
+    title: body.title,
+    brand: body.brand,
+    category: body.category,
+    condition: body.condition,
+    size: body.size,
+    color: body.color,
+    quantity: body.quantity,
+    costBasis: body.costBasis,
+    estimatedResaleMin: body.estimatedResaleMin,
+    estimatedResaleMax: body.estimatedResaleMax,
+    priceRecommendation: body.priceRecommendation,
+    attributesJson: body.attributes
   });
+
+  if (!item) {
+    throw app.httpErrors.notFound("Inventory item not found");
+  }
 
   await recordAuditLog({
     workspaceId: workspace.id,
@@ -554,30 +591,19 @@ app.post("/api/inventory/:id/images", async (request) => {
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
   const body = imageInputSchema.parse(request.body);
-  const item = await db.inventoryItem.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    },
-    include: {
-      images: true
-    }
+  const createdImage = await addInventoryImageForWorkspace(workspace.id, params.id, {
+    url: body.url,
+    kind: body.kind,
+    width: body.width ?? null,
+    height: body.height ?? null,
+    position: body.position
   });
 
-  if (!item) {
+  if (!createdImage) {
     throw app.httpErrors.notFound("Inventory item not found");
   }
 
-  const image = await db.imageAsset.create({
-    data: {
-      inventoryItemId: item.id,
-      url: body.url,
-      kind: body.kind,
-      width: body.width ?? null,
-      height: body.height ?? null,
-      position: body.position ?? item.images.length
-    }
-  });
+  const { image } = createdImage;
 
   return { image };
 });
@@ -591,12 +617,7 @@ app.post("/api/inventory/:id/generate-drafts", async (request) => {
       platforms: z.array(z.enum(["EBAY", "DEPOP"])).min(1)
     })
     .parse(request.body);
-  const item = await db.inventoryItem.findFirst({
-    where: {
-      id: params.id,
-      workspaceId: workspace.id
-    }
-  });
+  const item = await findInventoryItemForWorkspace(workspace.id, params.id);
 
   if (!item) {
     throw app.httpErrors.notFound("Inventory item not found");
@@ -641,22 +662,18 @@ app.patch("/api/drafts/:id", async (request) => {
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
   const body = draftUpdateSchema.parse(request.body);
-  const draft = await db.listingDraft.update({
-    where: {
-      id: params.id,
-      inventoryItem: {
-        workspaceId: workspace.id
-      }
-    },
-    data: {
-      generatedTitle: body.generatedTitle,
-      generatedDescription: body.generatedDescription,
-      generatedPrice: body.generatedPrice,
-      generatedTagsJson: body.generatedTags,
-      attributesJson: body.attributes,
-      reviewStatus: body.reviewStatus
-    }
+  const draft = await updateDraftForWorkspace(workspace.id, params.id, {
+    generatedTitle: body.generatedTitle,
+    generatedDescription: body.generatedDescription,
+    generatedPrice: body.generatedPrice,
+    generatedTagsJson: body.generatedTags,
+    attributesJson: body.attributes,
+    reviewStatus: body.reviewStatus
   });
+
+  if (!draft) {
+    throw app.httpErrors.notFound("Draft not found");
+  }
 
   return { draft };
 });
@@ -665,34 +682,18 @@ app.post("/api/drafts/:id/approve", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const draft = await db.listingDraft.update({
-    where: {
-      id: params.id,
-      inventoryItem: {
-        workspaceId: workspace.id
-      }
-    },
-    data: {
-      reviewStatus: "APPROVED"
-    }
-  });
+  const draft = await approveDraftForWorkspace(workspace.id, params.id);
 
-  await db.inventoryItem.update({
-    where: { id: draft.inventoryItemId },
-    data: {
-      status: "READY"
-    }
-  });
+  if (!draft) {
+    throw app.httpErrors.notFound("Draft not found");
+  }
 
   return { draft };
 });
 
 async function queuePublish(platform: "EBAY" | "DEPOP", inventoryItemId: string, workspaceId: string) {
   const [item, account, draft] = await Promise.all([
-    db.inventoryItem.findUnique({
-      where: { id: inventoryItemId },
-      include: { images: { orderBy: { position: "asc" } } }
-    }),
+    findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId),
     db.marketplaceAccount.findFirst({
       where: {
         workspaceId,
@@ -768,21 +769,7 @@ app.get("/api/listings/:id", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const listing = await db.platformListing.findFirst({
-    where: {
-      id: params.id,
-      inventoryItem: {
-        workspaceId: workspace.id
-      }
-    },
-    include: {
-      inventoryItem: true,
-      marketplaceAccount: true,
-      executionLogs: {
-        orderBy: { createdAt: "desc" }
-      }
-    }
-  });
+  const listing = await findPlatformListingDetailForWorkspace(workspace.id, params.id);
 
   if (!listing) {
     throw app.httpErrors.notFound("Listing not found");
@@ -795,14 +782,7 @@ app.post("/api/listings/:id/retry", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const params = z.object({ id: z.string().min(1) }).parse(request.params);
-  const listing = await db.platformListing.findFirst({
-    where: {
-      id: params.id,
-      inventoryItem: {
-        workspaceId: workspace.id
-      }
-    }
-  });
+  const listing = await findPlatformListingForWorkspace(workspace.id, params.id);
 
   if (!listing) {
     throw app.httpErrors.notFound("Listing not found");
@@ -812,7 +792,10 @@ app.post("/api/listings/:id/retry", async (request) => {
     where: {
       inventoryItemId: listing.inventoryItemId,
       platform: listing.platform,
-      reviewStatus: "APPROVED"
+      reviewStatus: "APPROVED",
+      inventoryItem: {
+        workspaceId: workspace.id
+      }
     }
   });
 
@@ -887,34 +870,18 @@ app.post("/api/sales/manual", async (request) => {
   const auth = await requireAuth(request);
   const workspace = await requireWorkspace(auth);
   const body = manualSaleSchema.parse(request.body);
-  const item = await db.inventoryItem.findFirst({
-    where: {
-      id: body.inventoryItemId,
-      workspaceId: workspace.id
-    }
+  const sale = await createManualSaleForWorkspace(workspace.id, {
+    inventoryItemId: body.inventoryItemId,
+    soldPrice: body.soldPrice,
+    fees: body.fees,
+    shippingCost: body.shippingCost,
+    soldAt: body.soldAt ? new Date(body.soldAt) : new Date(),
+    payoutStatus: body.payoutStatus
   });
 
-  if (!item) {
+  if (!sale) {
     throw app.httpErrors.notFound("Inventory item not found");
   }
-
-  const sale = await db.sale.create({
-    data: {
-      inventoryItemId: item.id,
-      soldPrice: body.soldPrice,
-      fees: body.fees,
-      shippingCost: body.shippingCost,
-      soldAt: body.soldAt ? new Date(body.soldAt) : new Date(),
-      payoutStatus: body.payoutStatus
-    }
-  });
-
-  await db.inventoryItem.update({
-    where: { id: item.id },
-    data: {
-      status: "SOLD"
-    }
-  });
 
   return { sale };
 });
@@ -941,7 +908,11 @@ app.setErrorHandler((error, request, reply) => {
   });
 });
 
-const bootstrap = async () => {
+export function buildApiApp(): FastifyInstance<any, any, any, any> {
+  return app as FastifyInstance<any, any, any, any>;
+}
+
+export async function startApiServer() {
   try {
     await app.listen({
       host: "0.0.0.0",
@@ -951,6 +922,8 @@ const bootstrap = async () => {
     app.log.error(error);
     process.exit(1);
   }
-};
+}
 
-bootstrap();
+if (process.env.RESELLEROS_DISABLE_API_BOOTSTRAP !== "1") {
+  void startApiServer();
+}

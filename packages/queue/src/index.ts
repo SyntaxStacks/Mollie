@@ -60,10 +60,16 @@ export const jobSchemas = {
 } as const;
 
 export type JobPayload<TName extends JobName> = z.infer<(typeof jobSchemas)[TName]>;
+type EnqueueHandler = <TName extends JobName>(
+  name: TName,
+  payload: JobPayload<TName>,
+  options?: { jobId?: string }
+) => Promise<unknown>;
 
 const mainQueueName = "reselleros";
 const connectorQueueName = "reselleros-connectors";
 const queues = new Map<string, Queue>();
+let enqueueHandler: EnqueueHandler | null = null;
 
 export function getQueueConnection(redisUrl = process.env.REDIS_URL ?? "redis://localhost:6379") {
   return {
@@ -109,9 +115,18 @@ export async function enqueueJob<TName extends JobName>(
   options?: { jobId?: string }
 ) {
   const parsed = jobSchemas[name].parse(payload);
+
+  if (enqueueHandler) {
+    return enqueueHandler(name, parsed, options);
+  }
+
   return getAppQueue(name).add(name, parsed, {
     jobId: options?.jobId
   });
+}
+
+export function setEnqueueHandler(handler: EnqueueHandler | null) {
+  enqueueHandler = handler;
 }
 
 export function buildIdempotencyKey(name: JobName, identifier: string) {

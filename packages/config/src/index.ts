@@ -28,7 +28,9 @@ const workerEnvSchema = baseEnvSchema.extend({
 
 const connectorEnvSchema = baseEnvSchema.extend({
   API_PORT: z.coerce.number().int().positive().default(4010),
-  CONNECTOR_CONCURRENCY: z.coerce.number().int().positive().default(1)
+  CONNECTOR_CONCURRENCY: z.coerce.number().int().positive().default(1),
+  CONNECTOR_FAILURE_THRESHOLD: z.coerce.number().int().positive().default(3),
+  ARTIFACT_BASE_DIR: z.string().default("tmp/artifacts")
 });
 
 const webEnvSchema = z.object({

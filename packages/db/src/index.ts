@@ -19,52 +19,18 @@ function nextSku() {
   return `SKU-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 }
 
-export async function createSession(email: string, name?: string | null) {
-  const user = await db.user.upsert({
-    where: { email },
-    update: {
-      name: name ?? undefined
-    },
-    create: {
-      email,
-      name: name ?? undefined
-    }
-  });
-
-  const session = await db.session.create({
-    data: {
-      token: crypto.randomUUID(),
-      userId: user.id,
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14)
-    }
-  });
-
-  const workspace = await db.workspace.findFirst({
-    where: {
-      ownerUserId: user.id
+export async function getWorkspaceForUser(userId: string) {
+  return db.workspaceMembership.findFirst({
+    where: { userId },
+    include: {
+      workspace: {
+        include: {
+          owner: true
+        }
+      }
     },
     orderBy: {
       createdAt: "asc"
-    }
-  });
-
-  return { user, session, workspace };
-}
-
-export async function getSessionByToken(token: string) {
-  return db.session.findUnique({
-    where: { token },
-    include: {
-      user: true
-    }
-  });
-}
-
-export async function getWorkspaceForUser(userId: string) {
-  return db.workspace.findFirst({
-    where: { ownerUserId: userId },
-    include: {
-      owner: true
     }
   });
 }
@@ -74,7 +40,34 @@ export async function createWorkspaceForUser(userId: string, name: string) {
     data: {
       ownerUserId: userId,
       name,
-      billingCustomerId: `cus_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`
+      billingCustomerId: `cus_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`,
+      memberships: {
+        create: {
+          userId,
+          role: "OWNER"
+        }
+      }
+    }
+  });
+}
+
+export async function listWorkspaceMembershipsForUser(userId: string) {
+  return db.workspaceMembership.findMany({
+    where: { userId },
+    include: {
+      workspace: true
+    },
+    orderBy: {
+      createdAt: "asc"
+    }
+  });
+}
+
+export async function updateWorkspaceConnectorAutomation(workspaceId: string, enabled: boolean) {
+  return db.workspace.update({
+    where: { id: workspaceId },
+    data: {
+      connectorAutomationEnabled: enabled
     }
   });
 }
@@ -217,6 +210,320 @@ export async function createInventoryItem(workspaceId: string, input: {
       imageManifestJson: []
     }
   });
+}
+
+export async function createMarketplaceAccountForWorkspace(
+  workspaceId: string,
+  input: {
+    platform: "EBAY" | "DEPOP";
+    displayName: string;
+    secretRef: string;
+  }
+) {
+  return db.marketplaceAccount.create({
+    data: {
+      workspaceId,
+      platform: input.platform,
+      displayName: input.displayName,
+      secretRef: input.secretRef,
+      status: "CONNECTED"
+    }
+  });
+}
+
+export async function markMarketplaceAccountConnectorFailure(input: {
+  marketplaceAccountId: string;
+  code: string;
+  message: string;
+  failureThreshold: number;
+}) {
+  const account = await db.marketplaceAccount.findUnique({
+    where: { id: input.marketplaceAccountId }
+  });
+
+  if (!account) {
+    return null;
+  }
+
+  const nextFailureCount = account.consecutiveFailureCount + 1;
+
+  return db.marketplaceAccount.update({
+    where: { id: account.id },
+    data: {
+      consecutiveFailureCount: nextFailureCount,
+      lastFailureAt: new Date(),
+      lastErrorCode: input.code,
+      lastErrorMessage: input.message,
+      status: nextFailureCount >= input.failureThreshold ? "ERROR" : account.status
+    }
+  });
+}
+
+export async function resetMarketplaceAccountConnectorHealth(marketplaceAccountId: string) {
+  return db.marketplaceAccount.update({
+    where: { id: marketplaceAccountId },
+    data: {
+      consecutiveFailureCount: 0,
+      lastFailureAt: null,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      status: "CONNECTED"
+    }
+  });
+}
+
+export async function disableMarketplaceAccountForWorkspace(workspaceId: string, accountId: string) {
+  const account = await db.marketplaceAccount.findFirst({
+    where: {
+      id: accountId,
+      workspaceId
+    }
+  });
+
+  if (!account) {
+    return null;
+  }
+
+  return db.marketplaceAccount.update({
+    where: { id: account.id },
+    data: {
+      status: "DISABLED"
+    }
+  });
+}
+
+export async function findSourceLotForWorkspace(workspaceId: string, lotId: string) {
+  return db.sourceLot.findFirst({
+    where: {
+      id: lotId,
+      workspaceId
+    }
+  });
+}
+
+export async function findSourceLotDetailForWorkspace(workspaceId: string, lotId: string) {
+  return db.sourceLot.findFirst({
+    where: {
+      id: lotId,
+      workspaceId
+    },
+    include: {
+      inventoryItems: {
+        include: {
+          images: true,
+          listingDrafts: true
+        }
+      }
+    }
+  });
+}
+
+export async function findInventoryItemForWorkspace(workspaceId: string, inventoryItemId: string) {
+  return db.inventoryItem.findFirst({
+    where: {
+      id: inventoryItemId,
+      workspaceId
+    }
+  });
+}
+
+export async function findInventoryItemDetailForWorkspace(workspaceId: string, inventoryItemId: string) {
+  return db.inventoryItem.findFirst({
+    where: {
+      id: inventoryItemId,
+      workspaceId
+    },
+    include: {
+      images: {
+        orderBy: { position: "asc" }
+      },
+      sourceLot: true,
+      listingDrafts: true,
+      platformListings: true,
+      sales: true
+    }
+  });
+}
+
+export async function findInventoryItemWithImagesForWorkspace(workspaceId: string, inventoryItemId: string) {
+  return db.inventoryItem.findFirst({
+    where: {
+      id: inventoryItemId,
+      workspaceId
+    },
+    include: {
+      images: {
+        orderBy: { position: "asc" }
+      }
+    }
+  });
+}
+
+export async function updateInventoryItemForWorkspace(
+  workspaceId: string,
+  inventoryItemId: string,
+  data: Prisma.InventoryItemUpdateInput
+) {
+  const item = await findInventoryItemForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  return db.inventoryItem.update({
+    where: { id: item.id },
+    data
+  });
+}
+
+export async function addInventoryImageForWorkspace(
+  workspaceId: string,
+  inventoryItemId: string,
+  input: {
+    url: string;
+    kind: "ORIGINAL" | "DERIVED";
+    width?: number | null;
+    height?: number | null;
+    position: number;
+  }
+) {
+  const item = await findInventoryItemWithImagesForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  const image = await db.imageAsset.create({
+    data: {
+      inventoryItemId: item.id,
+      url: input.url,
+      kind: input.kind,
+      width: input.width ?? null,
+      height: input.height ?? null,
+      position: input.position
+    }
+  });
+
+  return { item, image };
+}
+
+export async function findDraftForWorkspace(workspaceId: string, draftId: string) {
+  return db.listingDraft.findFirst({
+    where: {
+      id: draftId,
+      inventoryItem: {
+        workspaceId
+      }
+    }
+  });
+}
+
+export async function updateDraftForWorkspace(
+  workspaceId: string,
+  draftId: string,
+  data: Prisma.ListingDraftUpdateInput
+) {
+  const draft = await findDraftForWorkspace(workspaceId, draftId);
+
+  if (!draft) {
+    return null;
+  }
+
+  return db.listingDraft.update({
+    where: { id: draft.id },
+    data
+  });
+}
+
+export async function approveDraftForWorkspace(workspaceId: string, draftId: string) {
+  const draft = await findDraftForWorkspace(workspaceId, draftId);
+
+  if (!draft) {
+    return null;
+  }
+
+  const approvedDraft = await db.listingDraft.update({
+    where: { id: draft.id },
+    data: {
+      reviewStatus: "APPROVED"
+    }
+  });
+
+  await db.inventoryItem.update({
+    where: { id: approvedDraft.inventoryItemId },
+    data: {
+      status: "READY"
+    }
+  });
+
+  return approvedDraft;
+}
+
+export async function findPlatformListingForWorkspace(workspaceId: string, listingId: string) {
+  return db.platformListing.findFirst({
+    where: {
+      id: listingId,
+      inventoryItem: {
+        workspaceId
+      }
+    }
+  });
+}
+
+export async function findPlatformListingDetailForWorkspace(workspaceId: string, listingId: string) {
+  return db.platformListing.findFirst({
+    where: {
+      id: listingId,
+      inventoryItem: {
+        workspaceId
+      }
+    },
+    include: {
+      inventoryItem: true,
+      marketplaceAccount: true,
+      executionLogs: {
+        orderBy: { createdAt: "desc" }
+      }
+    }
+  });
+}
+
+export async function createManualSaleForWorkspace(
+  workspaceId: string,
+  input: {
+    inventoryItemId: string;
+    soldPrice: number;
+    fees: number;
+    shippingCost: number;
+    soldAt: Date;
+    payoutStatus: "PENDING" | "PAID" | "DISPUTED";
+  }
+) {
+  const item = await findInventoryItemForWorkspace(workspaceId, input.inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  const sale = await db.sale.create({
+    data: {
+      inventoryItemId: item.id,
+      soldPrice: input.soldPrice,
+      fees: input.fees,
+      shippingCost: input.shippingCost,
+      soldAt: input.soldAt,
+      payoutStatus: input.payoutStatus
+    }
+  });
+
+  await db.inventoryItem.update({
+    where: { id: item.id },
+    data: {
+      status: "SOLD"
+    }
+  });
+
+  return sale;
 }
 
 export async function addInventoryImage(inventoryItemId: string, input: {

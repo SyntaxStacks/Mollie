@@ -10,8 +10,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@reselleros/artifacts": "workspace:*",
     "@reselleros/config": "workspace:*",
     "@reselleros/db": "workspace:*",
+    "@reselleros/marketplaces": "workspace:*",
     "@reselleros/marketplaces-depop": "workspace:*",
     "@reselleros/observability": "workspace:*",
     "@reselleros/queue": "workspace:*",

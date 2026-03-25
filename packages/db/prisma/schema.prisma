@@ -69,25 +69,51 @@ enum ImageKind {
   DERIVED
 }
 
+enum WorkspaceRole {
+  OWNER
+  MEMBER
+}
+
 model User {
-  id          String      @id @default(cuid())
-  email       String      @unique
-  name        String?
-  createdAt   DateTime    @default(now())
-  sessions    Session[]
-  workspaces  Workspace[] @relation("WorkspaceOwner")
-  auditLogs   AuditLog[]
+  id               String                @id @default(cuid())
+  email            String                @unique
+  name             String?
+  createdAt        DateTime              @default(now())
+  sessions         Session[]
+  authChallenges   AuthChallenge[]
+  workspaces       Workspace[]           @relation("WorkspaceOwner")
+  memberships      WorkspaceMembership[]
+  auditLogs        AuditLog[]
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String   @id @default(cuid())
+  sessionTokenHash String   @unique
+  userId           String
+  expiresAt        DateTime
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+model AuthChallenge {
+  id             String   @id @default(cuid())
+  userId         String
+  email          String
+  codeHash       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  attemptCount   Int      @default(0)
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
 }
 
 model Workspace {
@@ -96,13 +122,28 @@ model Workspace {
   name               String
   plan               String               @default("pilot")
   billingCustomerId  String?
+  connectorAutomationEnabled Boolean      @default(true)
   createdAt          DateTime             @default(now())
   owner              User                 @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  memberships        WorkspaceMembership[]
   marketplaceAccounts MarketplaceAccount[]
   sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
   executionLogs      ExecutionLog[]
   auditLogs          AuditLog[]
+}
+
+model WorkspaceMembership {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(MEMBER)
+  createdAt   DateTime      @default(now())
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([userId, workspaceId])
 }
 
 model MarketplaceAccount {
@@ -112,6 +153,10 @@ model MarketplaceAccount {
   displayName    String
   status         MarketplaceAccountStatus @default(PENDING)
   secretRef      String
+  consecutiveFailureCount Int             @default(0)
+  lastFailureAt  DateTime?
+  lastErrorCode  String?
+  lastErrorMessage String?
   lastSyncAt     DateTime?
   createdAt      DateTime                 @default(now())
   workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -149,7 +194,7 @@ model InventoryItem {
   id                   String          @id @default(cuid())
   workspaceId          String
   sourceLotId          String?
-  sku                  String          @unique
+  sku                  String
   title                String
   brand                String?
   category             String
@@ -176,6 +221,7 @@ model InventoryItem {
 
   @@index([workspaceId, status])
   @@index([sourceLotId])
+  @@unique([workspaceId, sku])
 }
 
 model ImageAsset {
@@ -268,6 +314,7 @@ model ExecutionLog {
   platformListing     PlatformListing? @relation(fields: [platformListingId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, jobName, status, createdAt])
   @@index([correlationId])
 }
 

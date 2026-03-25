@@ -1,8 +1,27 @@
-import { createSession, createWorkspaceForUser, db, recordAuditLog } from "./index.js";
+import { createWorkspaceForUser, db, recordAuditLog } from "./index.js";
 
 async function main() {
-  const { user, workspace } = await createSession("demo@reselleros.local", "Demo Operator");
-  const activeWorkspace = workspace ?? (await createWorkspaceForUser(user.id, "Pilot Reseller"));
+  const user = await db.user.upsert({
+    where: { email: "demo@reselleros.local" },
+    update: {
+      name: "Demo Operator"
+    },
+    create: {
+      email: "demo@reselleros.local",
+      name: "Demo Operator"
+    }
+  });
+
+  const membership = await db.workspaceMembership.findFirst({
+    where: {
+      userId: user.id
+    },
+    include: {
+      workspace: true
+    }
+  });
+
+  const activeWorkspace = membership?.workspace ?? (await createWorkspaceForUser(user.id, "Pilot Reseller"));
 
   const inventory = await db.inventoryItem.create({
     data: {

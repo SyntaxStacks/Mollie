@@ -11,6 +11,8 @@
 - Route Depop jobs through `connector-runner` only.
 - Keep concurrency at `1` in Cloud Run for browser stability.
 - Persist screenshots or artifact links with every meaningful failure.
+- Disable a workspace from `/settings` if connector automation becomes unsafe.
+- Mark accounts unhealthy after repeated failures and avoid pretending they are still clean.
 
 ## General
 

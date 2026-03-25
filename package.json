@@ -9,6 +9,8 @@
     "dev:web": "pnpm --filter @reselleros/web dev",
     "dev:worker": "pnpm --filter @reselleros/worker dev",
     "dev:connector": "pnpm --filter @reselleros/connector-runner dev",
+    "test": "tsx --test tests/**/*.test.ts",
+    "test:e2e": "tsx --test tests/e2e/workflow.test.ts",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @reselleros/db db:generate",
     "db:migrate": "pnpm --filter @reselleros/db db:migrate",

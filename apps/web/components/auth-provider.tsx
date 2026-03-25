@@ -6,12 +6,30 @@ import { useRouter } from "next/navigation";
 type AuthState = {
   token: string | null;
   user: { id: string; email: string } | null;
-  workspace: { id: string; name: string; plan: string; billingCustomerId: string | null } | null;
+  workspace: {
+    id: string;
+    name: string;
+    plan: string;
+    billingCustomerId: string | null;
+    connectorAutomationEnabled?: boolean;
+  } | null;
+  workspaces: Array<{
+    id: string;
+    name: string;
+    plan: string;
+    billingCustomerId: string | null;
+    connectorAutomationEnabled?: boolean;
+  }>;
   hydrated: boolean;
 };
 
 type AuthContextValue = AuthState & {
-  login: (input: { token: string; user: { id: string; email: string }; workspace: AuthState["workspace"] }) => void;
+  login: (input: {
+    token: string;
+    user: { id: string; email: string };
+    workspace: AuthState["workspace"];
+    workspaces?: AuthState["workspaces"];
+  }) => void;
   logout: () => void;
   refreshMe: () => Promise<void>;
 };
@@ -26,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     token: null,
     user: null,
     workspace: null,
+    workspaces: [],
     hydrated: false
   });
 
@@ -50,6 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         token: null,
         user: null,
         workspace: null,
+        workspaces: [],
         hydrated: true
       });
       return;
@@ -58,12 +78,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const payload = (await response.json()) as {
       user: { id: string; email: string };
       workspace: AuthState["workspace"];
+      workspaces?: AuthState["workspaces"];
     };
 
     setState({
       token,
       user: payload.user,
       workspace: payload.workspace,
+      workspaces: payload.workspaces ?? (payload.workspace ? [payload.workspace] : []),
       hydrated: true
     });
   }, []);
@@ -82,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             token: input.token,
             user: input.user,
             workspace: input.workspace,
+            workspaces: input.workspaces ?? (input.workspace ? [input.workspace] : []),
             hydrated: true
           });
           router.push(input.workspace ? "/" : "/workspace");
@@ -92,6 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             token: null,
             user: null,
             workspace: null,
+            workspaces: [],
             hydrated: true
           });
           router.push("/onboarding");

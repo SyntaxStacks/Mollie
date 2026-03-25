@@ -9,7 +9,7 @@ Mollie is a TypeScript monorepo for the ResellerOS MVP: Mac.bid ingestion, AI va
 - `apps/worker`: BullMQ worker for lot analysis, draft generation, eBay publish, and sync jobs
 - `apps/connector-runner`: isolated BullMQ worker for Depop automation-class jobs
 - `apps/jobs`: scheduled job entrypoint for sync fanout
-- `packages/*`: shared config, DB, queue, AI, marketplace adapters, UI, and domain types
+- `packages/*`: shared config, auth, artifacts, DB, queue, AI, marketplace adapters, UI, and domain types
 
 ## Local setup
 
@@ -36,10 +36,11 @@ The default local ports are:
 
 - `pnpm typecheck`
 - `pnpm build`
+- `pnpm test:e2e`
 
 ## Key flows
 
-1. Sign in on `/onboarding`
+1. Request and verify a login code on `/onboarding`
 2. Create a workspace on `/workspace`
 3. Connect eBay and Depop on `/marketplaces`
 4. Import a Mac.bid lot on `/lots`
@@ -55,8 +56,29 @@ The default local ports are:
 - Cloud Run helper files live in `infra/cloudrun`.
 - PowerShell deployment helper: `infra/scripts/deploy-cloudrun.ps1`
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
+- Cloud Run deployment guide: `docs/deployment-cloudrun.md`
+
+Cloud Run is now configured around per-service runtime config:
+
+- non-secret env files:
+  - `infra/cloudrun/web.env.example.yaml`
+  - `infra/cloudrun/api.env.example.yaml`
+  - `infra/cloudrun/worker.env.example.yaml`
+  - `infra/cloudrun/connector-runner.env.example.yaml`
+  - `infra/cloudrun/jobs.env.example.yaml`
+- Secret Manager mappings:
+  - `infra/cloudrun/web.secrets.example.txt`
+  - `infra/cloudrun/api.secrets.example.txt`
+  - `infra/cloudrun/worker.secrets.example.txt`
+  - `infra/cloudrun/connector-runner.secrets.example.txt`
+  - `infra/cloudrun/jobs.secrets.example.txt`
+
+Example deploy:
+
+- `pwsh infra/scripts/deploy-cloudrun.ps1 -ProjectId my-project -App api -EnvFile infra/cloudrun/api.env.example.yaml -SecretsFile infra/cloudrun/api.secrets.example.txt -ServiceAccount reselleros-api@my-project.iam.gserviceaccount.com -CloudSqlInstance my-project:us-central1:reselleros`
 
 ## Notes
 
 - eBay and Depop publishing are currently simulated adapters with auditable queue flow and artifact hooks, so the MVP can be exercised before live connector hardening.
 - OpenAI usage is optional. If `OPENAI_API_KEY` is unset, deterministic fallback heuristics drive lot analysis and draft generation.
+- Connector-runner failures write local artifacts into `ARTIFACT_BASE_DIR` and mark repeated account failures in the database.

@@ -13,14 +13,19 @@ export default function OnboardingPage() {
   const auth = useAuth();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [challenge, setChallenge] = useState<{
+    email: string;
+    expiresAt: string;
+    devCode: string | null;
+  } | null>(null);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleRequestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
 
     startTransition(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/auth/login`, {
+        const response = await fetch(`${API_BASE_URL}/api/auth/request-code`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -31,19 +36,59 @@ export default function OnboardingPage() {
           })
         });
         const payload = (await response.json()) as {
-          token: string;
-          user: { id: string; email: string };
-          workspace: { id: string; name: string; plan: string; billingCustomerId: string | null } | null;
+          email: string;
+          expiresAt: string;
+          devCode: string | null;
           error?: string;
         };
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Could not sign in");
+          throw new Error(payload.error ?? "Could not request login code");
+        }
+
+        setChallenge({
+          email: payload.email,
+          expiresAt: payload.expiresAt,
+          devCode: payload.devCode
+        });
+        setError(null);
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Could not request login code");
+      }
+    });
+  }
+
+  async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/auth/verify-code`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            email: challenge?.email,
+            code: formData.get("code")
+          })
+        });
+        const payload = (await response.json()) as {
+          token: string;
+          user: { id: string; email: string };
+          workspace: { id: string; name: string; plan: string; billingCustomerId: string | null } | null;
+          workspaces?: Array<{ id: string; name: string; plan: string; billingCustomerId: string | null }>;
+          error?: string;
+        };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not verify login code");
         }
 
         auth.login(payload);
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Could not sign in");
+        setError(caughtError instanceof Error ? caughtError.message : "Could not verify login code");
       }
     });
   }
@@ -54,8 +99,8 @@ export default function OnboardingPage() {
         <div className="grid-2" style={{ maxWidth: 1100, width: "100%" }}>
           <Card eyebrow="MVP Promise" title="Buy smarter, list faster, track profit automatically.">
             <p className="muted">
-              This onboarding flow is intentionally lean for pilot users. Sign in with an email, create one workspace,
-              then connect marketplace accounts and start importing lots.
+              This onboarding flow is intentionally lean for pilot users. Request a login code, verify it, create one
+              workspace, then connect marketplace accounts and start importing lots.
             </p>
             <div className="stack muted">
               <span>Mac.bid manual URL ingestion</span>
@@ -65,20 +110,47 @@ export default function OnboardingPage() {
           </Card>
 
           <Card eyebrow="Access" title="Create your operator session">
-            <form className="stack" onSubmit={handleSubmit}>
-              <label className="label">
-                Name
-                <input className="field" name="name" placeholder="Pilot reseller" required />
-              </label>
-              <label className="label">
-                Email
-                <input className="field" name="email" placeholder="you@example.com" required type="email" />
-              </label>
-              {error ? <div className="notice">{error}</div> : null}
-              <Button type="submit" disabled={pending}>
-                {pending ? "Signing in…" : "Start MVP setup"}
-              </Button>
-            </form>
+            {!challenge ? (
+              <form className="stack" onSubmit={handleRequestCode}>
+                <label className="label">
+                  Name
+                  <input className="field" name="name" placeholder="Pilot reseller" required />
+                </label>
+                <label className="label">
+                  Email
+                  <input className="field" name="email" placeholder="you@example.com" required type="email" />
+                </label>
+                {error ? <div className="notice">{error}</div> : null}
+                <Button type="submit" disabled={pending}>
+                  {pending ? "Requesting code..." : "Send login code"}
+                </Button>
+              </form>
+            ) : (
+              <form className="stack" onSubmit={handleVerifyCode}>
+                <div className="notice">
+                  Login code issued for <strong>{challenge.email}</strong>. It expires at{" "}
+                  {new Date(challenge.expiresAt).toLocaleTimeString()}.
+                </div>
+                {challenge.devCode ? (
+                  <div className="notice">
+                    Development code: <strong>{challenge.devCode}</strong>
+                  </div>
+                ) : null}
+                <label className="label">
+                  6-digit code
+                  <input className="field" inputMode="numeric" maxLength={6} name="code" placeholder="123456" required />
+                </label>
+                {error ? <div className="notice">{error}</div> : null}
+                <div className="actions">
+                  <Button type="submit" disabled={pending}>
+                    {pending ? "Verifying..." : "Verify and continue"}
+                  </Button>
+                  <Button kind="ghost" onClick={() => setChallenge(null)}>
+                    Start over
+                  </Button>
+                </div>
+              </form>
+            )}
           </Card>
         </div>
       </div>

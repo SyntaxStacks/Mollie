@@ -16,7 +16,14 @@
 
 1. Open `/executions` and confirm whether the failure is in the main worker or connector runner.
 2. Inspect the correlated `execution_log` entry for payload and error detail.
-3. Re-approve the draft if needed, then retry from the listing endpoint or item detail view.
+3. Inspect the artifact paths recorded for the failed connector run under `ARTIFACT_BASE_DIR`.
+4. Re-approve the draft if needed, then retry from the listing endpoint or item detail view.
+
+## If Depop automation should be paused
+
+1. Open `/settings`.
+2. Disable connector automation for the workspace.
+3. Existing connector jobs will fail fast with a workspace-disabled classification until automation is re-enabled.
 
 ## If sales numbers look wrong
 

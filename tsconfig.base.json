@@ -18,6 +18,12 @@
       "@reselleros/ai": [
         "packages/ai/src/index.ts"
       ],
+      "@reselleros/artifacts": [
+        "packages/artifacts/src/index.ts"
+      ],
+      "@reselleros/auth": [
+        "packages/auth/src/index.ts"
+      ],
       "@reselleros/config": [
         "packages/config/src/index.ts"
       ],
