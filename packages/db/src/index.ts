@@ -100,6 +100,7 @@ export async function createExecutionLog(input: {
   platformListingId?: string | null;
   jobName: string;
   connector?: string | null;
+  attempt?: number;
   correlationId: string;
   requestPayload?: Prisma.InputJsonValue;
 }) {
@@ -110,6 +111,7 @@ export async function createExecutionLog(input: {
       platformListingId: input.platformListingId ?? null,
       jobName: input.jobName,
       connector: input.connector ?? null,
+      attempt: input.attempt ?? 1,
       correlationId: input.correlationId,
       requestPayloadJson: input.requestPayload
     }

@@ -95,6 +95,8 @@ The marketplace screen now surfaces eBay account readiness directly from the con
 
 Inventory detail now includes an eBay preflight view that surfaces whether a specific item is ready for simulated or live eBay publish, including blocked checks for images, approved draft, account state, live config, and category mapping. The same screen now lets operators edit the eBay draft title, price, and `ebayCategoryId` without leaving the item detail page.
 
+The executions screen now supports pilot debugging directly from the UI: operators can filter by status, search by full or partial `correlationId`, inspect request/response payloads and artifact paths, and retry failed publish jobs without leaving `/executions`.
+
 ## Deployment
 
 - Dockerfiles live in each runnable app directory.
