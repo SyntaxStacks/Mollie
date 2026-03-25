@@ -101,6 +101,12 @@ jobs:
       - name: Migrate Database
         run: pnpm --filter @reselleros/db exec prisma migrate deploy --schema prisma/schema.prisma
 
+      - name: Install Playwright Browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run UI E2E
+        run: pnpm test:ui
+
       - name: Run E2E
         run: pnpm test:e2e
 

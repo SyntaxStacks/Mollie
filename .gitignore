@@ -5,8 +5,10 @@ node_modules
 .turbo
 dist
 .next
+.next-ui-e2e
 .pnpm-store
 coverage
 prisma/dev.db
 tmp
 *.tsbuildinfo
+test-results

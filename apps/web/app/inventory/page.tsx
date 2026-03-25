@@ -30,7 +30,8 @@ export default function InventoryPage() {
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     startTransition(async () => {
       try {
@@ -60,7 +61,7 @@ export default function InventoryPage() {
         }
 
         setSubmitError(null);
-        event.currentTarget.reset();
+        form.reset();
         await refresh();
       } catch (caughtError) {
         setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create item");

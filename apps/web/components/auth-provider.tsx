@@ -56,14 +56,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      },
-      cache: "no-store"
-    });
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/auth/me`, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        },
+        cache: "no-store"
+      });
 
-    if (!response.ok) {
+      if (!response.ok) {
+        window.localStorage.removeItem("reselleros.token");
+        setState({
+          token: null,
+          user: null,
+          workspace: null,
+          workspaces: [],
+          hydrated: true
+        });
+        return;
+      }
+
+      const payload = (await response.json()) as {
+        user: { id: string; email: string };
+        workspace: AuthState["workspace"];
+        workspaces?: AuthState["workspaces"];
+      };
+
+      setState({
+        token,
+        user: payload.user,
+        workspace: payload.workspace,
+        workspaces: payload.workspaces ?? (payload.workspace ? [payload.workspace] : []),
+        hydrated: true
+      });
+    } catch {
       window.localStorage.removeItem("reselleros.token");
       setState({
         token: null,
@@ -72,22 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         workspaces: [],
         hydrated: true
       });
-      return;
     }
-
-    const payload = (await response.json()) as {
-      user: { id: string; email: string };
-      workspace: AuthState["workspace"];
-      workspaces?: AuthState["workspaces"];
-    };
-
-    setState({
-      token,
-      user: payload.user,
-      workspace: payload.workspace,
-      workspaces: payload.workspaces ?? (payload.workspace ? [payload.workspace] : []),
-      hydrated: true
-    });
   }, []);
 
   useEffect(() => {

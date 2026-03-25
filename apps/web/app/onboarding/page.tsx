@@ -1,16 +1,20 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button, Card } from "@reselleros/ui";
 
 import { ProtectedView } from "../../components/protected-view";
+import { getPostLoginPath } from "../../components/auth-flow";
 import { useAuth } from "../../components/auth-provider";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 export default function OnboardingPage() {
   const auth = useAuth();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [challenge, setChallenge] = useState<{
@@ -18,6 +22,14 @@ export default function OnboardingPage() {
     expiresAt: string;
     devCode: string | null;
   } | null>(null);
+
+  useEffect(() => {
+    if (!auth.hydrated || !auth.token) {
+      return;
+    }
+
+    router.replace(getPostLoginPath(Boolean(auth.workspace)));
+  }, [auth.hydrated, auth.token, auth.workspace, router]);
 
   async function handleRequestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

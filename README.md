@@ -49,6 +49,7 @@ Helpers that derive local connection URLs automatically:
 - `pnpm typecheck`
 - `pnpm test:contracts`
 - `pnpm build`
+- `pnpm test:ui`
 - `pnpm test:e2e`
 - `pnpm docker:smoke-build`
 - `pnpm docker:smoke-start`
@@ -61,6 +62,12 @@ The E2E suite covers:
 - live OAuth eBay publish through the worker path, including token refresh and listing persistence
 - Depop failure artifacts and connector health degradation
 - cross-workspace inventory isolation
+
+The UI E2E suite covers:
+
+- logged-out onboarding form visibility without a redirect trap
+- browser-based operator bootstrap from login code to workspace creation
+- post-workspace redirect back to the dashboard shell
 
 The API contract suite covers:
 
@@ -76,6 +83,7 @@ The CI workflow validates:
 - repo build
 - Prisma migration deploy on a clean database
 - E2E workflow coverage
+- isolated browser onboarding/workspace coverage
 - full image smoke builds
 - runtime container smoke starts for `api`, `worker`, `connector-runner`, `web`, and `jobs`
 
@@ -117,6 +125,7 @@ The canonical eBay operator truth model is now:
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
 - Local E2E helper: `infra/scripts/test-e2e.ps1`
 - Deterministic E2E runner: `infra/scripts/run-e2e.mjs`
+- Isolated UI E2E runner: `infra/scripts/run-ui-e2e.mjs`
 - Pilot deploy checklist: `docs/pilot-deploy-checklist.md`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { evaluateProtectedView } from "./auth-flow";
 import { useAuth } from "./auth-provider";
 
 export function ProtectedView({
@@ -14,32 +15,30 @@ export function ProtectedView({
 }) {
   const auth = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const decision = evaluateProtectedView({
+    hydrated: auth.hydrated,
+    token: auth.token,
+    hasWorkspace: Boolean(auth.workspace),
+    pathname,
+    requireWorkspace
+  });
 
   useEffect(() => {
-    if (!auth.hydrated) {
+    if (decision.kind !== "redirect") {
       return;
     }
 
-    if (!auth.token) {
-      router.replace("/onboarding");
-      return;
-    }
+    router.replace(decision.location);
+    window.setTimeout(() => {
+      if (window.location.pathname !== decision.location) {
+        window.location.replace(decision.location);
+      }
+    }, 150);
+  }, [decision, router]);
 
-    if (requireWorkspace && !auth.workspace) {
-      router.replace("/workspace");
-    }
-  }, [auth.hydrated, auth.token, auth.workspace, requireWorkspace, router]);
-
-  if (!auth.hydrated) {
-    return <div className="center-state">Loading session…</div>;
-  }
-
-  if (!auth.token) {
-    return <div className="center-state">Redirecting to onboarding…</div>;
-  }
-
-  if (requireWorkspace && !auth.workspace) {
-    return <div className="center-state">Redirecting to workspace setup…</div>;
+  if (decision.kind === "loading" || decision.kind === "redirect") {
+    return <div className="center-state">{decision.message}</div>;
   }
 
   return <>{children}</>;

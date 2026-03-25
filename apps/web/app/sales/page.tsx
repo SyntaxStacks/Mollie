@@ -32,7 +32,8 @@ export default function SalesPage() {
 
   async function handleManualSale(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     startTransition(async () => {
       const response = await fetch(`${API_BASE_URL}/api/sales/manual`, {
@@ -56,7 +57,7 @@ export default function SalesPage() {
       }
 
       setError(null);
-      event.currentTarget.reset();
+      form.reset();
       await sales.refresh();
       await inventory.refresh();
     });

@@ -13,6 +13,7 @@
     "test:contracts": "tsx --test tests/api/**/*.test.ts",
     "test:e2e": "node ./infra/scripts/run-e2e.mjs",
     "test:e2e:raw": "tsx --test tests/e2e/workflow.test.ts",
+    "test:ui": "node ./infra/scripts/run-ui-e2e.mjs",
     "test:e2e:local": "powershell -ExecutionPolicy Bypass -File infra/scripts/test-e2e.ps1",
     "docker:smoke-build": "powershell -ExecutionPolicy Bypass -File infra/scripts/smoke-build-images.ps1",
     "docker:smoke-start": "powershell -ExecutionPolicy Bypass -File infra/scripts/smoke-start-containers.ps1",
@@ -23,6 +24,7 @@
     "db:seed": "pnpm --filter @reselleros/db db:seed"
   },
   "devDependencies": {
+    "@playwright/test": "1.58.2",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

@@ -1,10 +1,13 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 import { Button, Card } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
+import { getWorkspaceSetupRedirect } from "../../components/auth-flow";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
 
@@ -12,8 +15,19 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 
 export default function WorkspacePage() {
   const auth = useAuth();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextPath = getWorkspaceSetupRedirect(auth.hydrated, Boolean(auth.workspace));
+
+    if (!nextPath) {
+      return;
+    }
+
+    router.replace(nextPath);
+  }, [auth.hydrated, auth.workspace, router]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,6 +52,7 @@ export default function WorkspacePage() {
         }
 
         await auth.refreshMe();
+        router.replace("/");
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Could not create workspace");
       }
