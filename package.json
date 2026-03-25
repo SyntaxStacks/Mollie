@@ -12,6 +12,7 @@
     "test": "tsx --test tests/**/*.test.ts",
     "test:e2e": "tsx --test tests/e2e/workflow.test.ts",
     "test:e2e:local": "powershell -ExecutionPolicy Bypass -File infra/scripts/test-e2e.ps1",
+    "docker:smoke-build": "powershell -ExecutionPolicy Bypass -File infra/scripts/smoke-build-images.ps1",
     "deploy:validate": "powershell -ExecutionPolicy Bypass -File infra/scripts/validate-cloudrun-config.ps1",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @reselleros/db db:generate",

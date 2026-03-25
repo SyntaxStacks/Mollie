@@ -2,23 +2,8 @@ param(
   [switch]$SkipInfra
 )
 
-function Import-EnvFile([string]$PathValue) {
-  Get-Content $PathValue |
-    ForEach-Object { $_.Trim() } |
-    Where-Object { $_ -and -not $_.StartsWith("#") } |
-    ForEach-Object {
-      $parts = $_ -split "=", 2
-      if ($parts.Length -eq 2) {
-        Set-Item -Path "Env:$($parts[0])" -Value $parts[1]
-      }
-    }
-}
-
-if (-not (Test-Path .env)) {
-  Copy-Item .env.example .env
-}
-
-Import-EnvFile ".env"
+. "$PSScriptRoot/local-env.ps1"
+$runtime = Use-LocalRuntimeEnv ".env"
 
 if (-not $SkipInfra) {
   docker compose --env-file .env up -d
@@ -27,12 +12,11 @@ if (-not $SkipInfra) {
 pnpm.cmd install
 pnpm.cmd --filter @reselleros/db db:generate
 
-$postgresHostPort = if ($env:POSTGRES_HOST_PORT) { $env:POSTGRES_HOST_PORT } else { "5432" }
-$redisHostPort = if ($env:REDIS_HOST_PORT) { $env:REDIS_HOST_PORT } else { "6379" }
-
 Write-Host "Local infrastructure:"
-Write-Host "  Postgres host port: $postgresHostPort"
-Write-Host "  Redis host port: $redisHostPort"
+Write-Host "  Postgres host port: $($runtime.PostgresHostPort)"
+Write-Host "  Redis host port: $($runtime.RedisHostPort)"
+Write-Host "  DATABASE_URL: $($runtime.DatabaseUrl)"
+Write-Host "  REDIS_URL: $($runtime.RedisUrl)"
 Write-Host ""
 Write-Host "Run these in separate terminals:"
 Write-Host "  pnpm.cmd dev:api"

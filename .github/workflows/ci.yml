@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  validate-build-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: reselleros
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d reselleros"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/reselleros
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/reselleros
+      REDIS_URL: redis://localhost:6379
+      SESSION_SECRET: ci-session-secret
+      APP_BASE_URL: http://localhost:3000
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:4000
+      GCS_BUCKET_UPLOADS: reselleros-ci-uploads
+      GCS_BUCKET_ARTIFACTS: reselleros-ci-artifacts
+      OPENAI_MODEL: gpt-4.1-mini
+      API_PORT: "4000"
+      WORKER_CONCURRENCY: "1"
+      CONNECTOR_CONCURRENCY: "1"
+      CONNECTOR_FAILURE_THRESHOLD: "3"
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+
+      - name: Setup PNPM
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Cloud Run Config
+        shell: pwsh
+        run: |
+          $apps = @(
+            @{ Name = "web"; ServiceAccount = $null },
+            @{ Name = "api"; ServiceAccount = "reselleros-api@example.iam.gserviceaccount.com" },
+            @{ Name = "worker"; ServiceAccount = "reselleros-worker@example.iam.gserviceaccount.com" },
+            @{ Name = "connector-runner"; ServiceAccount = "reselleros-connector@example.iam.gserviceaccount.com" },
+            @{ Name = "jobs"; ServiceAccount = "reselleros-jobs@example.iam.gserviceaccount.com" }
+          )
+          foreach ($app in $apps) {
+            if ($null -ne $app.ServiceAccount) {
+              ./infra/scripts/validate-cloudrun-config.ps1 -App $app.Name -ServiceAccount $app.ServiceAccount
+            }
+            else {
+              ./infra/scripts/validate-cloudrun-config.ps1 -App $app.Name
+            }
+          }
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @reselleros/db db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Migrate Database
+        run: pnpm --filter @reselleros/db exec prisma migrate deploy --schema prisma/schema.prisma
+
+      - name: Run E2E
+        run: pnpm test:e2e

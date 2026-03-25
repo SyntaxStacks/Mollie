@@ -4,23 +4,8 @@ param(
   [switch]$SkipMigrate
 )
 
-function Import-EnvFile([string]$PathValue) {
-  Get-Content $PathValue |
-    ForEach-Object { $_.Trim() } |
-    Where-Object { $_ -and -not $_.StartsWith("#") } |
-    ForEach-Object {
-      $parts = $_ -split "=", 2
-      if ($parts.Length -eq 2) {
-        Set-Item -Path "Env:$($parts[0])" -Value $parts[1]
-      }
-    }
-}
-
-if (-not (Test-Path .env)) {
-  Copy-Item .env.example .env
-}
-
-Import-EnvFile ".env"
+. "$PSScriptRoot/local-env.ps1"
+$null = Use-LocalRuntimeEnv ".env"
 
 if (-not $SkipInfra) {
   docker compose --env-file .env up -d

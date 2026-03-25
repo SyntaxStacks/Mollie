@@ -37,19 +37,33 @@ Local infra ports are now overrideable through `.env`:
 - `POSTGRES_HOST_PORT`
 - `REDIS_HOST_PORT`
 
-If you change those host ports, keep `DATABASE_URL`, `DIRECT_URL`, and `REDIS_URL` aligned with the same values.
+If `DATABASE_URL`, `DIRECT_URL`, or `REDIS_URL` are blank, the local PowerShell helpers derive them from `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST_PORT`, and `REDIS_HOST_PORT`. Explicit connection URLs still win if you set them.
+
+Helpers that derive local connection URLs automatically:
+
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/start-local.ps1`
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/test-e2e.ps1`
 
 ## Validation
 
 - `pnpm typecheck`
 - `pnpm build`
 - `pnpm test:e2e`
+- `pnpm docker:smoke-build`
 
 The E2E suite covers:
 
 - happy-path eBay publish workflow
 - Depop failure artifacts and connector health degradation
 - cross-workspace inventory isolation
+
+The CI workflow validates:
+
+- Cloud Run config presence for every service
+- repo typecheck
+- repo build
+- Prisma migration deploy on a clean database
+- E2E workflow coverage
 
 ## Key flows
 
@@ -69,6 +83,7 @@ The E2E suite covers:
 - Cloud Run helper files live in `infra/cloudrun`.
 - PowerShell deployment helper: `infra/scripts/deploy-cloudrun.ps1`
 - Cloud Run config validator: `infra/scripts/validate-cloudrun-config.ps1`
+- image smoke-build helper: `infra/scripts/smoke-build-images.ps1`
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
 - Local E2E helper: `infra/scripts/test-e2e.ps1`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
