@@ -12,7 +12,7 @@ COPY . .
 
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @reselleros/db db:generate
-RUN pnpm --filter @reselleros/connector-runner build
+RUN pnpm --filter @reselleros/connector-runner... build
 RUN pnpm --filter @reselleros/connector-runner deploy --legacy --prod /prod/connector-runner
 
 FROM node:22-bookworm-slim AS runner
@@ -27,5 +27,6 @@ RUN corepack enable
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /prod/connector-runner ./
+RUN pnpm --dir /app/node_modules/@reselleros/db db:generate
 
 CMD ["pnpm", "start"]

@@ -100,3 +100,37 @@ jobs:
 
       - name: Run E2E
         run: pnpm test:e2e
+
+  container-smoke:
+    runs-on: ubuntu-latest
+    needs: validate-build-test
+
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: reselleros
+      POSTGRES_HOST_PORT: "5432"
+      REDIS_HOST_PORT: "6379"
+
+    steps:
+      - name: Check Out
+        uses: actions/checkout@v4
+
+      - name: Smoke Build Images
+        shell: pwsh
+        run: ./infra/scripts/smoke-build-images.ps1
+
+      - name: Smoke Start Containers
+        shell: pwsh
+        run: ./infra/scripts/smoke-start-containers.ps1

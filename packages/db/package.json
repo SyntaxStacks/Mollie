@@ -15,9 +15,7 @@
   "dependencies": {
     "@prisma/client": "^6.5.0",
     "@reselleros/observability": "workspace:*",
-    "@reselleros/types": "workspace:*"
-  },
-  "devDependencies": {
+    "@reselleros/types": "workspace:*",
     "prisma": "^6.5.0"
   }
 }

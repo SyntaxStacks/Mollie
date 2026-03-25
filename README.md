@@ -50,6 +50,7 @@ Helpers that derive local connection URLs automatically:
 - `pnpm build`
 - `pnpm test:e2e`
 - `pnpm docker:smoke-build`
+- `pnpm docker:smoke-start`
 
 The E2E suite covers:
 
@@ -64,6 +65,8 @@ The CI workflow validates:
 - repo build
 - Prisma migration deploy on a clean database
 - E2E workflow coverage
+- full image smoke builds
+- runtime container smoke starts for `api`, `worker`, `connector-runner`, `web`, and `jobs`
 
 ## Key flows
 
@@ -84,6 +87,7 @@ The CI workflow validates:
 - PowerShell deployment helper: `infra/scripts/deploy-cloudrun.ps1`
 - Cloud Run config validator: `infra/scripts/validate-cloudrun-config.ps1`
 - image smoke-build helper: `infra/scripts/smoke-build-images.ps1`
+- container smoke-start helper: `infra/scripts/smoke-start-containers.ps1`
 - Local bootstrap helper: `infra/scripts/start-local.ps1`
 - Local E2E helper: `infra/scripts/test-e2e.ps1`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
@@ -112,3 +116,4 @@ Example deploy:
 - eBay and Depop publishing are currently simulated adapters with auditable queue flow and artifact hooks, so the MVP can be exercised before live connector hardening.
 - OpenAI usage is optional. If `OPENAI_API_KEY` is unset, deterministic fallback heuristics drive lot analysis and draft generation.
 - Connector-runner failures write local artifacts into `ARTIFACT_BASE_DIR` and mark repeated account failures in the database.
+- `jobs` includes a dedicated `JOBS_SMOKE_MODE=1` path so one-off container startup can be verified without requiring a live database fanout run.

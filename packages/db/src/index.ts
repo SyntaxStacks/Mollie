@@ -1,6 +1,9 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+import prismaClientPackage from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 
-const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
+const { PrismaClient } = prismaClientPackage;
+
+const globalForPrisma = globalThis as unknown as { prisma?: import("@prisma/client").PrismaClient };
 
 export const db =
   globalForPrisma.prisma ??
@@ -12,8 +15,7 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = db;
 }
 
-export { Prisma };
-export * from "@prisma/client";
+export type { Prisma };
 
 function nextSku() {
   return `SKU-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;

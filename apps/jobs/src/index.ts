@@ -7,6 +7,16 @@ const env = loadWorkerEnv();
 const logger = createLogger("jobs");
 
 async function main() {
+  if (process.env.JOBS_SMOKE_MODE === "1") {
+    logger.info(
+      {
+        environment: env.NODE_ENV
+      },
+      "jobs smoke check passed"
+    );
+    return;
+  }
+
   const listings = await db.platformListing.findMany({
     where: {
       status: {

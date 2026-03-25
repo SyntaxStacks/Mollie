@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 COPY . .
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @reselleros/web build
+RUN pnpm --filter @reselleros/web... build
 RUN pnpm --filter @reselleros/web deploy --legacy --prod /prod/web
 
 FROM node:22-bookworm-slim AS runner
