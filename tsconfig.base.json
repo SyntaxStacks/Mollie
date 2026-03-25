@@ -48,6 +48,9 @@
       "@reselleros/queue": [
         "packages/queue/src/index.ts"
       ],
+      "@reselleros/storage": [
+        "packages/storage/src/index.ts"
+      ],
       "@reselleros/types": [
         "packages/types/src/index.ts"
       ],

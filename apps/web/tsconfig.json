@@ -25,8 +25,7 @@
     "lib/**/*.ts",
     "lib/**/*.tsx",
     "next-env.d.ts",
-    ".next/types/**/*.ts",
-    ".next-ui-e2e/types/**/*.ts"
+    ".next/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

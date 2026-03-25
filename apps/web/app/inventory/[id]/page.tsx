@@ -17,6 +17,7 @@ export default function InventoryDetailPage() {
   const params = useParams<{ id: string }>();
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [ebayDraftForm, setEbayDraftForm] = useState({
     generatedTitle: "",
     generatedPrice: "",
@@ -95,32 +96,31 @@ export default function InventoryDetailPage() {
 
   async function addImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     startTransition(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}/images`, {
+        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}/images/upload`, {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
             Authorization: `Bearer ${auth.token}`
           },
-          body: JSON.stringify({
-            url: formData.get("url"),
-            position: Number(formData.get("position") || 0)
-          })
+          body: formData
         });
         const payload = (await response.json()) as { error?: string };
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Could not add image");
+          throw new Error(payload.error ?? "Could not upload image");
         }
 
-        event.currentTarget.reset();
+        form.reset();
         setSubmitError(null);
+        setUploadStatus("Image uploaded");
         await Promise.all([refresh(), ebayPreflight.refresh()]);
       } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not add image");
+        setUploadStatus(null);
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not upload image");
       }
     });
   }
@@ -259,22 +259,24 @@ export default function InventoryDetailPage() {
               <Card eyebrow="Images" title="Image gallery">
                 <form className="stack" onSubmit={addImage}>
                   <label className="label">
-                    Image URL
-                    <input className="field" name="url" placeholder="https://..." required />
+                    Upload image
+                    <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
                   </label>
                   <label className="label">
                     Position
                     <input className="field" min="0" name="position" type="number" defaultValue="0" />
                   </label>
                   <Button type="submit" disabled={pending}>
-                    Add image
+                    {pending ? "Uploading..." : "Upload image"}
                   </Button>
                 </form>
+                {uploadStatus ? <div className="notice execution-notice-success" style={{ marginTop: "1rem" }}>{uploadStatus}</div> : null}
                 <div className="stack" style={{ marginTop: "1rem" }}>
                   {data.item.images.map((image) => (
-                    <span className="muted" key={image.id}>
-                      {image.url}
-                    </span>
+                    <div className="image-upload-row" key={image.id}>
+                      <img alt={`${data.item.title} image`} className="image-upload-preview" src={image.url} />
+                      <span className="muted">{image.url}</span>
+                    </div>
                   ))}
                 </div>
               </Card>

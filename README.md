@@ -68,6 +68,7 @@ The UI E2E suite covers:
 - logged-out onboarding form visibility without a redirect trap
 - browser-based operator bootstrap from login code to workspace creation
 - post-workspace redirect back to the dashboard shell
+- inventory image upload from the browser with preview rendering
 
 The API contract suite covers:
 
@@ -94,14 +95,17 @@ The CI workflow validates:
 3. Connect eBay and Depop on `/marketplaces`
 4. Import a Mac.bid lot on `/lots`
 5. Convert a lot into inventory on `/lots/[id]`
-6. Generate and approve drafts from `/inventory/[id]` and `/drafts`
-7. Publish queued listings from `/inventory/[id]`
-8. Inspect runs on `/executions`
-9. Record sold items on `/sales`
+6. Upload photos or attach inventory images on `/inventory/[id]`
+7. Generate and approve drafts from `/inventory/[id]` and `/drafts`
+8. Publish queued listings from `/inventory/[id]`
+9. Inspect runs on `/executions`
+10. Record sold items on `/sales`
 
 The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually, the page shows the OAuth return result after redirect, and live eBay location/policy defaults can now be stored on the account instead of relying only on env configuration.
 
 Inventory detail now includes an eBay preflight view that surfaces whether a specific item is ready for simulated or live eBay publish, including blocked checks for images, approved draft, account state, live config, and category mapping. The same screen now lets operators edit the eBay draft title, price, and `ebayCategoryId` without leaving the item detail page.
+
+Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop preflight and publish flows.
 
 The executions screen now supports pilot debugging directly from the UI: operators can filter by status, search by full or partial `correlationId`, inspect request/response payloads and artifact paths, review retry attempts and related audit activity, and retry failed publish jobs without leaving `/executions`. Operator-facing execution payloads are redacted at the API boundary so tokens, auth headers, credential payloads, and raw secret refs do not leak into the support surface.
 

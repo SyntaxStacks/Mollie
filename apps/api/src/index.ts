@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
 import sensible from "@fastify/sensible";
 
@@ -19,6 +20,7 @@ export function buildApiApp(): ApiApp {
   app.register(cors, {
     origin: true
   });
+  app.register(multipart);
   app.register(sensible);
   app.register(rateLimit, {
     max: 100,

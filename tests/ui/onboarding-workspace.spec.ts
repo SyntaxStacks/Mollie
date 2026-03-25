@@ -1,7 +1,41 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
+}
+
+const tinyPng = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jX4sAAAAASUVORK5CYII=",
+  "base64"
+);
+
+async function onboardOperator(page: Page, options?: { workspaceName?: string }) {
+  const email = uniqueEmail("ui-onboarding");
+  const workspaceName = options?.workspaceName ?? "UI Test Workspace";
+
+  await page.goto("/onboarding");
+  await page.getByLabel(/^name$/i).fill("UI Pilot Operator");
+  await page.getByLabel(/^email$/i).fill(email);
+  await page.getByRole("button", { name: /send login code/i }).click();
+
+  const challengeNotice = page.locator(".notice").filter({ hasText: "Development code:" }).first();
+  await expect(challengeNotice).toBeVisible();
+
+  const challengeText = await challengeNotice.textContent();
+  const code = challengeText?.match(/\b(\d{6})\b/)?.[1];
+  expect(code).toBeTruthy();
+
+  await page.getByLabel(/6-digit code/i).fill(code ?? "");
+  await page.getByRole("button", { name: /verify and continue/i }).click();
+
+  await expect(page).toHaveURL(/\/workspace$/);
+  await expect(page.getByRole("heading", { name: /workspace setup/i })).toBeVisible();
+  await page.getByLabel(/workspace name/i).fill(workspaceName);
+  await page.getByRole("button", { name: /create workspace/i }).click();
+
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
+  await expect(page.getByText(workspaceName)).toBeVisible();
 }
 
 test("logged-out operators can access the onboarding form without a redirect trap", async ({ page }) => {
@@ -21,37 +55,39 @@ test("protected routes redirect logged-out operators into onboarding with client
 });
 
 test("operators can onboard, create a workspace, and get redirected into the app shell", async ({ page }) => {
-  const email = uniqueEmail("ui-onboarding");
-
-  await page.goto("/onboarding");
-  await page.getByLabel(/^name$/i).fill("UI Pilot Operator");
-  await page.getByLabel(/^email$/i).fill(email);
-  await page.getByRole("button", { name: /send login code/i }).click();
-
-  const challengeNotice = page.locator(".notice").filter({ hasText: "Development code:" }).first();
-  await expect(challengeNotice).toBeVisible();
-
-  const challengeText = await challengeNotice.textContent();
-  const code = challengeText?.match(/\b(\d{6})\b/)?.[1];
-  expect(code).toBeTruthy();
-
-  await page.getByLabel(/6-digit code/i).fill(code ?? "");
-  await page.getByRole("button", { name: /verify and continue/i }).click();
-
-  await expect(page).toHaveURL(/\/workspace$/);
-  await expect(page.getByRole("heading", { name: /workspace setup/i })).toBeVisible();
-
+  await onboardOperator(page);
   const storedToken = await page.evaluate(() => window.localStorage.getItem("reselleros.token"));
   expect(storedToken).toBeTruthy();
-
-  await page.getByLabel(/workspace name/i).fill("UI Test Workspace");
-  await page.getByRole("button", { name: /create workspace/i }).click();
-
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
-  await expect(page.getByText("UI Test Workspace")).toBeVisible();
 
   await page.goto("/workspace");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
+});
+
+test("operators can create inventory and upload a real image file from the browser", async ({ page }) => {
+  const title = `UI Upload Item ${Date.now()}`;
+
+  await onboardOperator(page, {
+    workspaceName: "UI Upload Workspace"
+  });
+
+  await page.goto("/inventory");
+  await page.getByLabel(/^title$/i).fill(title);
+  await page.getByRole("button", { name: /create item/i }).click();
+
+  const itemLink = page.getByRole("link", { name: title });
+  await expect(itemLink).toBeVisible();
+  await itemLink.click();
+
+  await expect(page).toHaveURL(/\/inventory\/.+/);
+  await page.setInputFiles('input[name="image"]', {
+    name: "pilot-photo.png",
+    mimeType: "image/png",
+    buffer: tinyPng
+  });
+  await page.locator('button[type="submit"]').filter({ hasText: /^Upload image$/i }).click();
+
+  await expect(page.getByText(/image uploaded/i)).toBeVisible();
+  await expect(page.locator("img.image-upload-preview")).toBeVisible();
+  await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();
 });

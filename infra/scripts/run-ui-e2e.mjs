@@ -1,4 +1,6 @@
+import { readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
+import path from "node:path";
 
 import { logResolvedRuntimeTargets, probeLocalDatabase, resolveTestRuntimeEnv } from "./test-runtime-env.mjs";
 
@@ -7,6 +9,8 @@ const webPort = "3100";
 const apiBaseUrl = `http://127.0.0.1:${apiPort}`;
 const appBaseUrl = `http://127.0.0.1:${webPort}`;
 const rootDir = process.cwd();
+const nextEnvPath = path.join(rootDir, "apps", "web", "next-env.d.ts");
+const originalNextEnv = readFileSync(nextEnvPath, "utf8");
 const runtime = resolveTestRuntimeEnv(rootDir, {
   envVarName: "RESELLEROS_UI_E2E_ENV_FILE",
   label: "UI E2E",
@@ -23,6 +27,14 @@ const runtime = resolveTestRuntimeEnv(rootDir, {
   }
 });
 const childEnv = runtime.childEnv;
+
+function restoreNextEnv() {
+  const currentNextEnv = readFileSync(nextEnvPath, "utf8");
+
+  if (currentNextEnv !== originalNextEnv) {
+    writeFileSync(nextEnvPath, originalNextEnv, "utf8");
+  }
+}
 
 logResolvedRuntimeTargets("UI E2E", rootDir, runtime, {
   APP_BASE_URL: appBaseUrl,
@@ -44,6 +56,8 @@ const child =
       });
 
 child.on("exit", (code, signal) => {
+  restoreNextEnv();
+
   if (signal) {
     process.kill(process.pid, signal);
     return;
@@ -53,6 +67,7 @@ child.on("exit", (code, signal) => {
 });
 
 child.on("error", (error) => {
+  restoreNextEnv();
   console.error(error);
   process.exit(1);
 });

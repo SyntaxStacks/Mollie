@@ -14,9 +14,42 @@ import {
 } from "@reselleros/db";
 import { getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
 import { buildIdempotencyKey, enqueueJob } from "@reselleros/queue";
+import {
+  acceptedImageContentTypes,
+  inferContentTypeFromStorageKey,
+  localUploadExists,
+  maxInventoryImageBytes,
+  openLocalUploadStream,
+  uploadInventoryImage
+} from "@reselleros/storage";
 import { imageInputSchema, inventoryInputSchema } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+
+function resolveApiPublicBaseUrl(request: {
+  protocol?: string;
+  headers: Record<string, unknown>;
+}) {
+  const configured =
+    process.env.API_PUBLIC_BASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+    null;
+
+  if (configured) {
+    return configured.replace(/\/$/, "");
+  }
+
+  const forwardedProto = typeof request.headers["x-forwarded-proto"] === "string" ? request.headers["x-forwarded-proto"] : null;
+  const forwardedHost = typeof request.headers["x-forwarded-host"] === "string" ? request.headers["x-forwarded-host"] : null;
+  const host = forwardedHost ?? (typeof request.headers.host === "string" ? request.headers.host : null);
+  const protocol = forwardedProto ?? request.protocol ?? "http";
+
+  if (!host) {
+    return (process.env.APP_BASE_URL ?? "http://localhost:4000").replace(/\/$/, "");
+  }
+
+  return `${protocol}://${host}`;
+}
 
 async function queuePublish(
   app: ApiApp,
@@ -208,6 +241,106 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     }
 
     return { image: createdImage.image };
+  });
+
+  app.post("/api/inventory/:id/images/upload", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const item = await findInventoryItemForWorkspace(workspace.id, params.id);
+
+    if (!item) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    const file = await request.file({
+      limits: {
+        files: 1,
+        fileSize: maxInventoryImageBytes
+      }
+    });
+
+    if (!file) {
+      throw app.httpErrors.badRequest("Choose an image file to upload");
+    }
+
+    if (!acceptedImageContentTypes.has(file.mimetype)) {
+      throw app.httpErrors.unsupportedMediaType("Upload a JPG, PNG, WEBP, or GIF image");
+    }
+
+    const positionValue = file.fields.position;
+    const position =
+      positionValue && "value" in positionValue && typeof positionValue.value === "string"
+        ? Number(positionValue.value)
+        : 0;
+
+    if (!Number.isFinite(position) || position < 0) {
+      throw app.httpErrors.badRequest("Position must be a non-negative number");
+    }
+
+    const upload = await uploadInventoryImage({
+      workspaceId: workspace.id,
+      inventoryItemId: params.id,
+      filename: file.filename,
+      contentType: file.mimetype,
+      buffer: await file.toBuffer(),
+      publicBaseUrl: resolveApiPublicBaseUrl(request)
+    });
+
+    const createdImage = await addInventoryImageForWorkspace(workspace.id, item.id, {
+      url: upload.url,
+      kind: "ORIGINAL",
+      position,
+      width: null,
+      height: null
+    });
+
+    if (!createdImage) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "inventory.image_uploaded",
+      targetType: "inventory_item",
+      targetId: item.id,
+      metadata: {
+        storageKey: upload.storageKey,
+        contentType: upload.contentType,
+        size: upload.size
+      }
+    });
+
+    return { image: createdImage.image };
+  });
+
+  app.get("/api/uploads/*", async (request, reply) => {
+    const wildcard = (request.params as { "*": string })["*"];
+
+    if (!wildcard) {
+      throw app.httpErrors.notFound("Upload not found");
+    }
+
+    const storageKey = wildcard
+      .split("/")
+      .map((segment) => decodeURIComponent(segment))
+      .join("/");
+    const exists = await localUploadExists(storageKey);
+
+    if (!exists) {
+      throw app.httpErrors.notFound("Upload not found");
+    }
+
+    const stream = openLocalUploadStream(storageKey);
+
+    if (!stream) {
+      throw app.httpErrors.notFound("Upload not found");
+    }
+
+    reply.header("Cache-Control", "public, max-age=31536000, immutable");
+    reply.type(inferContentTypeFromStorageKey(storageKey));
+    return reply.send(stream);
   });
 
   app.post("/api/inventory/:id/generate-drafts", async (request) => {
