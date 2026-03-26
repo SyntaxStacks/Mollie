@@ -338,8 +338,28 @@ body {
   gap: 1rem;
 }
 
-.inventory-middle-grid {
-  align-items: start;
+.inventory-section {
+  min-width: 0;
+}
+
+.inventory-section-summary {
+  order: 2;
+}
+
+.inventory-section-images {
+  order: 1;
+}
+
+.inventory-section-preflight {
+  order: 3;
+}
+
+.inventory-section-readiness {
+  order: 4;
+}
+
+.inventory-section-draft {
+  order: 5;
 }
 
 .inventory-summary-card .rs-card-header,
@@ -390,7 +410,11 @@ body {
   gap: 1rem;
 }
 
-.inventory-image-form-mobile {
+.inventory-handoff-button {
+  white-space: nowrap;
+}
+
+.inventory-image-form {
   gap: 1rem;
 }
 
@@ -411,6 +435,11 @@ body {
 
 .inventory-image-url {
   overflow-wrap: anywhere;
+}
+
+.inventory-image-actions .rs-button,
+.inventory-primary-actions .rs-button {
+  min-height: 46px;
 }
 
 .inventory-preflight-meta {
@@ -527,11 +556,13 @@ body {
     font-size: 1.85rem;
   }
 
-  .inventory-hero-strip,
-  .handoff-qr-panel {
-    grid-template-columns: 1fr;
+  .inventory-hero-strip {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .handoff-qr-panel {
+    grid-template-columns: 1fr;
   }
 
   .inventory-device-note,
@@ -539,33 +570,35 @@ body {
     border-radius: 18px;
   }
 
-  .inventory-meta-grid,
-  .inventory-meta-grid-mobile {
+  .inventory-detail-shell {
+    gap: 1rem;
+  }
+
+  .inventory-meta-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .inventory-summary-card-mobile .metric {
+  .inventory-summary-card .metric {
     padding: 0.85rem;
   }
 
-  .inventory-summary-card-mobile .metric strong {
+  .inventory-summary-card .metric strong {
     font-size: 1.2rem;
   }
 
-  .inventory-images-card-mobile .rs-card,
-  .inventory-images-card-mobile {
-    position: relative;
+  .inventory-handoff-button {
+    display: none;
   }
 
-  .inventory-mobile-actions,
-  .inventory-mobile-image-actions {
+  .inventory-primary-actions,
+  .inventory-image-actions {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .inventory-mobile-image-actions .rs-button,
-  .inventory-mobile-actions .rs-button,
-  .inventory-image-form-mobile .rs-button {
+  .inventory-image-actions .rs-button,
+  .inventory-primary-actions .rs-button,
+  .inventory-image-form .rs-button {
     min-height: 48px;
     justify-content: center;
   }
@@ -578,8 +611,7 @@ body {
     max-width: 100%;
   }
 
-  .inventory-preflight-card-mobile .split,
-  .inventory-preflight-check-mobile {
+  .inventory-preflight-check {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -591,5 +623,42 @@ body {
 
   .handoff-qr-shell {
     min-height: 180px;
+  }
+}
+
+@media (min-width: 769px) {
+  .inventory-detail-shell {
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+    grid-template-areas:
+      "summary summary"
+      "images readiness"
+      "draft draft"
+      "preflight preflight";
+    align-items: start;
+  }
+
+  .inventory-section-summary {
+    grid-area: summary;
+    order: initial;
+  }
+
+  .inventory-section-images {
+    grid-area: images;
+    order: initial;
+  }
+
+  .inventory-section-readiness {
+    grid-area: readiness;
+    order: initial;
+  }
+
+  .inventory-section-draft {
+    grid-area: draft;
+    order: initial;
+  }
+
+  .inventory-section-preflight {
+    grid-area: preflight;
+    order: initial;
   }
 }

@@ -10,6 +10,13 @@ Use one env file and one Secret Manager mapping file per runnable service. The d
 - `infra/cloudrun/connector-runner.env.example.yaml`
 - `infra/cloudrun/jobs.env.example.yaml`
 
+For the current Mollie production shape, the public URLs should be:
+
+- `APP_BASE_URL=https://mollie.biz`
+- `API_PUBLIC_BASE_URL=https://api.mollie.biz`
+- `NEXT_PUBLIC_API_BASE_URL=https://api.mollie.biz`
+- `EBAY_REDIRECT_URI=https://api.mollie.biz/api/marketplace-accounts/ebay/oauth/callback`
+
 ## Secret Mapping Files
 
 Each secret file is line-based:
@@ -26,6 +33,8 @@ SESSION_SECRET=reselleros-session-secret:latest
 ```
 
 The API, worker, connector-runner, and jobs services each have example secret files in `infra/cloudrun`.
+
+Do not put public URL config in Secret Manager mappings. Keep domain and callback values in the env YAML files so they stay visible and reviewable.
 
 ## Recommended Service Accounts
 
@@ -95,6 +104,15 @@ pwsh infra/scripts/validate-cloudrun-config.ps1 `
 ## Notes
 
 - Keep `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, auth secrets, Stripe secrets, and marketplace secrets in Secret Manager.
-- Keep bucket names, concurrency, ports, and public URLs in the env file.
+- Keep bucket names, concurrency, ports, public URLs, and OAuth callback URLs in the env file.
 - Use `internal` ingress for worker-style services.
 - Use explicit `-MinInstances`, `-MaxInstances`, `-Cpu`, and `-Memory` overrides when a service needs non-default sizing.
+
+## Custom Domains
+
+After the services are deployed, map:
+
+- `mollie.biz` -> `reselleros-web`
+- `api.mollie.biz` -> `reselleros-api`
+
+Then point your DNS at the Cloud Run domain mappings before enabling the production eBay OAuth callback.

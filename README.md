@@ -152,6 +152,14 @@ Cloud Run is now configured around per-service runtime config:
   - `infra/cloudrun/connector-runner.secrets.example.txt`
   - `infra/cloudrun/jobs.secrets.example.txt`
 
+Production domain defaults are now wired around:
+
+- web: `https://mollie.biz`
+- api: `https://api.mollie.biz`
+- eBay OAuth callback: `https://api.mollie.biz/api/marketplace-accounts/ebay/oauth/callback`
+
+Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings.
+
 Example deploy:
 
 - `pwsh infra/scripts/deploy-cloudrun.ps1 -ProjectId my-project -App api -EnvFile infra/cloudrun/api.env.example.yaml -SecretsFile infra/cloudrun/api.secrets.example.txt -ServiceAccount reselleros-api@my-project.iam.gserviceaccount.com -CloudSqlInstance my-project:us-central1:reselleros`

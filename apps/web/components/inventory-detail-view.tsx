@@ -64,7 +64,6 @@ type InventoryDetailViewProps = {
   onGenerateDrafts: () => void;
   onPublishEbay: () => void;
   onPublishDepop: () => void;
-  isMobile: boolean;
   handoffUrl: string;
   continuityNotice: string | null;
   lastSyncedLabel: string | null;
@@ -192,7 +191,6 @@ function ContinueOnMobileModal({
 function InventoryHeroCard({
   item,
   pending,
-  isMobile,
   lastSyncedLabel,
   continuityNotice,
   onGenerateDrafts,
@@ -202,7 +200,6 @@ function InventoryHeroCard({
 }: {
   item: InventoryDetailRecord;
   pending: boolean;
-  isMobile: boolean;
   lastSyncedLabel: string | null;
   continuityNotice: string | null;
   onGenerateDrafts: () => void;
@@ -213,7 +210,7 @@ function InventoryHeroCard({
   return (
     <Card
       action={<StatusPill status={item.status} />}
-      className={`inventory-summary-card ${isMobile ? "inventory-summary-card-mobile" : ""}`}
+      className="inventory-summary-card"
       eyebrow={item.sku}
       title={item.title}
     >
@@ -222,11 +219,9 @@ function InventoryHeroCard({
           <Smartphone size={16} />
           <span>Desktop is the control surface. Mobile is the fastest way to capture photos.</span>
         </div>
-        {!isMobile ? (
-          <Button data-testid="continue-on-mobile-trigger" kind="secondary" onClick={onOpenHandoff}>
-            <Smartphone size={16} /> Continue on mobile
-          </Button>
-        ) : null}
+        <Button className="inventory-handoff-button" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={onOpenHandoff}>
+          <Smartphone size={16} /> Continue on mobile
+        </Button>
       </div>
       {continuityNotice ? (
         <div className="continuity-note" role="status">
@@ -235,7 +230,7 @@ function InventoryHeroCard({
         </div>
       ) : null}
       {lastSyncedLabel ? <p className="inventory-sync-copy">Continuity refresh active. Last checked {lastSyncedLabel}.</p> : null}
-      <div className={`inventory-meta-grid ${isMobile ? "inventory-meta-grid-mobile" : ""}`}>
+      <div className="inventory-meta-grid">
         <div className="metric">
           <span className="muted">Recommended price</span>
           <strong>{currency(item.priceRecommendation)}</strong>
@@ -255,7 +250,7 @@ function InventoryHeroCard({
           <strong>{item.condition}</strong>
         </div>
       </div>
-      <div className={`actions ${isMobile ? "inventory-mobile-actions" : ""}`}>
+      <div className="actions inventory-primary-actions">
         <Button disabled={pending} onClick={onGenerateDrafts}>
           Generate drafts
         </Button>
@@ -277,8 +272,7 @@ function InventoryImagesCard({
   submitError,
   onAddImage,
   onDeleteImage,
-  onMoveImage,
-  isMobile
+  onMoveImage
 }: {
   item: InventoryDetailRecord;
   pending: boolean;
@@ -287,18 +281,17 @@ function InventoryImagesCard({
   onAddImage: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteImage: (imageId: string) => void;
   onMoveImage: (imageId: string, direction: -1 | 1) => void;
-  isMobile: boolean;
 }) {
   return (
     <Card
-      className={`inventory-images-card ${isMobile ? "inventory-images-card-mobile" : ""}`}
-      eyebrow={isMobile ? "Mobile capture surface" : "Images"}
-      title={isMobile ? "Photo capture" : "Image gallery"}
+      className="inventory-images-card"
+      eyebrow="Mobile capture surface"
+      title="Photo capture"
     >
       <p className="inventory-section-copy">
         Upload, reorder, or delete photos here. The same item page works on desktop and phone.
       </p>
-      <form className={`stack ${isMobile ? "inventory-image-form-mobile" : ""}`} onSubmit={onAddImage}>
+      <form className="stack inventory-image-form" onSubmit={onAddImage}>
         <label className="label">
           Upload image
           <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
@@ -324,7 +317,7 @@ function InventoryImagesCard({
                 <span className="muted">Position {image.position + 1}</span>
               </div>
               <span className="muted inventory-image-url">{image.url}</span>
-              <div className={`actions ${isMobile ? "inventory-mobile-image-actions" : ""}`}>
+              <div className="actions inventory-image-actions">
                 <Button
                   disabled={pending || index === 0}
                   kind="secondary"
@@ -471,19 +464,16 @@ function EbayDraftCard({
 
 function EbayPreflightCard({
   preflight,
-  error,
-  isMobile
+  error
 }: {
   preflight: InventoryPreflightRecord | null;
   error: string | null;
-  isMobile: boolean;
 }) {
   return (
     <Card
       action={preflight ? <StatusPill status={preflight.state ?? (preflight.ready ? "READY" : "BLOCKED")} /> : null}
-      className={isMobile ? "inventory-preflight-card-mobile" : ""}
       eyebrow={preflight?.state ?? (preflight?.mode === "live" ? "Live eBay" : "Simulated eBay")}
-      title={isMobile ? "Publish readiness" : "eBay publish preflight"}
+      title="Publish readiness"
     >
       {error ? <div className="notice">{error}</div> : null}
       {!preflight ? (
@@ -497,7 +487,7 @@ function EbayPreflightCard({
             <span>Mode: {preflight.mode}</span>
           </div>
           {preflight.checks.map((check) => (
-            <div className={`split ${isMobile ? "inventory-preflight-check-mobile" : ""}`} key={check.key}>
+            <div className="split inventory-preflight-check" key={check.key}>
               <div>
                 <strong>{check.label}</strong>
                 <div className="muted">{check.detail}</div>
@@ -522,7 +512,6 @@ export function InventoryDetailView({
   onGenerateDrafts,
   onPublishEbay,
   onPublishDepop,
-  isMobile,
   handoffUrl,
   continuityNotice,
   lastSyncedLabel,
@@ -539,7 +528,6 @@ export function InventoryDetailView({
   const summaryCard = (
     <InventoryHeroCard
       continuityNotice={continuityNotice}
-      isMobile={isMobile}
       item={item}
       lastSyncedLabel={lastSyncedLabel}
       onGenerateDrafts={onGenerateDrafts}
@@ -552,7 +540,6 @@ export function InventoryDetailView({
 
   const imagesCard = (
     <InventoryImagesCard
-      isMobile={isMobile}
       item={item}
       onAddImage={onAddImage}
       onDeleteImage={onDeleteImage}
@@ -574,30 +561,16 @@ export function InventoryDetailView({
       pending={pending}
     />
   );
-  const preflightCard = <EbayPreflightCard error={ebayPreflightError} isMobile={isMobile} preflight={ebayPreflight} />;
+  const preflightCard = <EbayPreflightCard error={ebayPreflightError} preflight={ebayPreflight} />;
 
   return (
     <>
-      <div className="inventory-detail-shell" data-view-mode={isMobile ? "mobile" : "desktop"}>
-        {isMobile ? (
-          <>
-            {imagesCard}
-            {summaryCard}
-            {preflightCard}
-            {readinessCard}
-            {draftCard}
-          </>
-        ) : (
-          <>
-            {summaryCard}
-            <div className="grid-2 inventory-middle-grid">
-              {imagesCard}
-              {readinessCard}
-            </div>
-            {draftCard}
-            {preflightCard}
-          </>
-        )}
+      <div className="inventory-detail-shell">
+        <section className="inventory-section inventory-section-summary">{summaryCard}</section>
+        <section className="inventory-section inventory-section-images">{imagesCard}</section>
+        <section className="inventory-section inventory-section-readiness">{readinessCard}</section>
+        <section className="inventory-section inventory-section-draft">{draftCard}</section>
+        <section className="inventory-section inventory-section-preflight">{preflightCard}</section>
       </div>
       <ContinueOnMobileModal onClose={() => setHandoffOpen(false)} open={handoffOpen} title={item.title} url={handoffUrl} />
     </>

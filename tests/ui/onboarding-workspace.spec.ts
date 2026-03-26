@@ -103,7 +103,7 @@ test.describe("inventory continuity on mobile", () => {
   });
 
   test("operators can use the same inventory route for photo-first mobile work", async ({ page }) => {
-  const title = `UI Upload Item ${Date.now()}`;
+    const title = `UI Upload Item ${Date.now()}`;
 
     await onboardOperator(page, {
       workspaceName: "UI Upload Workspace"
@@ -111,8 +111,14 @@ test.describe("inventory continuity on mobile", () => {
 
     await createInventoryItem(page, title);
 
-    await expect(page.locator('[data-view-mode="mobile"]')).toBeVisible();
-    await expect(page.locator("section h3").first()).toHaveText(/photo capture/i);
+    const photoHeading = page.getByRole("heading", { name: /photo capture/i });
+    const summaryHeading = page.getByRole("heading", { name: new RegExp(title, "i") });
+
+    await expect(photoHeading).toBeVisible();
+    await expect(summaryHeading).toBeVisible();
+    const photoBox = await photoHeading.boundingBox();
+    const summaryBox = await summaryHeading.boundingBox();
+    expect(photoBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(summaryBox?.y ?? Number.POSITIVE_INFINITY);
     await expect(page.getByRole("heading", { name: /publish readiness/i })).toBeVisible();
     const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /photo capture/i }) }).first();
 
@@ -146,7 +152,7 @@ test.describe("inventory continuity on mobile", () => {
     await expect(page.getByText(/image deleted/i)).toBeVisible();
     await expect(page.locator(".image-upload-row")).toHaveCount(1);
     await page.reload();
-    await expect(page.locator('[data-view-mode="mobile"]')).toBeVisible();
+    await expect(photoHeading).toBeVisible();
     await expect(page.locator(".image-upload-row")).toHaveCount(1);
     await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
     await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();

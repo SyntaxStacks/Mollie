@@ -19,6 +19,13 @@ Use this before any pilot-facing deploy. The goal is to catch operator mistakes 
 7. Confirm connector automation policy for pilot workspaces:
    - eBay account state is intentional
    - Depop automation is enabled only for intended workspaces
+8. Confirm public domain config is correct before deploy:
+   - `mollie.biz` will point at the web service
+   - `api.mollie.biz` will point at the API service
+   - `APP_BASE_URL` is `https://mollie.biz`
+   - `API_PUBLIC_BASE_URL` is `https://api.mollie.biz`
+   - `EBAY_REDIRECT_URI` is `https://api.mollie.biz/api/marketplace-accounts/ebay/oauth/callback`
+9. Confirm the eBay developer app already allows the production callback URI before enabling live OAuth.
 
 ## Deploy
 
@@ -31,14 +38,15 @@ Use this before any pilot-facing deploy. The goal is to catch operator mistakes 
    - `jobs`
    - `web`
 3. Record the deployed commit SHA, Cloud Run revision names, and migration result in the release log.
+4. If this is the first production cutover, map the custom domains and verify DNS before pilot traffic is sent to the service.
 
 ## Post-Deploy
 
 1. Hit service health checks:
-   - `GET /health` on `api`
+   - `GET https://api.mollie.biz/health`
    - `GET /health` on `worker`
    - `GET /health` on `connector-runner`
-   - load the `web` root page
+   - load `https://mollie.biz`
 2. Complete one smoke workflow in the target environment:
    - request login code
    - create or select workspace
@@ -50,6 +58,7 @@ Use this before any pilot-facing deploy. The goal is to catch operator mistakes 
 3. Confirm execution logs and audit logs are writing correctly.
 4. Confirm connector artifacts are being written for forced-failure scenarios.
 5. Confirm scheduled jobs start cleanly in the environment.
+6. Confirm the eBay OAuth start flow redirects to eBay and returns to `https://mollie.biz/marketplaces` cleanly.
 
 ## Rollback
 

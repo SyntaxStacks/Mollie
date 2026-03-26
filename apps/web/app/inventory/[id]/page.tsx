@@ -12,7 +12,6 @@ import {
 import { ProtectedView } from "../../../components/protected-view";
 import { useAuth } from "../../../components/auth-provider";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
-import { useMediaQuery } from "../../../components/use-media-query";
 import { useAuthedResource } from "../../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -38,7 +37,6 @@ export default function InventoryDetailPage() {
     ebayCategoryId: "",
     ebayStoreCategoryId: ""
   });
-  const isMobile = useMediaQuery("(max-width: 768px)");
   const { data, error, refresh } = useAuthedResource<InventoryItemResponse>(`/api/inventory/${params.id}`, auth.token, [params.id]);
   const ebayPreflight = useAuthedResource<EbayPreflightResponse>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
   const ebayDraft =
@@ -316,7 +314,6 @@ export default function InventoryDetailPage() {
             ebayPreflight={ebayPreflight.data?.preflight ?? null}
             ebayPreflightError={ebayPreflight.error}
             handoffUrl={handoffUrl}
-            isMobile={isMobile}
             item={data.item}
             lastSyncedLabel={continuity.lastSyncedLabel}
             onAddImage={addImage}
