@@ -12,6 +12,7 @@ Completed:
 * observability and retry flows
 * explicit eBay operator truth model
 * payload redaction for operator APIs
+* cross-device inventory continuity on the canonical item route
 
 Remaining:
 

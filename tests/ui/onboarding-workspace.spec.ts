@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page } from "@playwright/test";
 
 function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
@@ -38,6 +38,20 @@ async function onboardOperator(page: Page, options?: { workspaceName?: string })
   await expect(page.getByText(workspaceName)).toBeVisible();
 }
 
+async function createInventoryItem(page: Page, title: string) {
+  await page.goto("/inventory");
+  await page.getByLabel(/^title$/i).fill(title);
+  await page.getByRole("button", { name: /create item/i }).click();
+
+  const itemLink = page.getByRole("link", { name: title });
+  await expect(itemLink).toBeVisible();
+  const itemHref = await itemLink.getAttribute("href");
+  expect(itemHref).toBeTruthy();
+  await page.goto(itemHref ?? "/inventory");
+
+  await expect(page).toHaveURL(/\/inventory\/.+/);
+}
+
 test("logged-out operators can access the onboarding form without a redirect trap", async ({ page }) => {
   await page.goto("/onboarding");
 
@@ -64,50 +78,77 @@ test("operators can onboard, create a workspace, and get redirected into the app
   await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
 });
 
-test("operators can create inventory, reorder photos, and delete a bad upload from the browser", async ({ page }) => {
-  const title = `UI Upload Item ${Date.now()}`;
+test("desktop inventory detail exposes a continue-on-mobile handoff with the canonical item url", async ({ page, baseURL }) => {
+  const title = `Desktop Handoff Item ${Date.now()}`;
 
   await onboardOperator(page, {
-    workspaceName: "UI Upload Workspace"
+    workspaceName: "UI Handoff Workspace"
   });
 
-  await page.goto("/inventory");
-  await page.getByLabel(/^title$/i).fill(title);
-  await page.getByRole("button", { name: /create item/i }).click();
+  await createInventoryItem(page, title);
+  await page.getByTestId("continue-on-mobile-trigger").click();
 
-  const itemLink = page.getByRole("link", { name: title });
-  await expect(itemLink).toBeVisible();
-  await itemLink.click();
+  await expect(page.getByRole("dialog", { name: /continue on mobile/i })).toBeVisible();
+  await expect(page.getByTestId("continue-on-mobile-url")).toHaveValue(new RegExp(`^${baseURL?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/inventory/.+`));
+  await expect(page.getByTestId("continue-on-mobile-copy")).toBeVisible();
+});
 
-  await expect(page).toHaveURL(/\/inventory\/.+/);
-  await page.setInputFiles('input[name="image"]', {
-    name: "pilot-photo-1.png",
-    mimeType: "image/png",
-    buffer: tinyPng
+test.describe("inventory continuity on mobile", () => {
+  test.use({
+    viewport: devices["iPhone 13"].viewport,
+    userAgent: devices["iPhone 13"].userAgent,
+    deviceScaleFactor: devices["iPhone 13"].deviceScaleFactor,
+    isMobile: devices["iPhone 13"].isMobile,
+    hasTouch: devices["iPhone 13"].hasTouch
   });
-  await page.locator('button[type="submit"]').filter({ hasText: /^Upload image$/i }).click();
 
-  await expect(page.getByText(/image uploaded/i)).toBeVisible();
-  await expect(page.locator(".image-upload-row")).toHaveCount(1);
+  test("operators can use the same inventory route for photo-first mobile work", async ({ page }) => {
+  const title = `UI Upload Item ${Date.now()}`;
 
-  await page.setInputFiles('input[name="image"]', {
-    name: "pilot-photo-2.png",
-    mimeType: "image/png",
-    buffer: tinyPng
+    await onboardOperator(page, {
+      workspaceName: "UI Upload Workspace"
+    });
+
+    await createInventoryItem(page, title);
+
+    await expect(page.locator('[data-view-mode="mobile"]')).toBeVisible();
+    await expect(page.locator("section h3").first()).toHaveText(/photo capture/i);
+    await expect(page.getByRole("heading", { name: /publish readiness/i })).toBeVisible();
+    const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /photo capture/i }) }).first();
+
+    await page.setInputFiles('input[name="image"]', {
+      name: "pilot-photo-1.png",
+      mimeType: "image/png",
+      buffer: tinyPng
+    });
+    await photoCard.getByTestId("inventory-upload-submit").click();
+
+    await expect(page.getByText(/image uploaded/i)).toBeVisible();
+    await expect(page.locator(".image-upload-row")).toHaveCount(1);
+
+    await page.setInputFiles('input[name="image"]', {
+      name: "pilot-photo-2.png",
+      mimeType: "image/png",
+      buffer: tinyPng
+    });
+    await photoCard.getByTestId("inventory-upload-submit").click();
+
+    await expect(page.locator(".image-upload-row")).toHaveCount(2);
+    const secondImageId = await page.locator(".image-upload-row").nth(1).getAttribute("data-image-id");
+    expect(secondImageId).toBeTruthy();
+    await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /move up/i }).click();
+
+    await expect(page.getByText(/image moved up/i)).toBeVisible();
+    await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
+
+    await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /delete image/i }).click();
+
+    await expect(page.getByText(/image deleted/i)).toBeVisible();
+    await expect(page.locator(".image-upload-row")).toHaveCount(1);
+    await page.reload();
+    await expect(page.locator('[data-view-mode="mobile"]')).toBeVisible();
+    await expect(page.locator(".image-upload-row")).toHaveCount(1);
+    await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
+    await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();
   });
-  await page.locator('button[type="submit"]').filter({ hasText: /^Upload image$/i }).click();
-
-  await expect(page.locator(".image-upload-row")).toHaveCount(2);
-  const secondImageId = await page.locator(".image-upload-row").nth(1).getAttribute("data-image-id");
-  expect(secondImageId).toBeTruthy();
-  await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /move up/i }).click();
-
-  await expect(page.getByText(/image moved up/i)).toBeVisible();
-  await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
-
-  await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /delete image/i }).click();
-
-  await expect(page.getByText(/image deleted/i)).toBeVisible();
-  await expect(page.locator(".image-upload-row")).toHaveCount(1);
-  await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();
 });

@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 import clsx from "clsx";
 
@@ -27,17 +27,14 @@ export function Card({ title, eyebrow, action, children, className }: CardProps)
   );
 }
 
-type ButtonProps = {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   children: ReactNode;
-  type?: "button" | "submit";
   kind?: "primary" | "secondary" | "ghost";
-  disabled?: boolean;
-  onClick?: () => void;
 };
 
-export function Button({ children, type = "button", kind = "primary", disabled, onClick }: ButtonProps) {
+export function Button({ children, type = "button", kind = "primary", className, ...props }: ButtonProps) {
   return (
-    <button className={clsx("rs-button", `rs-button-${kind}`)} disabled={disabled} type={type} onClick={onClick}>
+    <button className={clsx("rs-button", `rs-button-${kind}`, className)} type={type} {...props}>
       {children}
     </button>
   );

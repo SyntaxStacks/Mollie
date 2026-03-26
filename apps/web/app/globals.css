@@ -333,6 +333,169 @@ body {
   background: rgba(255, 255, 255, 0.7);
 }
 
+.inventory-detail-shell {
+  display: grid;
+  gap: 1rem;
+}
+
+.inventory-middle-grid {
+  align-items: start;
+}
+
+.inventory-summary-card .rs-card-header,
+.inventory-images-card .rs-card-header {
+  align-items: center;
+}
+
+.inventory-hero-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.inventory-device-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: #115e59;
+  font-size: 0.92rem;
+}
+
+.continuity-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  background: rgba(14, 116, 144, 0.08);
+  color: #155e75;
+  border: 1px solid rgba(14, 116, 144, 0.15);
+}
+
+.inventory-sync-copy,
+.inventory-section-copy {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.inventory-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.inventory-image-form-mobile {
+  gap: 1rem;
+}
+
+.inventory-inline-notice {
+  margin-top: 1rem;
+}
+
+.inventory-image-list {
+  margin-top: 1rem;
+}
+
+.inventory-image-card {
+  padding: 0.9rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
+}
+
+.inventory-image-url {
+  overflow-wrap: anywhere;
+}
+
+.inventory-preflight-meta {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.handoff-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 34, 24, 0.45);
+  backdrop-filter: blur(10px);
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  z-index: 1000;
+}
+
+.handoff-modal {
+  width: min(760px, 100%);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.24);
+  padding: 1.35rem;
+}
+
+.handoff-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.handoff-copy {
+  margin: 0.5rem 0 1rem;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 48ch;
+}
+
+.handoff-qr-panel {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.handoff-qr-shell {
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  border-radius: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(237, 244, 239, 0.92)),
+    radial-gradient(circle at top, rgba(15, 118, 110, 0.08), transparent 60%);
+  border: 1px solid var(--line);
+  min-height: 220px;
+}
+
+.handoff-qr-image {
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+}
+
+.handoff-link-stack {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.handoff-open-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.75rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(15, 23, 42, 0.03);
+  font-weight: 700;
+}
+
 @media (max-width: 1100px) {
   .layout,
   .hero-grid,
@@ -346,5 +509,87 @@ body {
   .sidebar {
     border-right: 0;
     border-bottom: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 768px) {
+  .content {
+    padding: 1rem;
+    gap: 1rem;
+  }
+
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header h2 {
+    font-size: 1.85rem;
+  }
+
+  .inventory-hero-strip,
+  .handoff-qr-panel {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inventory-device-note,
+  .continuity-note {
+    border-radius: 18px;
+  }
+
+  .inventory-meta-grid,
+  .inventory-meta-grid-mobile {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .inventory-summary-card-mobile .metric {
+    padding: 0.85rem;
+  }
+
+  .inventory-summary-card-mobile .metric strong {
+    font-size: 1.2rem;
+  }
+
+  .inventory-images-card-mobile .rs-card,
+  .inventory-images-card-mobile {
+    position: relative;
+  }
+
+  .inventory-mobile-actions,
+  .inventory-mobile-image-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-mobile-image-actions .rs-button,
+  .inventory-mobile-actions .rs-button,
+  .inventory-image-form-mobile .rs-button {
+    min-height: 48px;
+    justify-content: center;
+  }
+
+  .inventory-image-card {
+    padding: 0.85rem;
+  }
+
+  .image-upload-preview {
+    max-width: 100%;
+  }
+
+  .inventory-preflight-card-mobile .split,
+  .inventory-preflight-check-mobile {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .handoff-modal {
+    padding: 1rem;
+    border-radius: 22px;
+  }
+
+  .handoff-qr-shell {
+    min-height: 180px;
   }
 }
