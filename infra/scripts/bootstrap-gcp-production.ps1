@@ -720,7 +720,7 @@ Invoke-Gcloud run jobs deploy "reselleros-db-migrate" `
   --region $Region `
   --image $apiImage `
   --command "pnpm" `
-  "--args=--filter=@reselleros/db,db:migrate" `
+  "--args=--dir,/app/node_modules/@reselleros/db,exec,prisma,migrate,deploy,--schema,prisma/schema.prisma" `
   --set-secrets $migrationSecretSpec `
   --service-account $serviceAccounts.api `
   --set-cloudsql-instances $cloudSqlInstanceConnection `

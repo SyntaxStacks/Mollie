@@ -23,6 +23,10 @@ function resolveChallengeTtlMinutes() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
 }
 
+function shouldExposeChallengeCode() {
+  return process.env.NODE_ENV !== "production" || process.env.AUTH_EXPOSE_DEV_CODE === "true";
+}
+
 function generateNumericCode() {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
@@ -67,7 +71,7 @@ export async function issueLoginChallenge(input: AuthContextInput) {
       userId: user.id,
       email: user.email,
       expiresAt: expiresAt.toISOString(),
-      code: process.env.NODE_ENV === "production" ? undefined : code,
+      code: shouldExposeChallengeCode() ? code : undefined,
       ipAddress: input.ipAddress ?? undefined,
       userAgent: input.userAgent ?? undefined
     },
@@ -77,7 +81,7 @@ export async function issueLoginChallenge(input: AuthContextInput) {
   return {
     email: user.email,
     expiresAt,
-    devCode: process.env.NODE_ENV === "production" ? null : code
+    devCode: shouldExposeChallengeCode() ? code : null
   };
 }
 

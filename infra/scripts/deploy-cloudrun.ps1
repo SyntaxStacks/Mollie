@@ -109,6 +109,28 @@ function Get-SecretSpec([string]$PathValue) {
   return ($entries -join ",")
 }
 
+function Get-EnvValue([string]$PathValue, [string]$Key) {
+  $resolved = Resolve-ConfigPath $PathValue
+
+  if (-not $resolved) {
+    return $null
+  }
+
+  foreach ($line in (Get-Content $resolved)) {
+    $trimmed = $line.Trim()
+
+    if (-not $trimmed -or $trimmed.StartsWith("#")) {
+      continue
+    }
+
+    if ($trimmed -match "^(?<name>[A-Z0-9_]+)\s*:\s*(?<value>.+)$" -and $matches["name"] -eq $Key) {
+      return $matches["value"].Trim().Trim("'`"")
+    }
+  }
+
+  return $null
+}
+
 $dockerfile = "apps/$App/Dockerfile"
 $image = "$Region-docker.pkg.dev/$ProjectId/$ArtifactRepository/$App`:$ImageTag"
 $serviceName = $serviceMap[$App]
@@ -118,8 +140,17 @@ $resolvedMinInstances = if ($MinInstances -ge 0) { $MinInstances } else { $defau
 $resolvedMaxInstances = if ($MaxInstances -ge 0) { $MaxInstances } else { $defaultMaxInstances[$App] }
 $resolvedCpu = if ($Cpu) { $Cpu } else { $defaultCpu[$App] }
 $resolvedMemory = if ($Memory) { $Memory } else { $defaultMemory[$App] }
+$dockerBuildArgs = @("build", "-f", $dockerfile, "-t", $image)
 
-docker build -f $dockerfile -t $image .
+if ($App -eq "web") {
+  $publicApiBaseUrl = Get-EnvValue $resolvedEnvFile "NEXT_PUBLIC_API_BASE_URL"
+
+  if ($publicApiBaseUrl) {
+    $dockerBuildArgs += @("--build-arg", "NEXT_PUBLIC_API_BASE_URL=$publicApiBaseUrl")
+  }
+}
+
+& docker @dockerBuildArgs .
 
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE

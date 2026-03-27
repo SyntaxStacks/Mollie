@@ -8,6 +8,7 @@ const baseEnvSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
   SESSION_SECRET: z.string().min(8),
+  AUTH_EXPOSE_DEV_CODE: z.coerce.boolean().default(false),
   APP_BASE_URL: z.string().url(),
   API_PUBLIC_BASE_URL: z.string().url().optional(),
   GCS_BUCKET_UPLOADS: z.string().min(1),
