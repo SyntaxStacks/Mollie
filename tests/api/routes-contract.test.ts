@@ -54,12 +54,19 @@ test("auth route module is registered", async () => {
 });
 
 test("workspace route module is registered", async () => {
-  const response = await app.inject({
-    method: "GET",
-    url: "/api/workspace"
-  });
+  const [workspaceResponse, membersResponse] = await Promise.all([
+    app.inject({
+      method: "GET",
+      url: "/api/workspace"
+    }),
+    app.inject({
+      method: "GET",
+      url: "/api/workspace/members"
+    })
+  ]);
 
-  assert.equal(response.statusCode, 401);
+  assert.equal(workspaceResponse.statusCode, 401);
+  assert.equal(membersResponse.statusCode, 401);
 });
 
 test("marketplace account route module is registered", async () => {

@@ -82,8 +82,15 @@ async function drainQueuedJobs(options?: { continueOnError?: boolean }) {
     }
 
     try {
-      if (job.name === "listing.publishDepop") {
-        await processConnectorJob(job.name, job.payload as Parameters<ConnectorModule["processConnectorJob"]>[1]);
+      if (
+        job.name === "listing.publishDepop" ||
+        job.name === "listing.publishPoshmark" ||
+        job.name === "listing.publishWhatnot"
+      ) {
+        await processConnectorJob(
+          job.name as Parameters<ConnectorModule["processConnectorJob"]>[0],
+          job.payload as Parameters<ConnectorModule["processConnectorJob"]>[1]
+        );
       } else {
         await processWorkerJob(job.name as Parameters<WorkerModule["processWorkerJob"]>[0], job.payload as never);
       }
@@ -156,10 +163,18 @@ async function createWorkspaceSession(label: string): Promise<WorkspaceSession> 
   };
 }
 
-async function connectMarketplace(session: WorkspaceSession, platform: "EBAY" | "DEPOP") {
+async function connectMarketplace(session: WorkspaceSession, platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT") {
+  const url =
+    platform === "EBAY"
+      ? "/api/marketplace-accounts/ebay/connect"
+      : platform === "DEPOP"
+        ? "/api/marketplace-accounts/depop/session"
+        : platform === "POSHMARK"
+          ? "/api/marketplace-accounts/poshmark/session"
+          : "/api/marketplace-accounts/whatnot/session";
   const response = await app.inject({
     method: "POST",
-    url: platform === "EBAY" ? "/api/marketplace-accounts/ebay/connect" : "/api/marketplace-accounts/depop/session",
+    url,
     headers: session.headers,
     payload: {
       displayName: `${platform} Account`,
@@ -228,7 +243,7 @@ async function createInventoryFromLot(session: WorkspaceSession) {
 async function generateAndApproveDraft(
   session: WorkspaceSession,
   inventoryItemId: string,
-  platform: "EBAY" | "DEPOP"
+  platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"
 ) {
   const generateDraftsResponse = await app.inject({
     method: "POST",
@@ -266,10 +281,22 @@ async function generateAndApproveDraft(
   return draft;
 }
 
-async function queuePublish(session: WorkspaceSession, inventoryItemId: string, platform: "EBAY" | "DEPOP") {
+async function queuePublish(
+  session: WorkspaceSession,
+  inventoryItemId: string,
+  platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"
+) {
+  const url =
+    platform === "EBAY"
+      ? `/api/inventory/${inventoryItemId}/publish/ebay`
+      : platform === "DEPOP"
+        ? `/api/inventory/${inventoryItemId}/publish/depop`
+        : platform === "POSHMARK"
+          ? `/api/inventory/${inventoryItemId}/publish/poshmark`
+          : `/api/inventory/${inventoryItemId}/publish/whatnot`;
   const response = await app.inject({
     method: "POST",
-    url: platform === "EBAY" ? `/api/inventory/${inventoryItemId}/publish/ebay` : `/api/inventory/${inventoryItemId}/publish/depop`,
+    url,
     headers: session.headers
   });
 
@@ -613,6 +640,143 @@ test("depop failure captures artifacts and degrades connector health", async () 
 
   assert.ok(persistedItem);
   assert.equal(persistedItem.status, "READY");
+});
+
+test("poshmark and whatnot failures also run through connector isolation and artifact capture", async () => {
+  const session = await createWorkspaceSession("connector-isolation");
+  await connectMarketplace(session, "POSHMARK");
+  await connectMarketplace(session, "WHATNOT");
+
+  const item = await createInventoryItem(session, {
+    title: "Connector Isolation Item"
+  });
+
+  await generateAndApproveDraft(session, item.id, "POSHMARK");
+  await generateAndApproveDraft(session, item.id, "WHATNOT");
+
+  const [poshmarkExecutionLog, whatnotExecutionLog] = await Promise.all([
+    queuePublish(session, item.id, "POSHMARK"),
+    queuePublish(session, item.id, "WHATNOT")
+  ]);
+
+  const jobErrors = await drainQueuedJobs({ continueOnError: true });
+  assert.equal(jobErrors.length, 2);
+  assert.ok(jobErrors.every((error) => /requires at least one image/i.test(error.message)));
+
+  const [persistedExecutionLogs, accounts, persistedItem] = await Promise.all([
+    db.executionLog.findMany({
+      where: {
+        id: {
+          in: [poshmarkExecutionLog.id, whatnotExecutionLog.id]
+        }
+      },
+      orderBy: { jobName: "asc" }
+    }),
+    db.marketplaceAccount.findMany({
+      where: {
+        workspaceId: session.workspaceId,
+        platform: {
+          in: ["POSHMARK", "WHATNOT"]
+        }
+      },
+      orderBy: { platform: "asc" }
+    }),
+    db.inventoryItem.findUnique({
+      where: { id: item.id }
+    })
+  ]);
+
+  assert.equal(persistedExecutionLogs.length, 2);
+  assert.ok(persistedExecutionLogs.every((log) => log.status === "FAILED"));
+
+  for (const log of persistedExecutionLogs) {
+    const responsePayload = log.responsePayloadJson as Record<string, unknown>;
+    const artifactUrls = log.artifactUrlsJson as string[];
+
+    assert.equal(responsePayload.code, "PREREQUISITE_MISSING");
+    assert.equal(responsePayload.retryable, false);
+    assert.ok(Array.isArray(artifactUrls));
+    assert.equal(artifactUrls.length, 2);
+
+    for (const artifactPath of artifactUrls) {
+      await access(artifactPath);
+    }
+  }
+
+  assert.equal(accounts.length, 2);
+  assert.ok(accounts.every((account) => account.consecutiveFailureCount === 1));
+  assert.ok(accounts.every((account) => account.status === "CONNECTED"));
+  assert.ok(accounts.every((account) => account.lastErrorCode === "PREREQUISITE_MISSING"));
+
+  assert.ok(persistedItem);
+  assert.equal(persistedItem.status, "READY");
+});
+
+test("operator can cross-list to poshmark and whatnot with simulated accounts", async () => {
+  const session = await createWorkspaceSession("cross-list-operator");
+  await connectMarketplace(session, "POSHMARK");
+  await connectMarketplace(session, "WHATNOT");
+
+  const item = await createInventoryItem(session, {
+    title: "Vintage Denim Jacket",
+    brand: "Levi's",
+    category: "Outerwear",
+    condition: "Good used condition"
+  });
+
+  const imageResponse = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/images`,
+    headers: session.headers,
+    payload: {
+      url: "https://cdn.example.com/vintage-denim-jacket.jpg",
+      position: 0
+    }
+  });
+  assert.equal(imageResponse.statusCode, 200);
+
+  await generateAndApproveDraft(session, item.id, "POSHMARK");
+  await generateAndApproveDraft(session, item.id, "WHATNOT");
+
+  const [poshmarkExecutionLog, whatnotExecutionLog] = await Promise.all([
+    queuePublish(session, item.id, "POSHMARK"),
+    queuePublish(session, item.id, "WHATNOT")
+  ]);
+
+  await drainQueuedJobs();
+
+  const [publishedItem, listings, executionLogs] = await Promise.all([
+    db.inventoryItem.findUnique({
+      where: { id: item.id }
+    }),
+    db.platformListing.findMany({
+      where: {
+        inventoryItemId: item.id
+      },
+      orderBy: {
+        platform: "asc"
+      }
+    }),
+    db.executionLog.findMany({
+      where: {
+        id: {
+          in: [poshmarkExecutionLog.id, whatnotExecutionLog.id]
+        }
+      }
+    })
+  ]);
+
+  assert.ok(publishedItem);
+  assert.equal(publishedItem.status, "LISTED");
+  assert.equal(listings.length, 2);
+  assert.deepEqual(
+    listings.map((listing) => listing.platform).sort(),
+    ["POSHMARK", "WHATNOT"]
+  );
+  assert.ok(listings.every((listing) => listing.status === "PUBLISHED"));
+  assert.ok(listings.find((listing) => listing.platform === "POSHMARK")?.externalUrl?.includes("poshmark.com"));
+  assert.ok(listings.find((listing) => listing.platform === "WHATNOT")?.externalUrl?.includes("whatnot.com"));
+  assert.ok(executionLogs.every((log) => log.status === "SUCCEEDED"));
 });
 
 test("workspace isolation blocks cross-tenant inventory reads and writes", async () => {

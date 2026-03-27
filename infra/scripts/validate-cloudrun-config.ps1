@@ -2,7 +2,8 @@ param(
   [Parameter(Mandatory = $true)] [ValidateSet("web", "api", "worker", "connector-runner", "jobs")] [string]$App,
   [string]$EnvFile,
   [string]$SecretsFile,
-  [string]$ServiceAccount
+  [string]$ServiceAccount,
+  [string]$VpcConnector
 )
 
 $defaultEnvFiles = @{
@@ -98,10 +99,25 @@ foreach ($key in $publicConfigKeys) {
   }
 }
 
+$requiresPrivateRedis = @("api", "worker", "connector-runner", "jobs") -contains $App
+
+if ($requiresPrivateRedis) {
+  if (-not $secretKeys.ContainsKey("REDIS_URL")) {
+    throw "Secrets file is missing REDIS_URL for $App"
+  }
+
+  if ([string]::IsNullOrWhiteSpace($VpcConnector)) {
+    throw "VpcConnector is required for $App validation because Redis is expected to be private."
+  }
+}
+
 Write-Host "Cloud Run config looks complete for $App"
 Write-Host "  Dockerfile: $dockerfile"
 Write-Host "  Env file: $resolvedEnvFile"
 Write-Host "  Secrets file: $resolvedSecretsFile"
 if ($ServiceAccount) {
   Write-Host "  Service account: $ServiceAccount"
+}
+if ($VpcConnector) {
+  Write-Host "  VPC connector: $VpcConnector"
 }

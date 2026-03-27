@@ -1,12 +1,16 @@
 import { Queue } from "bullmq";
 import { z } from "zod";
 
+import type { Platform } from "@reselleros/types";
+
 export const jobNameSchema = z.enum([
   "macbid.fetchLot",
   "macbid.analyzeLot",
   "inventory.generateListingDraft",
   "listing.publishEbay",
   "listing.publishDepop",
+  "listing.publishPoshmark",
+  "listing.publishWhatnot",
   "listing.syncStatus",
   "sales.sync",
   "maintenance.retryFailures"
@@ -28,7 +32,7 @@ export const jobSchemas = {
   "inventory.generateListingDraft": z.object({
     inventoryItemId: z.string().min(1),
     workspaceId: z.string().min(1),
-    platforms: z.array(z.enum(["EBAY", "DEPOP"])).min(1),
+    platforms: z.array(z.enum(["EBAY", "DEPOP", "POSHMARK", "WHATNOT"])).min(1),
     correlationId: z.string()
   }),
   "listing.publishEbay": z.object({
@@ -39,6 +43,20 @@ export const jobSchemas = {
     correlationId: z.string()
   }),
   "listing.publishDepop": z.object({
+    inventoryItemId: z.string().min(1),
+    draftId: z.string().min(1),
+    marketplaceAccountId: z.string().min(1),
+    executionLogId: z.string().min(1),
+    correlationId: z.string()
+  }),
+  "listing.publishPoshmark": z.object({
+    inventoryItemId: z.string().min(1),
+    draftId: z.string().min(1),
+    marketplaceAccountId: z.string().min(1),
+    executionLogId: z.string().min(1),
+    correlationId: z.string()
+  }),
+  "listing.publishWhatnot": z.object({
     inventoryItemId: z.string().min(1),
     draftId: z.string().min(1),
     marketplaceAccountId: z.string().min(1),
@@ -79,7 +97,22 @@ export function getQueueConnection(redisUrl = process.env.REDIS_URL ?? "redis://
 }
 
 export function getJobQueueName(name: JobName) {
-  return name === "listing.publishDepop" ? connectorQueueName : mainQueueName;
+  return name === "listing.publishDepop" || name === "listing.publishPoshmark" || name === "listing.publishWhatnot"
+    ? connectorQueueName
+    : mainQueueName;
+}
+
+export function getPublishJobName(platform: Platform) {
+  switch (platform) {
+    case "EBAY":
+      return "listing.publishEbay" as const;
+    case "DEPOP":
+      return "listing.publishDepop" as const;
+    case "POSHMARK":
+      return "listing.publishPoshmark" as const;
+    case "WHATNOT":
+      return "listing.publishWhatnot" as const;
+  }
 }
 
 export function getAppQueue(name: JobName | "main" | "connector" = "main") {

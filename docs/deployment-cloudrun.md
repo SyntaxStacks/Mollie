@@ -60,6 +60,20 @@ pwsh infra/scripts/deploy-cloudrun.ps1 `
   -CloudSqlInstance my-project:us-central1:reselleros
 ```
 
+API with private Redis access through a Serverless VPC connector:
+
+```powershell
+pwsh infra/scripts/deploy-cloudrun.ps1 `
+  -ProjectId my-project `
+  -App api `
+  -EnvFile infra/cloudrun/api.env.example.yaml `
+  -SecretsFile infra/cloudrun/api.secrets.example.txt `
+  -ServiceAccount reselleros-api@my-project.iam.gserviceaccount.com `
+  -CloudSqlInstance my-project:us-central1:reselleros `
+  -VpcConnector projects/my-project/locations/us-central1/connectors/reselleros-serverless `
+  -VpcEgress private-ranges-only
+```
+
 Worker:
 
 ```powershell
@@ -98,7 +112,8 @@ Use the local validator before deploy to catch missing files or a missing servic
 ```powershell
 pwsh infra/scripts/validate-cloudrun-config.ps1 `
   -App connector-runner `
-  -ServiceAccount reselleros-connector@my-project.iam.gserviceaccount.com
+  -ServiceAccount reselleros-connector@my-project.iam.gserviceaccount.com `
+  -VpcConnector projects/my-project/locations/us-central1/connectors/reselleros-serverless
 ```
 
 ## Notes
@@ -116,3 +131,23 @@ After the services are deployed, map:
 - `api.mollie.biz` -> `reselleros-api`
 
 Then point your DNS at the Cloud Run domain mappings before enabling the production eBay OAuth callback.
+
+## Production Bootstrap
+
+For the Mollie production path, use:
+
+```powershell
+pwsh infra/scripts/bootstrap-gcp-production.ps1
+```
+
+That script:
+
+- creates or selects the production project
+- links billing
+- enables required APIs
+- provisions Artifact Registry, Cloud SQL, Memorystore Redis, buckets, and a Serverless VPC connector
+- creates runtime service accounts and secrets
+- generates deploy-time env files under `tmp/gcp-production`
+- runs the database migration job
+- deploys `api`, `worker`, `connector-runner`, `jobs`, and `web`
+- attempts Cloud Run domain mappings for `mollie.biz` and `api.mollie.biz`

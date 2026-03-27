@@ -2,14 +2,19 @@ import { z } from "zod";
 
 import { createExecutionLog, db, recordAuditLog } from "@reselleros/db";
 import { getEbayOperationalState } from "@reselleros/marketplaces-ebay";
-import { enqueueJob } from "@reselleros/queue";
+import { enqueueJob, getPublishJobName } from "@reselleros/queue";
 import type { CredentialValidationStatus, MarketplaceAccountStatus, MarketplaceCredentialType } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 import { redactForOperator } from "../lib/redaction.js";
 
 const executionStatusSchema = z.enum(["QUEUED", "RUNNING", "SUCCEEDED", "FAILED"]);
-const retryableJobNames = new Set(["listing.publishEbay", "listing.publishDepop"]);
+const retryableJobNames = new Set([
+  "listing.publishEbay",
+  "listing.publishDepop",
+  "listing.publishPoshmark",
+  "listing.publishWhatnot"
+]);
 
 function asRecord(value: unknown) {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -381,7 +386,7 @@ export function registerLogRoutes(app: ApiApp, context: ApiRouteContext) {
       }
     });
 
-    await enqueueJob(log.jobName === "listing.publishDepop" ? "listing.publishDepop" : "listing.publishEbay", {
+    await enqueueJob(getPublishJobName(marketplaceAccount.platform), {
       inventoryItemId: log.inventoryItemId,
       draftId,
       marketplaceAccountId,

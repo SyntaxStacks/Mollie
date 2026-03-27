@@ -65,6 +65,75 @@ export async function listWorkspaceMembershipsForUser(userId: string) {
   });
 }
 
+export async function listWorkspaceMembers(workspaceId: string) {
+  return db.workspaceMembership.findMany({
+    where: { workspaceId },
+    include: {
+      user: true
+    },
+    orderBy: [{ role: "asc" }, { createdAt: "asc" }]
+  });
+}
+
+export async function addWorkspaceMemberByEmail(
+  workspaceId: string,
+  input: {
+    email: string;
+    name?: string | null;
+    role?: "OWNER" | "MEMBER";
+  }
+) {
+  const normalizedEmail = input.email.trim().toLowerCase();
+
+  return db.$transaction(async (tx) => {
+    const user = await tx.user.upsert({
+      where: { email: normalizedEmail },
+      update: {
+        name: input.name ?? undefined
+      },
+      create: {
+        email: normalizedEmail,
+        name: input.name ?? undefined
+      }
+    });
+
+    const existingMembership = await tx.workspaceMembership.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId,
+          userId: user.id
+        }
+      },
+      include: {
+        user: true
+      }
+    });
+
+    if (existingMembership) {
+      return {
+        membership: existingMembership,
+        created: false
+      };
+    }
+
+    const membership = await tx.workspaceMembership.create({
+      data: {
+        workspaceId,
+        userId: user.id,
+        role: input.role ?? "MEMBER"
+      },
+      include: {
+        user: true
+      }
+    });
+
+    return {
+      membership,
+      created: true
+    };
+  });
+}
+
 export async function updateWorkspaceConnectorAutomation(workspaceId: string, enabled: boolean) {
   return db.workspace.update({
     where: { id: workspaceId },
@@ -219,7 +288,7 @@ export async function createInventoryItem(workspaceId: string, input: {
 export async function createMarketplaceAccountForWorkspace(
   workspaceId: string,
   input: {
-    platform: "EBAY" | "DEPOP";
+    platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT";
     displayName: string;
     secretRef: string;
     credentialType?: "SECRET_REF" | "OAUTH_TOKEN_SET";
@@ -249,7 +318,7 @@ export async function createMarketplaceAccountForWorkspace(
 export async function upsertMarketplaceAccountConnectionForWorkspace(
   workspaceId: string,
   input: {
-    platform: "EBAY" | "DEPOP";
+    platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT";
     displayName: string;
     secretRef: string;
     credentialType: "SECRET_REF" | "OAUTH_TOKEN_SET";

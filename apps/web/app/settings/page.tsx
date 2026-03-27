@@ -16,8 +16,25 @@ export default function SettingsPage() {
   const audit = useAuthedResource<{
     logs: Array<{ id: string; action: string; targetType: string; targetId: string; createdAt: string }>;
   }>("/api/audit-logs", auth.token);
+  const members = useAuthedResource<{
+    canManageMembers: boolean;
+    members: Array<{
+      id: string;
+      role: string;
+      createdAt: string;
+      user: {
+        id: string;
+        email: string;
+        name: string | null;
+      };
+    }>;
+  }>("/api/workspace/members", auth.token, [auth.workspace?.id]);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [memberEmail, setMemberEmail] = useState("");
+  const [memberName, setMemberName] = useState("");
+  const [memberError, setMemberError] = useState<string | null>(null);
+  const [memberNotice, setMemberNotice] = useState<string | null>(null);
 
   function toggleConnectorAutomation(enabled: boolean) {
     startTransition(async () => {
@@ -48,6 +65,49 @@ export default function SettingsPage() {
 
       setError(null);
       await auth.refreshMe();
+      await audit.refresh();
+    });
+  }
+
+  function addWorkspaceMember(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+
+    startTransition(async () => {
+      const response = await fetch(`${API_BASE_URL}/api/workspace/members`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          email: memberEmail,
+          name: memberName || undefined,
+          role: "MEMBER"
+        })
+      });
+
+      const payload = (await response.json()) as {
+        member?: {
+          user: {
+            email: string;
+          };
+        };
+        error?: string;
+      };
+
+      if (!response.ok || !payload.member) {
+        setMemberError(payload.error ?? "Could not add workspace member");
+        setMemberNotice(null);
+        return;
+      }
+
+      setMemberError(null);
+      setMemberNotice(`Added ${payload.member.user.email}. They can sign in on onboarding to join this workspace.`);
+      setMemberEmail("");
+      setMemberName("");
+      form.reset();
+      await members.refresh();
       await audit.refresh();
     });
   }
@@ -90,6 +150,66 @@ export default function SettingsPage() {
             </p>
           </Card>
         </div>
+
+        <Card eyebrow="Workspace access" title="Operators">
+          <div className="stack">
+            <p className="muted">
+              Mollie now supports multiple operators per workspace. Add a teammate by email, then have them sign in
+              through the normal onboarding code flow.
+            </p>
+
+            {members.data?.canManageMembers ? (
+              <form className="stack" onSubmit={addWorkspaceMember}>
+                <label className="stack">
+                  <span>Email</span>
+                  <input
+                    autoComplete="email"
+                    name="member-email"
+                    onChange={(event) => setMemberEmail(event.target.value)}
+                    placeholder="teammate@example.com"
+                    required
+                    type="email"
+                    value={memberEmail}
+                  />
+                </label>
+                <label className="stack">
+                  <span>Name</span>
+                  <input
+                    name="member-name"
+                    onChange={(event) => setMemberName(event.target.value)}
+                    placeholder="Optional display name"
+                    type="text"
+                    value={memberName}
+                  />
+                </label>
+                <div className="actions">
+                  <Button disabled={pending || !memberEmail.trim()} type="submit">
+                    Add operator
+                  </Button>
+                </div>
+              </form>
+            ) : (
+              <p className="muted">Only workspace owners can add new operators.</p>
+            )}
+
+            {memberError ? <div className="notice">{memberError}</div> : null}
+            {memberNotice ? <div className="notice success">{memberNotice}</div> : null}
+
+            <div className="stack">
+              {(members.data?.members ?? []).map((member) => (
+                <div className="split" key={member.id}>
+                  <div>
+                    <strong>{member.user.name ?? member.user.email}</strong>
+                    <div className="muted">
+                      {member.user.email} · {member.role}
+                    </div>
+                  </div>
+                  <span className="muted">{new Date(member.createdAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Card>
 
         <Card eyebrow="Audit trail" title="Recent audited actions">
           <div className="stack">

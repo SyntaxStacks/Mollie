@@ -1,6 +1,7 @@
 import { createReadStream } from "node:fs";
 import { access, mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 
 import { Storage } from "@google-cloud/storage";
 
@@ -149,6 +150,29 @@ export async function localUploadExists(storageKey: string) {
   }
 }
 
+async function gcsUploadExists(storageKey: string) {
+  const bucketName = process.env.GCS_BUCKET_UPLOADS;
+
+  if (!bucketName) {
+    return false;
+  }
+
+  const storage = new Storage();
+  const [exists] = await storage.bucket(bucketName).file(storageKey).exists();
+  return exists;
+}
+
+function openGcsUploadStream(storageKey: string): Readable | null {
+  const bucketName = process.env.GCS_BUCKET_UPLOADS;
+
+  if (!bucketName) {
+    return null;
+  }
+
+  const storage = new Storage();
+  return storage.bucket(bucketName).file(storageKey).createReadStream();
+}
+
 async function deleteLocalUpload(storageKey: string) {
   const resolved = resolveLocalUploadPath(storageKey);
 
@@ -207,12 +231,13 @@ async function uploadToGcs(input: UploadInventoryImageInput): Promise<UploadedOb
     }
   });
 
-  const publicBaseUrl = process.env.GCS_UPLOAD_PUBLIC_BASE_URL?.trim();
+  const publicBaseUrl = process.env.GCS_UPLOAD_PUBLIC_BASE_URL?.trim()?.replace(/\/$/, "");
+  const useApiProxy = !publicBaseUrl || !publicBaseUrl.includes("storage.googleapis.com");
 
   return {
-    url: publicBaseUrl
-      ? `${publicBaseUrl.replace(/\/$/, "")}/${encodeStorageKeyForUrl(storageKey)}`
-      : `https://storage.googleapis.com/${bucketName}/${encodeStorageKeyForUrl(storageKey)}`,
+    url: useApiProxy
+      ? `${(publicBaseUrl ?? input.publicBaseUrl).replace(/\/$/, "")}/api/uploads/${encodeStorageKeyForUrl(storageKey)}`
+      : `${publicBaseUrl}/${encodeStorageKeyForUrl(storageKey)}`,
     storageKey,
     contentType: input.contentType,
     size: input.buffer.byteLength
@@ -302,6 +327,16 @@ export async function uploadInventoryImage(input: UploadInventoryImageInput) {
   const backend = resolveStorageBackend();
 
   return backend === "gcs" ? uploadToGcs(input) : uploadToLocalStorage(input);
+}
+
+export async function managedUploadExists(storageKey: string) {
+  const backend = resolveStorageBackend();
+  return backend === "gcs" ? gcsUploadExists(storageKey) : localUploadExists(storageKey);
+}
+
+export function openManagedUploadStream(storageKey: string) {
+  const backend = resolveStorageBackend();
+  return backend === "gcs" ? openGcsUploadStream(storageKey) : openLocalUploadStream(storageKey);
 }
 
 export async function deleteManagedInventoryImage(url: string): Promise<DeleteStoredObjectResult> {

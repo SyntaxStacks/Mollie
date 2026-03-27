@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const platforms = ["EBAY", "DEPOP"] as const;
+export const platforms = ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"] as const;
 export type Platform = (typeof platforms)[number];
 
 export const marketplaceAccountStatuses = ["PENDING", "CONNECTED", "DISABLED", "ERROR"] as const;
@@ -21,6 +21,13 @@ export const ebayOperationalStates = [
   "LIVE_ERROR"
 ] as const;
 export type EbayOperationalState = (typeof ebayOperationalStates)[number];
+
+export const automationOperationalStates = [
+  "AUTOMATION_READY",
+  "AUTOMATION_BLOCKED",
+  "AUTOMATION_ERROR"
+] as const;
+export type AutomationOperationalState = (typeof automationOperationalStates)[number];
 
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
@@ -78,6 +85,12 @@ export const authVerifySchema = z.object({
 
 export const createWorkspaceSchema = z.object({
   name: z.string().min(2).max(120)
+});
+
+export const workspaceMemberInviteSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1).max(120).optional(),
+  role: z.enum(workspaceRoles).default("MEMBER")
 });
 
 export const marketplaceAccountSchema = z.object({

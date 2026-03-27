@@ -42,6 +42,12 @@
       "@reselleros/marketplaces-ebay": [
         "packages/marketplaces-ebay/src/index.ts"
       ],
+      "@reselleros/marketplaces-poshmark": [
+        "packages/marketplaces-poshmark/src/index.ts"
+      ],
+      "@reselleros/marketplaces-whatnot": [
+        "packages/marketplaces-whatnot/src/index.ts"
+      ],
       "@reselleros/observability": [
         "packages/observability/src/index.ts"
       ],

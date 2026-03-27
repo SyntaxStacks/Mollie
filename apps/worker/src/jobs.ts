@@ -329,7 +329,9 @@ export async function processWorkerJob(name: JobName, data: JobPayload<JobName>)
       return { ok: true };
 
     case "listing.publishDepop":
-      throw new Error("Depop publish jobs are handled by connector-runner");
+    case "listing.publishPoshmark":
+    case "listing.publishWhatnot":
+      throw new Error("Connector automation publish jobs are handled by connector-runner");
 
     default:
       return null;

@@ -11,6 +11,8 @@ datasource db {
 enum MarketplacePlatform {
   EBAY
   DEPOP
+  POSHMARK
+  WHATNOT
 }
 
 enum MarketplaceAccountStatus {

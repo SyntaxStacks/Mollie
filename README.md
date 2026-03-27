@@ -1,13 +1,13 @@
 # Mollie MVP
 
-Mollie is a TypeScript monorepo for the ResellerOS MVP: Mac.bid ingestion, AI valuation, inventory normalization, listing draft generation, queued publish flows for eBay and Depop, execution logs, and basic sales/P&L.
+Mollie is a TypeScript monorepo for the ResellerOS MVP: Mac.bid ingestion, AI valuation, inventory normalization, listing draft generation, queued publish flows for eBay, Depop, Poshmark, and Whatnot, execution logs, and basic sales/P&L.
 
 ## What ships
 
 - `apps/web`: Next.js operator dashboard
 - `apps/api`: Fastify API with auth, workspace, lot, inventory, draft, listing, log, and sales routes
 - `apps/worker`: BullMQ worker for lot analysis, draft generation, eBay publish, and sync jobs
-- `apps/connector-runner`: isolated BullMQ worker for Depop automation-class jobs
+- `apps/connector-runner`: isolated BullMQ worker for Depop, Poshmark, and Whatnot automation-class jobs
 - `apps/jobs`: scheduled job entrypoint for sync fanout
 - `packages/*`: shared config, auth, artifacts, DB, queue, AI, marketplace adapters, UI, and domain types
 
@@ -94,20 +94,23 @@ The CI workflow validates:
 
 1. Request and verify a login code on `/onboarding`
 2. Create a workspace on `/workspace`
-3. Connect eBay and Depop on `/marketplaces`
+3. Connect eBay, Depop, Poshmark, and Whatnot on `/marketplaces`
 4. Import a Mac.bid lot on `/lots`
 5. Convert a lot into inventory on `/lots/[id]`
 6. Open `/inventory/[id]` on desktop or phone, continue on mobile when needed, and manage photos on the same canonical item route
-7. Generate and approve drafts from `/inventory/[id]` and `/drafts`
-8. Publish queued listings from `/inventory/[id]`
-9. Inspect runs on `/executions`
-10. Record sold items on `/sales`
+7. Add workspace operators on `/settings`, then have them sign in through `/onboarding` to join the same workspace
+8. Generate and approve drafts from `/inventory/[id]` and `/drafts`
+9. Publish queued listings from `/inventory/[id]`
+10. Inspect runs on `/executions`
+11. Record sold items on `/sales`
 
 The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually, the page shows the OAuth return result after redirect, and live eBay location/policy defaults can now be stored on the account instead of relying only on env configuration.
 
+Depop, Poshmark, and Whatnot now also surface explicit automation readiness on `/marketplaces`, including ready, blocked, and error states tied to workspace automation settings and connector-session health.
+
 Inventory detail now includes an eBay preflight view that surfaces whether a specific item is ready for simulated or live eBay publish, including blocked checks for images, approved draft, account state, live config, and category mapping. The same screen now lets operators edit the eBay draft title, price, and `ebayCategoryId` without leaving the item detail page.
 
-Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop preflight and publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
+Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop/Poshmark/Whatnot publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
 
 Inventory detail now has explicit cross-device continuity for pilot operators. Desktop users can open a "Continue on mobile" handoff with a QR code and canonical item link, then use the same `/inventory/[id]` route on mobile for a photo-first layout with larger tap targets, compact metadata, and lightweight continuity refresh when the same item changes on another device.
 
@@ -127,6 +130,7 @@ The canonical eBay operator truth model is now:
 - Dockerfiles live in each runnable app directory.
 - Cloud Run helper files live in `infra/cloudrun`.
 - PowerShell deployment helper: `infra/scripts/deploy-cloudrun.ps1`
+- Production bootstrap helper: `infra/scripts/bootstrap-gcp-production.ps1`
 - Cloud Run config validator: `infra/scripts/validate-cloudrun-config.ps1`
 - image smoke-build helper: `infra/scripts/smoke-build-images.ps1`
 - container smoke-start helper: `infra/scripts/smoke-start-containers.ps1`
@@ -171,6 +175,7 @@ Example deploy:
 - eBay state is now derived from one canonical evaluator and reused across `/marketplaces`, inventory preflight, publish routing, queue-backed execution logs, and operator badges/messages.
 - The manual eBay secret-ref connector remains in place for simulated pilot publish jobs while the live eBay offer/create path is still being built.
 - Depop publishing is still a simulated automation adapter with auditable queue flow and artifact hooks, so the MVP can be exercised before live connector hardening.
+- Poshmark and Whatnot are now available as pilot-safe simulated automation connectors, routed through the isolated connector-runner like Depop because they do not currently have stable public API access for this workflow.
 - OpenAI usage is optional. If `OPENAI_API_KEY` is unset, deterministic fallback heuristics drive lot analysis and draft generation.
 - Connector-runner failures write local artifacts into `ARTIFACT_BASE_DIR` and mark repeated account failures in the database.
 - `jobs` includes a dedicated `JOBS_SMOKE_MODE=1` path so one-off container startup can be verified without requiring a live database fanout run.

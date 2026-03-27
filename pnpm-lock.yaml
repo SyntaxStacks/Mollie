@@ -104,6 +104,12 @@ importers:
       '@reselleros/marketplaces-depop':
         specifier: workspace:*
         version: link:../../packages/marketplaces-depop
+      '@reselleros/marketplaces-poshmark':
+        specifier: workspace:*
+        version: link:../../packages/marketplaces-poshmark
+      '@reselleros/marketplaces-whatnot':
+        specifier: workspace:*
+        version: link:../../packages/marketplaces-whatnot
       '@reselleros/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -283,6 +289,24 @@ importers:
         version: link:../types
 
   packages/marketplaces-ebay:
+    dependencies:
+      '@reselleros/marketplaces':
+        specifier: workspace:*
+        version: link:../marketplaces
+      '@reselleros/types':
+        specifier: workspace:*
+        version: link:../types
+
+  packages/marketplaces-poshmark:
+    dependencies:
+      '@reselleros/marketplaces':
+        specifier: workspace:*
+        version: link:../marketplaces
+      '@reselleros/types':
+        specifier: workspace:*
+        version: link:../types
+
+  packages/marketplaces-whatnot:
     dependencies:
       '@reselleros/marketplaces':
         specifier: workspace:*

@@ -77,7 +77,14 @@ function fallbackListingDraft(input: InventoryContext, platform: Platform): List
   const brandPrefix = input.brand ? `${input.brand} ` : "";
   const sizeSuffix = input.size ? ` Size ${input.size}` : "";
   const colorSuffix = input.color ? ` ${input.color}` : "";
-  const platformSuffix = platform === "DEPOP" ? " Y2K reseller pick" : " fast ship";
+  const platformSuffix =
+    platform === "DEPOP"
+      ? " Y2K reseller pick"
+      : platform === "POSHMARK"
+        ? " closet refresh"
+        : platform === "WHATNOT"
+          ? " live sale ready"
+          : " fast ship";
   const title = `${adjective} ${brandPrefix}${input.title}${sizeSuffix}${colorSuffix}${platformSuffix}`.slice(0, 78).trim();
   const description = [
     `${brandPrefix}${input.title} in ${input.condition.toLowerCase()} condition.`,
@@ -86,7 +93,11 @@ function fallbackListingDraft(input: InventoryContext, platform: Platform): List
     `Category: ${input.category}.`,
     platform === "EBAY"
       ? "Packed for search clarity and quick handling with room for item specifics."
-      : "Written for a style-forward Depop audience while keeping sizing and condition explicit."
+      : platform === "DEPOP"
+        ? "Written for a style-forward Depop audience while keeping sizing and condition explicit."
+        : platform === "POSHMARK"
+          ? "Written for Poshmark cross-listing with brand, condition, and closet-style clarity."
+          : "Written for Whatnot cross-listing with concise callouts and live-sale friendly details."
   ]
     .filter(Boolean)
     .join(" ");
@@ -99,7 +110,13 @@ function fallbackListingDraft(input: InventoryContext, platform: Platform): List
       input.category,
       input.brand ?? "reseller-finds",
       input.color ?? "neutral",
-      platform === "DEPOP" ? "depopfinds" : "ebayseller"
+      platform === "DEPOP"
+        ? "depopfinds"
+        : platform === "POSHMARK"
+          ? "poshmarkfinds"
+          : platform === "WHATNOT"
+            ? "whatnotseller"
+            : "ebayseller"
     ]
       .map((tag) => tag.toLowerCase().replace(/\s+/g, "-"))
       .slice(0, 8),

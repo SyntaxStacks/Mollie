@@ -56,6 +56,41 @@ function MarketplacesPageContent() {
   const oauthMessage = searchParams.get("message");
   const oauthCode = searchParams.get("code");
   const oauthAccountId = searchParams.get("accountId");
+  const accounts = data?.accounts ?? [];
+
+  function renderAutomationAccounts(platform: "DEPOP" | "POSHMARK" | "WHATNOT") {
+    const platformAccounts = accounts.filter((account) => account.platform === platform);
+
+    if (platformAccounts.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="stack" style={{ marginTop: "1rem" }}>
+        {platformAccounts.map((account) => (
+          <div className="rs-card" key={account.id}>
+            <div className="split">
+              <div>
+                <strong>{account.displayName}</strong>
+                <div className="muted">{account.externalAccountId ?? account.secretRef}</div>
+              </div>
+              {account.readiness ? <StatusPill status={account.readiness.state} /> : <StatusPill status={account.status} />}
+            </div>
+            {account.readiness ? (
+              <div className="stack" style={{ marginTop: "0.75rem" }}>
+                <div className="muted">
+                  State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
+                </div>
+                <div>{account.readiness.summary}</div>
+                <div className="muted">{account.readiness.detail}</div>
+                {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   useEffect(() => {
     if (oauthStatus === "connected") {
@@ -102,15 +137,24 @@ function MarketplacesPageContent() {
     launchEbayOAuth(displayName);
   }
 
-  function connect(platform: "EBAY" | "DEPOP") {
+  function connect(platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT") {
     return async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
-      const formData = new FormData(event.currentTarget);
+      const form = event.currentTarget;
+      const formData = new FormData(form);
 
       startTransition(async () => {
         try {
+          const route =
+            platform === "EBAY"
+              ? "ebay/connect"
+              : platform === "DEPOP"
+                ? "depop/session"
+                : platform === "POSHMARK"
+                  ? "poshmark/session"
+                  : "whatnot/session";
           const response = await fetch(
-            `${API_BASE_URL}/api/marketplace-accounts/${platform === "EBAY" ? "ebay/connect" : "depop/session"}`,
+            `${API_BASE_URL}/api/marketplace-accounts/${route}`,
             {
               method: "POST",
               headers: {
@@ -131,7 +175,7 @@ function MarketplacesPageContent() {
 
           setSubmitError(null);
           await refresh();
-          event.currentTarget.reset();
+          form.reset();
         } catch (caughtError) {
           setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not connect account");
         }
@@ -209,7 +253,7 @@ function MarketplacesPageContent() {
             </div>
 
             <div className="stack" style={{ marginTop: "1rem" }}>
-              {(data?.accounts ?? [])
+              {accounts
                 .filter((account) => account.platform === "EBAY")
                 .map((account) => (
                   <div className="rs-card" key={account.id}>
@@ -340,6 +384,43 @@ function MarketplacesPageContent() {
                 Connect Depop
               </Button>
             </form>
+            {renderAutomationAccounts("DEPOP")}
+          </Card>
+
+          <Card eyebrow="Poshmark" title="Automation connector">
+            <form className="stack" onSubmit={connect("POSHMARK")}>
+              <label className="label">
+                Display name
+                <input className="field" name="poshmarkDisplayName" placeholder="Main Poshmark closet" required />
+              </label>
+              <label className="label">
+                Session secret reference
+                <input className="field" name="poshmarkSecretRef" placeholder="secret://poshmark/session" required />
+              </label>
+              <Button type="submit" disabled={pending}>
+                Connect Poshmark
+              </Button>
+            </form>
+            <div className="notice">Poshmark is currently handled through isolated automation, like Depop.</div>
+            {renderAutomationAccounts("POSHMARK")}
+          </Card>
+
+          <Card eyebrow="Whatnot" title="Automation connector">
+            <form className="stack" onSubmit={connect("WHATNOT")}>
+              <label className="label">
+                Display name
+                <input className="field" name="whatnotDisplayName" placeholder="Main Whatnot account" required />
+              </label>
+              <label className="label">
+                Session secret reference
+                <input className="field" name="whatnotSecretRef" placeholder="secret://whatnot/session" required />
+              </label>
+              <Button type="submit" disabled={pending}>
+                Connect Whatnot
+              </Button>
+            </form>
+            <div className="notice">Whatnot is currently handled through isolated automation, like Depop.</div>
+            {renderAutomationAccounts("WHATNOT")}
           </Card>
         </div>
 
@@ -357,7 +438,7 @@ function MarketplacesPageContent() {
               </tr>
             </thead>
             <tbody>
-              {(data?.accounts ?? []).map((account) => (
+              {accounts.map((account) => (
                 <tr key={account.id}>
                   <td>{account.platform}</td>
                   <td>{account.displayName}</td>

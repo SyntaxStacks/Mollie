@@ -8,6 +8,8 @@ param(
   [string]$SecretsFile,
   [string]$ServiceAccount,
   [string]$CloudSqlInstance,
+  [string]$VpcConnector,
+  [ValidateSet("all-traffic", "private-ranges-only")] [string]$VpcEgress = "private-ranges-only",
   [int]$MinInstances = -1,
   [int]$MaxInstances = -1,
   [string]$Cpu,
@@ -117,7 +119,17 @@ $resolvedMaxInstances = if ($MaxInstances -ge 0) { $MaxInstances } else { $defau
 $resolvedCpu = if ($Cpu) { $Cpu } else { $defaultCpu[$App] }
 $resolvedMemory = if ($Memory) { $Memory } else { $defaultMemory[$App] }
 
-gcloud builds submit . --project $ProjectId --region $Region --tag $image --file $dockerfile
+docker build -f $dockerfile -t $image .
+
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
+
+docker push $image
+
+if ($LASTEXITCODE -ne 0) {
+  exit $LASTEXITCODE
+}
 
 if ($App -eq "jobs") {
   $jobArgs = @(
@@ -144,10 +156,14 @@ if ($App -eq "jobs") {
   }
 
   if ($CloudSqlInstance) {
-    $jobArgs += @("--add-cloudsql-instances", $CloudSqlInstance)
+    $jobArgs += @("--set-cloudsql-instances", $CloudSqlInstance)
   }
 
-  & gcloud @jobArgs
+  if ($VpcConnector) {
+    $jobArgs += @("--vpc-connector", $VpcConnector, "--vpc-egress", $VpcEgress)
+  }
+
+  & gcloud.cmd @jobArgs
   exit $LASTEXITCODE
 }
 
@@ -184,5 +200,9 @@ if ($CloudSqlInstance) {
   $deployArgs += @("--add-cloudsql-instances", $CloudSqlInstance)
 }
 
-& gcloud @deployArgs
+if ($VpcConnector) {
+  $deployArgs += @("--vpc-connector", $VpcConnector, "--vpc-egress", $VpcEgress)
+}
+
+& gcloud.cmd @deployArgs
 exit $LASTEXITCODE

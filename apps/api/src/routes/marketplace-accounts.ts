@@ -22,11 +22,15 @@ import {
   getEbayAccountReadiness,
   parseEbayOAuthState
 } from "@reselleros/marketplaces-ebay";
+import { getAutomationAccountReadiness } from "@reselleros/marketplaces";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 import { redactSecretRef } from "../lib/redaction.js";
 
-function serializeMarketplaceAccount(account: Awaited<ReturnType<typeof db.marketplaceAccount.findFirstOrThrow>>) {
+function serializeMarketplaceAccount(
+  account: Awaited<ReturnType<typeof db.marketplaceAccount.findFirstOrThrow>>,
+  options?: { workspaceAutomationEnabled?: boolean }
+) {
   const credentialMetadata = (account.credentialMetadataJson ?? null) as Record<string, unknown> | null;
   const readiness =
     account.platform === "EBAY"
@@ -44,6 +48,22 @@ function serializeMarketplaceAccount(account: Awaited<ReturnType<typeof db.marke
           accountStatus: account.status,
           lastErrorMessage: account.lastErrorMessage
         })
+      : account.platform === "DEPOP" || account.platform === "POSHMARK" || account.platform === "WHATNOT"
+        ? getAutomationAccountReadiness({
+            account: {
+              id: account.id,
+              platform: account.platform,
+              displayName: account.displayName,
+              secretRef: account.secretRef,
+              credentialType: account.credentialType,
+              validationStatus: account.validationStatus,
+              externalAccountId: account.externalAccountId,
+              credentialMetadata
+            },
+            workspaceAutomationEnabled: options?.workspaceAutomationEnabled,
+            accountStatus: account.status,
+            lastErrorMessage: account.lastErrorMessage
+          })
       : null;
 
   return {
@@ -76,7 +96,13 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       orderBy: { createdAt: "desc" }
     });
 
-    return { accounts: accounts.map(serializeMarketplaceAccount) };
+    return {
+      accounts: accounts.map((account) =>
+        serializeMarketplaceAccount(account, {
+          workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+        })
+      )
+    };
   });
 
   app.post("/api/marketplace-accounts/ebay/connect", async (request) => {
@@ -110,7 +136,11 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       }
     });
 
-    return { account: serializeMarketplaceAccount(account) };
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
   });
 
   app.post("/api/marketplace-accounts/ebay/oauth/start", async (request) => {
@@ -250,7 +280,87 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       }
     });
 
-    return { account: serializeMarketplaceAccount(account) };
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
+  });
+
+  app.post("/api/marketplace-accounts/poshmark/session", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const body = marketplaceAccountSchema.extend({ platform: z.literal("POSHMARK") }).parse({
+      ...(request.body as Record<string, unknown>),
+      platform: "POSHMARK"
+    });
+
+    const account = await createMarketplaceAccountForWorkspace(workspace.id, {
+      platform: body.platform,
+      displayName: body.displayName,
+      secretRef: body.secretRef,
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      credentialMetadata: {
+        mode: "session-secret-ref",
+        publishMode: "automation"
+      }
+    });
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "marketplace.poshmark.connected",
+      targetType: "marketplace_account",
+      targetId: account.id,
+      metadata: {
+        displayName: account.displayName
+      }
+    });
+
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
+  });
+
+  app.post("/api/marketplace-accounts/whatnot/session", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const body = marketplaceAccountSchema.extend({ platform: z.literal("WHATNOT") }).parse({
+      ...(request.body as Record<string, unknown>),
+      platform: "WHATNOT"
+    });
+
+    const account = await createMarketplaceAccountForWorkspace(workspace.id, {
+      platform: body.platform,
+      displayName: body.displayName,
+      secretRef: body.secretRef,
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      credentialMetadata: {
+        mode: "session-secret-ref",
+        publishMode: "automation"
+      }
+    });
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "marketplace.whatnot.connected",
+      targetType: "marketplace_account",
+      targetId: account.id,
+      metadata: {
+        displayName: account.displayName
+      }
+    });
+
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
   });
 
   app.post("/api/marketplace-accounts/:id/disable", async (request) => {
@@ -271,7 +381,11 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       targetId: account.id
     });
 
-    return { account: serializeMarketplaceAccount(account) };
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
   });
 
   app.patch("/api/marketplace-accounts/:id/ebay-live-defaults", async (request) => {
@@ -320,6 +434,10 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       }
     });
 
-    return { account: serializeMarketplaceAccount(account) };
+    return {
+      account: serializeMarketplaceAccount(account, {
+        workspaceAutomationEnabled: workspace.connectorAutomationEnabled
+      })
+    };
   });
 }

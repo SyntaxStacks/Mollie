@@ -327,13 +327,15 @@ export default function InventoryDetailPage() {
             }
             onGenerateDrafts={() =>
               void runMutation(`/api/inventory/${data.item.id}/generate-drafts`, {
-                platforms: ["EBAY", "DEPOP"]
+                platforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
               })
             }
             onMoveImage={(imageId, direction) => moveImage(imageId, direction)}
             onPublishDepop={() => void runMutation(`/api/inventory/${data.item.id}/publish/depop`)}
             onPublishEbay={() => void runMutation(`/api/inventory/${data.item.id}/publish/ebay`)}
+            onPublishPoshmark={() => void runMutation(`/api/inventory/${data.item.id}/publish/poshmark`)}
             onSaveEbayDraft={saveEbayDraft}
+            onPublishWhatnot={() => void runMutation(`/api/inventory/${data.item.id}/publish/whatnot`)}
             pending={pending}
             submitError={submitError}
             uploadStatus={uploadStatus}

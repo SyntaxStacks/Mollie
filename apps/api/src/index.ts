@@ -46,7 +46,7 @@ export async function startApiServer() {
   try {
     await app.listen({
       host: "0.0.0.0",
-      port: env.API_PORT
+      port: Number(process.env.PORT ?? env.API_PORT)
     });
   } catch (error) {
     app.log.error(error);

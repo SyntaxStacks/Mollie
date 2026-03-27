@@ -15,17 +15,17 @@ import {
   updateInventoryItemForWorkspace
 } from "@reselleros/db";
 import { getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
-import { buildIdempotencyKey, enqueueJob } from "@reselleros/queue";
+import { buildIdempotencyKey, enqueueJob, getPublishJobName } from "@reselleros/queue";
 import {
   acceptedImageContentTypes,
   deleteManagedInventoryImage,
   inferContentTypeFromStorageKey,
-  localUploadExists,
   maxInventoryImageBytes,
-  openLocalUploadStream,
+  managedUploadExists,
+  openManagedUploadStream,
   uploadInventoryImage
 } from "@reselleros/storage";
-import { imageInputSchema, inventoryInputSchema } from "@reselleros/types";
+import { imageInputSchema, inventoryInputSchema, platforms, type Platform } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 
@@ -56,7 +56,7 @@ function resolveApiPublicBaseUrl(request: {
 
 async function queuePublish(
   app: ApiApp,
-  platform: "EBAY" | "DEPOP",
+  platform: Platform,
   inventoryItemId: string,
   workspaceId: string
 ) {
@@ -120,7 +120,7 @@ async function queuePublish(
   const executionLog = await createExecutionLog({
     workspaceId,
     inventoryItemId,
-    jobName: platform === "EBAY" ? "listing.publishEbay" : "listing.publishDepop",
+    jobName: getPublishJobName(platform),
     connector: platform,
     correlationId,
     requestPayload: {
@@ -135,7 +135,7 @@ async function queuePublish(
     }
   });
 
-  await enqueueJob(platform === "EBAY" ? "listing.publishEbay" : "listing.publishDepop", {
+  await enqueueJob(getPublishJobName(platform), {
     inventoryItemId,
     draftId: draft.id,
     marketplaceAccountId: account.id,
@@ -405,13 +405,13 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       .split("/")
       .map((segment) => decodeURIComponent(segment))
       .join("/");
-    const exists = await localUploadExists(storageKey);
+    const exists = await managedUploadExists(storageKey);
 
     if (!exists) {
       throw app.httpErrors.notFound("Upload not found");
     }
 
-    const stream = openLocalUploadStream(storageKey);
+    const stream = openManagedUploadStream(storageKey);
 
     if (!stream) {
       throw app.httpErrors.notFound("Upload not found");
@@ -428,7 +428,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     const body = z
       .object({
-        platforms: z.array(z.enum(["EBAY", "DEPOP"])).min(1)
+        platforms: z.array(z.enum(platforms)).min(1)
       })
       .parse(request.body);
     const item = await findInventoryItemForWorkspace(workspace.id, params.id);
@@ -534,5 +534,21 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
 
     return queuePublish(app, "DEPOP", params.id, workspace.id);
+  });
+
+  app.post("/api/inventory/:id/publish/poshmark", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+
+    return queuePublish(app, "POSHMARK", params.id, workspace.id);
+  });
+
+  app.post("/api/inventory/:id/publish/whatnot", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+
+    return queuePublish(app, "WHATNOT", params.id, workspace.id);
   });
 }

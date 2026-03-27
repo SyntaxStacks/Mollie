@@ -6,7 +6,7 @@ import {
   findPlatformListingDetailForWorkspace,
   findPlatformListingForWorkspace
 } from "@reselleros/db";
-import { enqueueJob } from "@reselleros/queue";
+import { enqueueJob, getPublishJobName } from "@reselleros/queue";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 
@@ -53,12 +53,12 @@ export function registerListingRoutes(app: ApiApp, context: ApiRouteContext) {
       workspaceId: workspace.id,
       inventoryItemId: listing.inventoryItemId,
       platformListingId: listing.id,
-      jobName: listing.platform === "EBAY" ? "listing.publishEbay" : "listing.publishDepop",
+      jobName: getPublishJobName(listing.platform),
       connector: listing.platform,
       correlationId: crypto.randomUUID()
     });
 
-    await enqueueJob(listing.platform === "EBAY" ? "listing.publishEbay" : "listing.publishDepop", {
+    await enqueueJob(getPublishJobName(listing.platform), {
       inventoryItemId: listing.inventoryItemId,
       draftId: draft.id,
       marketplaceAccountId: listing.marketplaceAccountId,

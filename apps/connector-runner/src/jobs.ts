@@ -3,17 +3,44 @@ import { loadConnectorEnv } from "@reselleros/config";
 import { Prisma, db, markMarketplaceAccountConnectorFailure, resetMarketplaceAccountConnectorHealth } from "@reselleros/db";
 import { ConnectorError, classifyConnectorError } from "@reselleros/marketplaces";
 import { depopAdapter } from "@reselleros/marketplaces-depop";
+import { poshmarkAdapter } from "@reselleros/marketplaces-poshmark";
 import type { JobPayload } from "@reselleros/queue";
+import { whatnotAdapter } from "@reselleros/marketplaces-whatnot";
+import type { Platform } from "@reselleros/types";
 
 const env = loadConnectorEnv();
 const failureThreshold = env.CONNECTOR_FAILURE_THRESHOLD;
 
+type ConnectorPublishJobName = "listing.publishDepop" | "listing.publishPoshmark" | "listing.publishWhatnot";
+type ConnectorPublishPayload =
+  | JobPayload<"listing.publishDepop">
+  | JobPayload<"listing.publishPoshmark">
+  | JobPayload<"listing.publishWhatnot">;
+
+const connectorConfig = {
+  "listing.publishDepop": {
+    platform: "DEPOP",
+    adapter: depopAdapter,
+    missingMessage: "Depop publish prerequisites missing"
+  },
+  "listing.publishPoshmark": {
+    platform: "POSHMARK",
+    adapter: poshmarkAdapter,
+    missingMessage: "Poshmark publish prerequisites missing"
+  },
+  "listing.publishWhatnot": {
+    platform: "WHATNOT",
+    adapter: whatnotAdapter,
+    missingMessage: "Whatnot publish prerequisites missing"
+  }
+} as const;
+
 async function handleConnectorFailure(input: {
-  payload: JobPayload<"listing.publishDepop">;
+  payload: ConnectorPublishPayload;
   jobName: string;
   error: unknown;
   workspaceId: string;
-  connector: string;
+  connector: Platform;
 }) {
   const connectorError = classifyConnectorError(input.error);
 
@@ -64,7 +91,9 @@ async function handleConnectorFailure(input: {
   return connectorError;
 }
 
-export async function processConnectorJob(jobName: string, payload: JobPayload<"listing.publishDepop">) {
+export async function processConnectorJob(jobName: ConnectorPublishJobName, payload: ConnectorPublishPayload) {
+  const config = connectorConfig[jobName];
+
   await db.executionLog.update({
     where: { id: payload.executionLogId },
     data: {
@@ -96,11 +125,11 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
       jobName,
       error: new ConnectorError({
         code: "PREREQUISITE_MISSING",
-        message: "Depop publish prerequisites missing",
+        message: config.missingMessage,
         retryable: false
       }),
       workspaceId: item?.workspaceId ?? account?.workspaceId ?? "unknown-workspace",
-      connector: "DEPOP"
+      connector: config.platform
     });
     throw error;
   }
@@ -119,7 +148,7 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
         retryable: false
       }),
       workspaceId: item.workspaceId,
-      connector: "DEPOP"
+      connector: config.platform
     });
     throw error;
   }
@@ -134,7 +163,7 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
         retryable: false
       }),
       workspaceId: workspace.id,
-      connector: "DEPOP"
+      connector: config.platform
     });
     throw error;
   }
@@ -149,13 +178,13 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
         retryable: false
       }),
       workspaceId: workspace.id,
-      connector: "DEPOP"
+      connector: config.platform
     });
     throw error;
   }
 
   try {
-    const publishResult = await depopAdapter.publishListing({
+    const publishResult = await config.adapter.publishListing({
       inventoryItemId: item.id,
       sku: item.sku,
       quantity: item.quantity,
@@ -169,9 +198,10 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
       attributes: draft.attributesJson as Record<string, unknown>,
       marketplaceAccount: {
         id: account.id,
-        platform: "DEPOP",
+        platform: config.platform,
         displayName: account.displayName,
         secretRef: account.secretRef,
+        status: account.status,
         credentialType: account.credentialType,
         validationStatus: account.validationStatus,
         externalAccountId: account.externalAccountId,
@@ -184,7 +214,7 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
       where: {
         inventoryItemId: item.id,
         marketplaceAccountId: account.id,
-        platform: "DEPOP"
+        platform: config.platform
       }
     });
 
@@ -205,7 +235,7 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
           data: {
             inventoryItemId: item.id,
             marketplaceAccountId: account.id,
-            platform: "DEPOP",
+            platform: config.platform,
             externalListingId: publishResult.externalListingId,
             externalUrl: publishResult.externalUrl,
             publishedTitle: publishResult.title,
@@ -243,7 +273,7 @@ export async function processConnectorJob(jobName: string, payload: JobPayload<"
       jobName,
       error,
       workspaceId: workspace.id,
-      connector: "DEPOP"
+      connector: config.platform
     });
     throw handled;
   }

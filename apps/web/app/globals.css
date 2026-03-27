@@ -236,6 +236,12 @@ body {
   color: #92400e;
 }
 
+.notice.success {
+  border-color: rgba(15, 118, 110, 0.18);
+  background: rgba(15, 118, 110, 0.1);
+  color: #115e59;
+}
+
 .execution-notice-success {
   border-color: rgba(15, 118, 110, 0.18);
   background: rgba(15, 118, 110, 0.1);
