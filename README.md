@@ -162,6 +162,14 @@ Production domain defaults are now wired around:
 - api: `https://api.mollie.biz`
 - eBay OAuth callback: `https://api.mollie.biz/api/marketplace-accounts/ebay/oauth/callback`
 
+Pilot email auth can now be delivered through Resend. Recommended setup:
+
+- verify a sending subdomain like `mail.mollie.biz`
+- set `AUTH_EMAIL_FROM=login@mail.mollie.biz`
+- store `RESEND_API_KEY` in Secret Manager for the API service
+
+If `RESEND_API_KEY` and `AUTH_EMAIL_FROM` are configured, `/onboarding` emails the login code instead of showing the inline development code. The inline code remains available only when `AUTH_EXPOSE_DEV_CODE=true`.
+
 Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings.
 
 Example deploy:

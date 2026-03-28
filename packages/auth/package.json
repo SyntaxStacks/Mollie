@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@reselleros/db": "workspace:*",
+    "@reselleros/email": "workspace:*",
     "@reselleros/observability": "workspace:*",
     "@reselleros/types": "workspace:*"
   }

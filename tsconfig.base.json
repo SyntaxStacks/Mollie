@@ -30,6 +30,9 @@
       "@reselleros/db": [
         "packages/db/src/index.ts"
       ],
+      "@reselleros/email": [
+        "packages/email/src/index.ts"
+      ],
       "@reselleros/macbid": [
         "packages/macbid/src/index.ts"
       ],

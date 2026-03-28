@@ -1,10 +1,21 @@
 import { createHash, randomInt, randomUUID } from "node:crypto";
 
 import { db } from "@reselleros/db";
+import { isLoginEmailConfigured, sendLoginCodeEmail } from "@reselleros/email";
 import { createLogger } from "@reselleros/observability";
 
 const logger = createLogger("auth");
 const sessionTtlMs = 1000 * 60 * 60 * 24 * 14;
+
+class AuthFlowError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = "AuthFlowError";
+    this.statusCode = statusCode;
+  }
+}
 
 function hashValue(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -27,6 +38,10 @@ function shouldExposeChallengeCode() {
   return process.env.NODE_ENV !== "production" || process.env.AUTH_EXPOSE_DEV_CODE === "true";
 }
 
+function shouldRequireEmailDelivery() {
+  return process.env.NODE_ENV === "production" && !shouldExposeChallengeCode();
+}
+
 function generateNumericCode() {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
@@ -43,19 +58,39 @@ type AuthContextInput = {
 };
 
 export async function issueLoginChallenge(input: AuthContextInput) {
+  const email = input.email.trim().toLowerCase();
+  const name = input.name?.trim() || undefined;
+
+  if (shouldRequireEmailDelivery() && !isLoginEmailConfigured()) {
+    throw new AuthFlowError("Login email delivery is not configured", 503);
+  }
+
   const user = await db.user.upsert({
-    where: { email: input.email },
+    where: { email },
     update: {
-      name: input.name ?? undefined
+      name
     },
     create: {
-      email: input.email,
-      name: input.name ?? undefined
+      email,
+      name
     }
   });
 
   const code = generateNumericCode();
   const expiresAt = expiresInMinutes(resolveChallengeTtlMinutes());
+
+  await db.authChallenge.updateMany({
+    where: {
+      userId: user.id,
+      consumedAt: null,
+      expiresAt: {
+        gt: now()
+      }
+    },
+    data: {
+      consumedAt: now()
+    }
+  });
 
   await db.authChallenge.create({
     data: {
@@ -66,12 +101,36 @@ export async function issueLoginChallenge(input: AuthContextInput) {
     }
   });
 
+  const shouldSendEmail = isLoginEmailConfigured();
+
+  if (shouldSendEmail) {
+    try {
+      await sendLoginCodeEmail({
+        to: user.email,
+        code,
+        expiresAt,
+        appBaseUrl: process.env.APP_BASE_URL
+      });
+    } catch (error) {
+      await db.authChallenge.deleteMany({
+        where: {
+          userId: user.id,
+          codeHash: hashValue(code),
+          consumedAt: null
+        }
+      });
+
+      throw new AuthFlowError("Could not send login code email", 502);
+    }
+  }
+
   logger.info(
     {
       userId: user.id,
       email: user.email,
       expiresAt: expiresAt.toISOString(),
       code: shouldExposeChallengeCode() ? code : undefined,
+      deliveryMethod: shouldSendEmail ? "email" : "inline",
       ipAddress: input.ipAddress ?? undefined,
       userAgent: input.userAgent ?? undefined
     },
@@ -81,7 +140,8 @@ export async function issueLoginChallenge(input: AuthContextInput) {
   return {
     email: user.email,
     expiresAt,
-    devCode: shouldExposeChallengeCode() ? code : null
+    devCode: shouldExposeChallengeCode() ? code : null,
+    deliveryMethod: shouldSendEmail ? "email" : "inline"
   };
 }
 
@@ -91,9 +151,12 @@ export async function verifyLoginChallenge(input: {
   ipAddress?: string | null;
   userAgent?: string | null;
 }) {
+  const email = input.email.trim().toLowerCase();
+  const code = input.code.trim();
+
   const challenge = await db.authChallenge.findFirst({
     where: {
-      email: input.email,
+      email,
       consumedAt: null,
       expiresAt: {
         gt: now()
@@ -119,10 +182,10 @@ export async function verifyLoginChallenge(input: {
   });
 
   if (!challenge) {
-    throw new Error("No active login code found for that email");
+    throw new AuthFlowError("No active login code found for that email");
   }
 
-  if (challenge.codeHash !== hashValue(input.code)) {
+  if (challenge.codeHash !== hashValue(code)) {
     await db.authChallenge.update({
       where: { id: challenge.id },
       data: {
@@ -132,7 +195,7 @@ export async function verifyLoginChallenge(input: {
       }
     });
 
-    throw new Error("Invalid login code");
+    throw new AuthFlowError("Invalid login code");
   }
 
   await db.authChallenge.update({

@@ -21,6 +21,7 @@ export default function OnboardingPage() {
     email: string;
     expiresAt: string;
     devCode: string | null;
+    deliveryMethod: "email" | "inline";
   } | null>(null);
 
   useEffect(() => {
@@ -43,14 +44,15 @@ export default function OnboardingPage() {
             "Content-Type": "application/json"
           },
           body: JSON.stringify({
-            email: formData.get("email"),
-            name: formData.get("name")
+            email: String(formData.get("email") ?? "").trim(),
+            name: String(formData.get("name") ?? "").trim()
           })
         });
         const payload = (await response.json()) as {
           email: string;
           expiresAt: string;
           devCode: string | null;
+          deliveryMethod: "email" | "inline";
           error?: string;
         };
 
@@ -61,7 +63,8 @@ export default function OnboardingPage() {
         setChallenge({
           email: payload.email,
           expiresAt: payload.expiresAt,
-          devCode: payload.devCode
+          devCode: payload.devCode,
+          deliveryMethod: payload.deliveryMethod
         });
         setError(null);
       } catch (caughtError) {
@@ -73,6 +76,7 @@ export default function OnboardingPage() {
   async function handleVerifyCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
+    const code = String(formData.get("code") ?? "").trim();
 
     startTransition(async () => {
       try {
@@ -83,7 +87,7 @@ export default function OnboardingPage() {
           },
           body: JSON.stringify({
             email: challenge?.email,
-            code: formData.get("code")
+            code
           })
         });
         const payload = (await response.json()) as {
@@ -100,7 +104,14 @@ export default function OnboardingPage() {
 
         auth.login(payload);
       } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Could not verify login code");
+        const message = caughtError instanceof Error ? caughtError.message : "Could not verify login code";
+
+        if (/invalid login code/i.test(message) || /no active login code/i.test(message)) {
+          setError("That code is no longer valid. Use the most recent email code or start over to request a fresh one.");
+          return;
+        }
+
+        setError(message);
       }
     });
   }
@@ -140,9 +151,13 @@ export default function OnboardingPage() {
             ) : (
               <form className="stack" onSubmit={handleVerifyCode}>
                 <div className="notice">
-                  Login code issued for <strong>{challenge.email}</strong>. It expires at{" "}
+                  {challenge.deliveryMethod === "email" ? "Login code emailed to " : "Login code issued for "}{" "}
+                  <strong>{challenge.email}</strong>. It expires at{" "}
                   {new Date(challenge.expiresAt).toLocaleTimeString()}.
                 </div>
+                {challenge.deliveryMethod === "email" ? (
+                  <div className="notice">Check your inbox and spam folder for the 6-digit code. Only the most recent email code will work.</div>
+                ) : null}
                 {challenge.devCode ? (
                   <div className="notice">
                     Development code: <strong>{challenge.devCode}</strong>
@@ -157,7 +172,7 @@ export default function OnboardingPage() {
                   <Button type="submit" disabled={pending}>
                     {pending ? "Verifying..." : "Verify and continue"}
                   </Button>
-                  <Button kind="ghost" onClick={() => setChallenge(null)}>
+                  <Button kind="ghost" type="button" onClick={() => setChallenge(null)}>
                     Start over
                   </Button>
                 </div>

@@ -236,6 +236,9 @@ importers:
       '@reselleros/db':
         specifier: workspace:*
         version: link:../db
+      '@reselleros/email':
+        specifier: workspace:*
+        version: link:../email
       '@reselleros/observability':
         specifier: workspace:*
         version: link:../observability
@@ -263,6 +266,12 @@ importers:
       prisma:
         specifier: ^6.5.0
         version: 6.19.2(typescript@5.9.3)
+
+  packages/email:
+    dependencies:
+      '@reselleros/observability':
+        specifier: workspace:*
+        version: link:../observability
 
   packages/macbid:
     dependencies:

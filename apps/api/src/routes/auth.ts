@@ -16,7 +16,8 @@ export function registerAuthRoutes(app: ApiApp, context: ApiRouteContext) {
       ok: true,
       email: challenge.email,
       expiresAt: challenge.expiresAt.toISOString(),
-      devCode: challenge.devCode
+      devCode: challenge.devCode,
+      deliveryMethod: challenge.deliveryMethod
     };
   });
 

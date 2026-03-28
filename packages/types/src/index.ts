@@ -74,13 +74,13 @@ export const sessionSchema = z.object({
 export type Session = z.infer<typeof sessionSchema>;
 
 export const authRequestSchema = z.object({
-  email: z.string().email(),
-  name: z.string().min(1).max(120).optional()
+  email: z.string().trim().toLowerCase().email(),
+  name: z.string().trim().min(1).max(120).optional()
 });
 
 export const authVerifySchema = z.object({
-  email: z.string().email(),
-  code: z.string().length(6).regex(/^\d+$/)
+  email: z.string().trim().toLowerCase().email(),
+  code: z.string().trim().length(6).regex(/^\d+$/)
 });
 
 export const createWorkspaceSchema = z.object({

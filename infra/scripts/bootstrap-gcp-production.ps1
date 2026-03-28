@@ -495,6 +495,7 @@ $apiBaseUrl = "https://$ApiDomain"
 $appBaseUrl = "https://$Domain"
 $uploadsPublicBaseUrl = $apiBaseUrl
 $hasOpenAiKey = $dotEnv.ContainsKey("OPENAI_API_KEY") -and -not [string]::IsNullOrWhiteSpace($dotEnv["OPENAI_API_KEY"])
+$hasResendKey = $dotEnv.ContainsKey("RESEND_API_KEY") -and -not [string]::IsNullOrWhiteSpace($dotEnv["RESEND_API_KEY"])
 $hasStripeSecret = $dotEnv.ContainsKey("STRIPE_SECRET_KEY") -and -not [string]::IsNullOrWhiteSpace($dotEnv["STRIPE_SECRET_KEY"])
 $hasStripeWebhook = $dotEnv.ContainsKey("STRIPE_WEBHOOK_SECRET") -and -not [string]::IsNullOrWhiteSpace($dotEnv["STRIPE_WEBHOOK_SECRET"])
 $hasEbayClientId = $dotEnv.ContainsKey("EBAY_CLIENT_ID") -and -not [string]::IsNullOrWhiteSpace($dotEnv["EBAY_CLIENT_ID"])
@@ -521,6 +522,9 @@ Ensure-SecretAndVersion $projectId "reselleros-redis-url" $redisUrl
 Ensure-SecretAndVersion $projectId "reselleros-session-secret" $dotEnv["SESSION_SECRET"]
 if ($hasOpenAiKey) {
   Ensure-SecretAndVersion $projectId "reselleros-openai-api-key" $dotEnv["OPENAI_API_KEY"]
+}
+if ($hasResendKey) {
+  Ensure-SecretAndVersion $projectId "reselleros-resend-api-key" $dotEnv["RESEND_API_KEY"]
 }
 if ($hasStripeSecret) {
   Ensure-SecretAndVersion $projectId "reselleros-stripe-secret-key" $dotEnv["STRIPE_SECRET_KEY"]
@@ -556,6 +560,9 @@ $apiSecretLines = @(
 )
 if ($hasOpenAiKey) {
   $apiSecretLines += "OPENAI_API_KEY=reselleros-openai-api-key:latest"
+}
+if ($hasResendKey) {
+  $apiSecretLines += "RESEND_API_KEY=reselleros-resend-api-key:latest"
 }
 if ($hasStripeSecret) {
   $apiSecretLines += "STRIPE_SECRET_KEY=reselleros-stripe-secret-key:latest"
@@ -610,6 +617,7 @@ Write-YamlFile $webEnvFile ([ordered]@{
 Write-YamlFile $apiEnvFile ([ordered]@{
   NODE_ENV = "production"
   API_PORT = "4000"
+  AUTH_EMAIL_FROM = "login@mail.$Domain"
   OPENAI_MODEL = "gpt-4.1-mini"
   APP_BASE_URL = $appBaseUrl
   API_PUBLIC_BASE_URL = $apiBaseUrl
