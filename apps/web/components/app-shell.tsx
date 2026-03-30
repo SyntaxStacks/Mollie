@@ -20,6 +20,13 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings }
 ];
 
+const legalLinks = [
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+  { href: "/acceptable-use", label: "Acceptable use" },
+  { href: "/contact", label: "Contact" }
+];
+
 export function AppShell({ title, children }: { title: string; children: React.ReactNode }) {
   const pathname = usePathname();
   const auth = useAuth();
@@ -49,6 +56,14 @@ export function AppShell({ title, children }: { title: string; children: React.R
         <div className="workspace-chip">
           <strong>{auth.workspace?.name ?? "No workspace"}</strong>
           <span>{auth.user?.email}</span>
+        </div>
+
+        <div className="sidebar-legal">
+          {legalLinks.map((link) => (
+            <Link key={link.href} href={link.href}>
+              {link.label}
+            </Link>
+          ))}
         </div>
       </aside>
 

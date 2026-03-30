@@ -16,6 +16,7 @@ process.env.OPENAI_MODEL ??= "gpt-4.1-mini";
 process.env.EBAY_CLIENT_ID ??= "pilot-ebay-client-id";
 process.env.EBAY_CLIENT_SECRET ??= "pilot-ebay-client-secret";
 process.env.EBAY_REDIRECT_URI ??= "http://localhost:4000/api/marketplace-accounts/ebay/oauth/callback";
+delete process.env.EBAY_RU_NAME;
 process.env.EBAY_ENVIRONMENT ??= "sandbox";
 process.env.EBAY_SCOPES ??=
   "https://api.ebay.com/oauth/api_scope/sell.inventory https://api.ebay.com/oauth/api_scope/commerce.identity.readonly";
@@ -151,6 +152,27 @@ test("ebay oauth start returns a signed authorization url for the workspace user
   assert.equal(authorizeUrl.searchParams.get("response_type"), "code");
   assert.equal(authorizeUrl.searchParams.get("state"), body.state);
   assert.ok(body.scopes.includes("https://api.ebay.com/oauth/api_scope/sell.inventory"));
+});
+
+test("ebay oauth start prefers EBAY_RU_NAME when configured", async () => {
+  process.env.EBAY_RU_NAME = "Mollie-production-ru-name";
+  const session = await createWorkspaceSession("ebay-oauth-runame");
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/marketplace-accounts/ebay/oauth/start",
+    headers: session.headers,
+    payload: {
+      displayName: "Pilot eBay RuName"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as { authorizeUrl: string };
+  const authorizeUrl = new URL(body.authorizeUrl);
+  assert.equal(authorizeUrl.searchParams.get("redirect_uri"), "Mollie-production-ru-name");
+
+  delete process.env.EBAY_RU_NAME;
 });
 
 test("ebay oauth callback stores a validated encrypted token set without exposing raw secrets", async () => {

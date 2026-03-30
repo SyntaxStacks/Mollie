@@ -57,6 +57,7 @@ const originalScopes = process.env.EBAY_SCOPES;
 const originalClientId = process.env.EBAY_CLIENT_ID;
 const originalClientSecret = process.env.EBAY_CLIENT_SECRET;
 const originalRedirectUri = process.env.EBAY_REDIRECT_URI;
+const originalRuName = process.env.EBAY_RU_NAME;
 const originalEnvironment = process.env.EBAY_ENVIRONMENT;
 
 function buildHeaders(token: string, workspaceId?: string) {
@@ -351,6 +352,7 @@ beforeEach(() => {
   process.env.EBAY_CLIENT_ID = originalClientId;
   process.env.EBAY_CLIENT_SECRET = originalClientSecret;
   process.env.EBAY_REDIRECT_URI = originalRedirectUri;
+  process.env.EBAY_RU_NAME = originalRuName;
   process.env.EBAY_ENVIRONMENT = originalEnvironment;
 });
 

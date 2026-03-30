@@ -59,6 +59,18 @@ test("logged-out operators can access the onboarding form without a redirect tra
   await expect(page.getByRole("heading", { name: /create your operator session/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /send login code/i })).toBeVisible();
   await expect(page.getByLabel(/email/i)).toBeVisible();
+  await expect(page.getByRole("link", { name: /privacy policy/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /terms of service/i })).toBeVisible();
+});
+
+test("public legal documents are reachable without authentication", async ({ page }) => {
+  await page.goto("/privacy");
+  await expect(page.getByRole("heading", { name: /privacy, operator data, and marketplace information/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /what mollie collects/i })).toBeVisible();
+
+  await page.goto("/terms");
+  await expect(page.getByRole("heading", { name: /pilot terms for operators and workspace owners/i })).toBeVisible();
+  await expect(page.getByText(/workspace owners are responsible/i)).toBeVisible();
 });
 
 test("protected routes redirect logged-out operators into onboarding with client navigation", async ({ page }) => {

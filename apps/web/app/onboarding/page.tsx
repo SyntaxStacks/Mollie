@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { Button, Card } from "@reselleros/ui";
+import Link from "next/link";
 
 import { ProtectedView } from "../../components/protected-view";
 import { getPostLoginPath } from "../../components/auth-flow";
@@ -129,6 +130,12 @@ export default function OnboardingPage() {
               <span>Mac.bid manual URL ingestion</span>
               <span>AI valuation and listing generation</span>
               <span>Queued publish actions with execution logs</span>
+            </div>
+            <div className="public-link-row">
+              <Link href="/privacy">Privacy Policy</Link>
+              <Link href="/terms">Terms of Service</Link>
+              <Link href="/acceptable-use">Acceptable Use</Link>
+              <Link href="/contact">Contact</Link>
             </div>
           </Card>
 

@@ -500,6 +500,11 @@ $hasStripeSecret = $dotEnv.ContainsKey("STRIPE_SECRET_KEY") -and -not [string]::
 $hasStripeWebhook = $dotEnv.ContainsKey("STRIPE_WEBHOOK_SECRET") -and -not [string]::IsNullOrWhiteSpace($dotEnv["STRIPE_WEBHOOK_SECRET"])
 $hasEbayClientId = $dotEnv.ContainsKey("EBAY_CLIENT_ID") -and -not [string]::IsNullOrWhiteSpace($dotEnv["EBAY_CLIENT_ID"])
 $hasEbayClientSecret = $dotEnv.ContainsKey("EBAY_CLIENT_SECRET") -and -not [string]::IsNullOrWhiteSpace($dotEnv["EBAY_CLIENT_SECRET"])
+$ebayMarketplaceDeletionVerificationToken = if ($dotEnv.ContainsKey("EBAY_MARKETPLACE_DELETION_VERIFICATION_TOKEN") -and -not [string]::IsNullOrWhiteSpace($dotEnv["EBAY_MARKETPLACE_DELETION_VERIFICATION_TOKEN"])) {
+  $dotEnv["EBAY_MARKETPLACE_DELETION_VERIFICATION_TOKEN"]
+} else {
+  [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+}
 $ebayConfigured = $hasEbayClientId -and $hasEbayClientSecret
 
 Write-Step "Granting project roles"
@@ -538,6 +543,7 @@ if ($hasEbayClientId) {
 if ($hasEbayClientSecret) {
   Ensure-SecretAndVersion $projectId "reselleros-ebay-client-secret" $dotEnv["EBAY_CLIENT_SECRET"]
 }
+Ensure-SecretAndVersion $projectId "reselleros-ebay-marketplace-deletion-verification-token" $ebayMarketplaceDeletionVerificationToken
 
 Write-Step "Generating production env files"
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
@@ -556,7 +562,8 @@ $apiSecretLines = @(
   "DATABASE_URL=reselleros-database-url:latest",
   "DIRECT_URL=reselleros-direct-database-url:latest",
   "REDIS_URL=reselleros-redis-url:latest",
-  "SESSION_SECRET=reselleros-session-secret:latest"
+  "SESSION_SECRET=reselleros-session-secret:latest",
+  "EBAY_MARKETPLACE_DELETION_VERIFICATION_TOKEN=reselleros-ebay-marketplace-deletion-verification-token:latest"
 )
 if ($hasOpenAiKey) {
   $apiSecretLines += "OPENAI_API_KEY=reselleros-openai-api-key:latest"

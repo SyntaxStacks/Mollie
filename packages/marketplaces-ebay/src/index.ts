@@ -102,12 +102,14 @@ function getLivePublishEnabledFlag() {
 function getOauthConfig() {
   const clientId = process.env.EBAY_CLIENT_ID;
   const clientSecret = process.env.EBAY_CLIENT_SECRET;
-  const redirectUri = process.env.EBAY_REDIRECT_URI;
+  const callbackUrl = process.env.EBAY_REDIRECT_URI;
+  const ruName = process.env.EBAY_RU_NAME;
+  const oauthRedirect = ruName ?? callbackUrl;
 
-  if (!clientId || !clientSecret || !redirectUri) {
+  if (!clientId || !clientSecret || !callbackUrl || !oauthRedirect) {
     throw new ConnectorError({
       code: "PREREQUISITE_MISSING",
-      message: "eBay OAuth is not configured. Set EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, and EBAY_REDIRECT_URI.",
+      message: "eBay OAuth is not configured. Set EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, EBAY_REDIRECT_URI, and for production OAuth also set EBAY_RU_NAME.",
       retryable: false
     });
   }
@@ -115,7 +117,9 @@ function getOauthConfig() {
   return {
     clientId,
     clientSecret,
-    redirectUri,
+    callbackUrl,
+    oauthRedirect,
+    ruName,
     environment: resolveEbayEnvironment(),
     scopes: resolveEbayScopes()
   };
@@ -719,7 +723,7 @@ export function buildEbayAuthorizationUrl(input: {
   const state = createEbayOAuthState(input);
   const params = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: config.redirectUri,
+    redirect_uri: config.oauthRedirect,
     response_type: "code",
     scope: config.scopes.join(" "),
     state
@@ -744,7 +748,7 @@ export async function exchangeEbayAuthorizationCode(code: string) {
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      redirect_uri: config.redirectUri
+      redirect_uri: config.oauthRedirect
     })
   });
 

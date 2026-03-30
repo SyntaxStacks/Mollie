@@ -104,6 +104,21 @@ body {
   color: var(--muted);
 }
 
+.sidebar-legal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem 1rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.sidebar-legal a,
+.public-link-row a {
+  text-decoration: underline;
+  text-decoration-color: rgba(16, 34, 24, 0.18);
+  text-underline-offset: 0.18em;
+}
+
 .content {
   padding: 2rem;
   display: grid;
@@ -531,6 +546,95 @@ body {
   font-weight: 700;
 }
 
+.public-doc-page {
+  min-height: 100vh;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 3rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.public-doc-hero,
+.public-doc-card {
+  padding: 1.5rem;
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+
+.public-doc-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.public-doc-brand h1,
+.public-doc-section h2 {
+  margin: 0;
+}
+
+.public-doc-summary {
+  max-width: 60ch;
+  color: var(--muted);
+  line-height: 1.65;
+  margin: 0.85rem 0 0;
+}
+
+.public-doc-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.public-doc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  padding: 0.8rem 1rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.86);
+  font-weight: 700;
+}
+
+.public-doc-content {
+  display: grid;
+  gap: 1rem;
+}
+
+.public-doc-section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.public-doc-section p,
+.public-doc-section li {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.public-doc-section ul {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.public-doc-footer {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.5rem 0;
+}
+
+.public-doc-footer-links,
+.public-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+}
+
 @media (max-width: 1100px) {
   .layout,
   .hero-grid,
@@ -629,6 +733,14 @@ body {
 
   .handoff-qr-shell {
     min-height: 180px;
+  }
+
+  .public-doc-page {
+    padding: 1rem 1rem 2rem;
+  }
+
+  .public-doc-hero {
+    flex-direction: column;
   }
 }
 

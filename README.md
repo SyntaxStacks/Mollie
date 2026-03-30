@@ -161,6 +161,7 @@ Production domain defaults are now wired around:
 - web: `https://mollie.biz`
 - api: `https://api.mollie.biz`
 - eBay OAuth callback: `https://api.mollie.biz/api/marketplace-accounts/ebay/oauth/callback`
+- eBay marketplace account deletion endpoint: `https://api.mollie.biz/api/ebay/marketplace-account-deletion`
 
 Pilot email auth can now be delivered through Resend. Recommended setup:
 
@@ -170,7 +171,15 @@ Pilot email auth can now be delivered through Resend. Recommended setup:
 
 If `RESEND_API_KEY` and `AUTH_EMAIL_FROM` are configured, `/onboarding` emails the login code instead of showing the inline development code. The inline code remains available only when `AUTH_EXPOSE_DEV_CODE=true`.
 
-Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings.
+Production-facing public documents are available at:
+- `/privacy`
+- `/terms`
+- `/acceptable-use`
+- `/contact`
+
+Use `https://mollie.biz/privacy` as the public privacy policy URL for marketplace app setup unless a provider requires a different policy URL.
+
+Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings. For eBay production OAuth, also set `EBAY_RU_NAME` to the production RuName from the eBay developer console.
 
 Example deploy:
 
@@ -179,6 +188,7 @@ Example deploy:
 ## Notes
 
 - eBay now has a real OAuth foundation: the API can start the authorization-code flow, exchange the callback code, validate the connected eBay account, and store the token set encrypted in the database-backed credential vault path. When live publish is not enabled, OAuth-backed accounts fail closed instead of faking successful listings.
+- The API now exposes the eBay marketplace-account-deletion compliance webhook at `https://api.mollie.biz/api/ebay/marketplace-account-deletion`. The GET variant answers eBay's challenge handshake, and the POST variant acknowledges deletion notifications and disables matching connected eBay accounts.
 - If `EBAY_LIVE_PUBLISH_ENABLED=true`, OAuth-backed eBay accounts can now use the real Inventory API path. That path expects `ebayCategoryId` on the approved draft attributes plus eBay live defaults for merchant location and listing policies. Those defaults can now be stored on the OAuth account from `/marketplaces`, with env values remaining as fallback.
 - eBay state is now derived from one canonical evaluator and reused across `/marketplaces`, inventory preflight, publish routing, queue-backed execution logs, and operator badges/messages.
 - The manual eBay secret-ref connector remains in place for simulated pilot publish jobs while the live eBay offer/create path is still being built.

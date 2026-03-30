@@ -447,6 +447,94 @@ export async function disableMarketplaceAccountForWorkspace(workspaceId: string,
   });
 }
 
+export async function markEbayMarketplaceAccountsDeleted(input: {
+  externalAccountId?: string | null;
+  username?: string | null;
+  eiasToken?: string | null;
+  notificationId: string;
+  eventDate?: string | null;
+  publishDate?: string | null;
+  rawNotification: Prisma.InputJsonValue;
+}) {
+  const identifiers = [input.externalAccountId, input.username].filter(
+    (value): value is string => Boolean(value && value.trim())
+  );
+
+  if (identifiers.length === 0 && !input.eiasToken) {
+    return [];
+  }
+
+  const accounts = await db.marketplaceAccount.findMany({
+    where: {
+      platform: "EBAY",
+      OR: [
+        ...(identifiers.length
+          ? [
+              {
+                externalAccountId: {
+                  in: identifiers
+                }
+              }
+            ]
+          : []),
+        ...(input.eiasToken
+          ? [
+              {
+                credentialMetadataJson: {
+                  path: ["eiasToken"],
+                  equals: input.eiasToken
+                }
+              }
+            ]
+          : [])
+      ]
+    }
+  });
+
+  const updates: typeof accounts = [];
+
+  for (const account of accounts) {
+    const nextMetadata = {
+      ...((account.credentialMetadataJson ?? {}) as Record<string, unknown>),
+      marketplaceAccountDeletion: {
+        notificationId: input.notificationId,
+        eventDate: input.eventDate ?? null,
+        publishDate: input.publishDate ?? null,
+        deletedAt: new Date().toISOString()
+      }
+    } satisfies Record<string, unknown>;
+
+    const updated = await db.marketplaceAccount.update({
+      where: { id: account.id },
+      data: {
+        status: "DISABLED",
+        validationStatus: "INVALID",
+        lastErrorCode: "EBAY_MARKETPLACE_ACCOUNT_DELETION",
+        lastErrorMessage: "eBay reported that this marketplace account requested deletion and closure.",
+        credentialMetadataJson: nextMetadata
+      }
+    });
+
+    await recordAuditLog({
+      workspaceId: updated.workspaceId,
+      action: "marketplace.ebay.account_deleted",
+      targetType: "marketplace_account",
+      targetId: updated.id,
+      metadata: {
+        notificationId: input.notificationId,
+        externalAccountId: input.externalAccountId ?? null,
+        username: input.username ?? null,
+        eiasToken: input.eiasToken ?? null,
+        rawNotification: input.rawNotification
+      }
+    });
+
+    updates.push(updated);
+  }
+
+  return updates;
+}
+
 export async function updateMarketplaceAccountMetadataForWorkspace(
   workspaceId: string,
   accountId: string,

@@ -112,6 +112,29 @@ export const ebayOAuthCallbackQuerySchema = z.object({
   mode: z.enum(["json", "redirect"]).default("redirect")
 });
 
+export const ebayMarketplaceAccountDeletionChallengeSchema = z.object({
+  challenge_code: z.string().min(1)
+});
+
+export const ebayMarketplaceAccountDeletionNotificationSchema = z.object({
+  metadata: z.object({
+    topic: z.string(),
+    schemaVersion: z.string(),
+    deprecated: z.boolean().optional()
+  }),
+  notification: z.object({
+    notificationId: z.string(),
+    eventDate: z.string(),
+    publishDate: z.string(),
+    publishAttemptCount: z.number().int().nonnegative(),
+    data: z.object({
+      username: z.string().optional(),
+      userId: z.string().optional(),
+      eiasToken: z.string().optional()
+    })
+  })
+});
+
 export const ebayLiveDefaultsSchema = z.object({
   merchantLocationKey: z.string().min(1).max(120).optional().nullable(),
   paymentPolicyId: z.string().min(1).max(120).optional().nullable(),

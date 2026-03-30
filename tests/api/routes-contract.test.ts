@@ -78,6 +78,15 @@ test("marketplace account route module is registered", async () => {
   assert.equal(response.statusCode, 401);
 });
 
+test("ebay notification route module is registered publicly", async () => {
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/ebay/marketplace-account-deletion?challenge_code=test-challenge"
+  });
+
+  assert.notEqual(response.statusCode, 404);
+});
+
 test("source lot route module is registered", async () => {
   const response = await app.inject({
     method: "GET",

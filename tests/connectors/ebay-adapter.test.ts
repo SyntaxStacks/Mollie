@@ -6,6 +6,7 @@ process.env.SESSION_SECRET ??= "test-session-secret";
 process.env.EBAY_CLIENT_ID ??= "pilot-ebay-client-id";
 process.env.EBAY_CLIENT_SECRET ??= "pilot-ebay-client-secret";
 process.env.EBAY_REDIRECT_URI ??= "http://localhost:4000/api/marketplace-accounts/ebay/oauth/callback";
+delete process.env.EBAY_RU_NAME;
 process.env.EBAY_ENVIRONMENT ??= "sandbox";
 process.env.EBAY_LIVE_PUBLISH_ENABLED = "true";
 process.env.EBAY_MARKETPLACE_ID = "EBAY_US";

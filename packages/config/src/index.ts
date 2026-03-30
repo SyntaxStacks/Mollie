@@ -21,6 +21,8 @@ const baseEnvSchema = z.object({
   EBAY_CLIENT_ID: z.string().optional(),
   EBAY_CLIENT_SECRET: z.string().optional(),
   EBAY_REDIRECT_URI: z.string().url().optional(),
+  EBAY_RU_NAME: z.string().min(1).optional(),
+  EBAY_MARKETPLACE_DELETION_VERIFICATION_TOKEN: z.string().min(8).optional(),
   EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
   EBAY_SCOPES: z.string().optional(),
   EBAY_LIVE_PUBLISH_ENABLED: z.coerce.boolean().default(false),
