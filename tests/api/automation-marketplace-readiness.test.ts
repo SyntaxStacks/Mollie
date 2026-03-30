@@ -175,6 +175,16 @@ test("automation marketplace accounts surface ready and error readiness states",
         publishMode: string;
         summary: string;
         detail: string;
+        hint?: {
+          title: string;
+          explanation: string;
+          severity: string;
+          nextActions: string[];
+          routeTarget?: string | null;
+          featureFamily?: string | null;
+          canContinue?: boolean;
+          helpText?: string | null;
+        } | null;
       } | null;
     }>;
   };
@@ -186,6 +196,10 @@ test("automation marketplace accounts surface ready and error readiness states",
   assert.equal(poshmark.readiness.state, "AUTOMATION_READY");
   assert.equal(poshmark.readiness.status, "READY");
   assert.equal(poshmark.readiness.publishMode, "automation");
+  assert.equal(poshmark.readiness.hint?.severity, "SUCCESS");
+  assert.equal(poshmark.readiness.hint?.featureFamily, "POSHMARK_SOCIAL");
+  assert.equal(poshmark.readiness.hint?.canContinue, true);
+  assert.match(poshmark.readiness.hint?.title ?? "", /ready/i);
   assert.equal(poshmark.connectorDescriptor?.executionMode, "SIMULATED");
   assert.equal(poshmark.connectorDescriptor?.fallbackMode, "MANUAL");
   assert.equal(poshmark.connectorDescriptor?.riskLevel, "HIGH");
@@ -195,6 +209,10 @@ test("automation marketplace accounts surface ready and error readiness states",
   assert.equal(whatnot.readiness.state, "AUTOMATION_ERROR");
   assert.equal(whatnot.readiness.status, "BLOCKED");
   assert.match(whatnot.readiness.summary, /whatnot browser session expired/i);
+  assert.equal(whatnot.readiness.hint?.severity, "ERROR");
+  assert.equal(whatnot.readiness.hint?.featureFamily, "WHATNOT_LIVE_SELLING");
+  assert.equal(whatnot.readiness.hint?.routeTarget, "/marketplaces");
+  assert.match(whatnot.readiness.hint?.explanation ?? "", /session expired/i);
   assert.equal(whatnot.connectorDescriptor?.executionMode, "SIMULATED");
   assert.equal(whatnot.connectorDescriptor?.supportedFeatureFamilies[0]?.family, "WHATNOT_LIVE_SELLING");
 });
@@ -241,6 +259,12 @@ test("workspace connector automation disable blocks automation market readiness"
         publishMode: string;
         summary: string;
         detail: string;
+        hint?: {
+          title: string;
+          explanation: string;
+          severity: string;
+          nextActions: string[];
+        } | null;
       } | null;
     }>;
   };
@@ -251,4 +275,7 @@ test("workspace connector automation disable blocks automation market readiness"
   assert.equal(depop.readiness.status, "BLOCKED");
   assert.equal(depop.readiness.publishMode, "automation");
   assert.match(depop.readiness.detail, /re-enable workspace connector automation/i);
+  assert.equal(depop.readiness.hint?.severity, "ERROR");
+  assert.match(depop.readiness.hint?.title ?? "", /turned back on/i);
+  assert.ok(depop.readiness.hint?.nextActions.some((action) => /workspace settings/i.test(action)));
 });

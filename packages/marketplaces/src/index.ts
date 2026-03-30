@@ -5,6 +5,7 @@ import type {
   ConnectorFailureCode,
   ConnectorFallbackMode,
   ConnectorFeatureFamily,
+  OperatorHint,
   ConnectorRateLimitStrategy,
   ConnectorRiskLevel,
   ConnectorSupportLevel,
@@ -98,7 +99,42 @@ export type AutomationMarketplaceReadiness = {
   publishMode: "automation";
   summary: string;
   detail: string;
+  hint: OperatorHint;
 };
+
+function getAutomationFeatureFamily(platform: Platform): ConnectorFeatureFamily {
+  if (platform === "DEPOP") {
+    return "DEPOP_PROMOTION";
+  }
+
+  if (platform === "POSHMARK") {
+    return "POSHMARK_SOCIAL";
+  }
+
+  return "WHATNOT_LIVE_SELLING";
+}
+
+function buildAutomationHint(input: {
+  platformLabel: string;
+  platform: Platform;
+  title: string;
+  explanation: string;
+  severity: OperatorHint["severity"];
+  nextActions: string[];
+  canContinue: boolean;
+  helpText?: string;
+}) {
+  return {
+    title: input.title,
+    explanation: input.explanation,
+    severity: input.severity,
+    nextActions: input.nextActions,
+    routeTarget: "/marketplaces",
+    featureFamily: getAutomationFeatureFamily(input.platform),
+    canContinue: input.canContinue,
+    helpText: input.helpText ?? `${input.platformLabel} is currently handled as an automation-class connector.`
+  } satisfies OperatorHint;
+}
 
 export class ConnectorError extends Error {
   code: ConnectorFailureCode;
@@ -180,7 +216,16 @@ export function getAutomationAccountReadiness(input: {
       status: "BLOCKED",
       publishMode: "automation" as const,
       summary: `${platformLabel} automation is disabled for this workspace.`,
-      detail: "Re-enable workspace connector automation before publishing."
+      detail: "Re-enable workspace connector automation before publishing.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} needs workspace automation turned back on.`,
+        explanation: "This account cannot publish until connector automation is re-enabled for the workspace.",
+        severity: "ERROR",
+        nextActions: ["Re-enable connector automation in Workspace settings.", "Retry publish after automation is enabled."],
+        canContinue: false
+      })
     };
   }
 
@@ -190,7 +235,20 @@ export function getAutomationAccountReadiness(input: {
       status: "BLOCKED",
       publishMode: "automation" as const,
       summary: input.lastErrorMessage?.trim() || `${platformLabel} automation is in an error state.`,
-      detail: "Reconnect or repair the automation session before publishing again."
+      detail: "Reconnect or repair the automation session before publishing again.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} needs attention before it can publish again.`,
+        explanation: input.lastErrorMessage?.trim() || "The last automation run failed and the connector is currently blocked.",
+        severity: "ERROR",
+        nextActions: [
+          `Reconnect the ${platformLabel} session or secret reference.`,
+          "Open Executions to inspect the last failure details and artifacts.",
+          "Use manual handling if this publish cannot wait."
+        ],
+        canContinue: false
+      })
     };
   }
 
@@ -200,7 +258,16 @@ export function getAutomationAccountReadiness(input: {
       status: "BLOCKED",
       publishMode: "automation" as const,
       summary: `${platformLabel} automation is disabled for this account.`,
-      detail: "Reconnect or re-enable the account before publishing."
+      detail: "Reconnect or re-enable the account before publishing.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} is disabled for this account.`,
+        explanation: "Mollie will not send automation jobs to this account until it is re-enabled or reconnected.",
+        severity: "ERROR",
+        nextActions: [`Reconnect the ${platformLabel} account.`, "Return here to confirm the account is ready before publishing."],
+        canContinue: false
+      })
     };
   }
 
@@ -213,7 +280,22 @@ export function getAutomationAccountReadiness(input: {
       detail:
         input.account.validationStatus === "NEEDS_REFRESH"
           ? "Refresh the stored session secret before publishing."
-          : "Reconnect the automation session before publishing."
+          : "Reconnect the automation session before publishing.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} session needs to be refreshed before it can publish.`,
+        explanation:
+          input.account.validationStatus === "NEEDS_REFRESH"
+            ? "The saved automation session is stale and needs a fresh secret or session reference."
+            : "The saved automation session is not valid enough to run publish jobs.",
+        severity: "WARNING",
+        nextActions: [
+          `Refresh or replace the saved ${platformLabel} session reference.`,
+          "Retry the publish after the account shows ready again."
+        ],
+        canContinue: false
+      })
     };
   }
 
@@ -222,6 +304,15 @@ export function getAutomationAccountReadiness(input: {
     status: "READY",
     publishMode: "automation" as const,
     summary: `${platformLabel} automation is ready for publish jobs.`,
-    detail: "This account will publish through the isolated connector-runner."
+    detail: "This account will publish through the isolated connector-runner.",
+    hint: buildAutomationHint({
+      platform: input.account.platform,
+      platformLabel,
+      title: `${platformLabel} is ready for automation publish jobs.`,
+      explanation: "Mollie can queue publish work for this account through the isolated automation runner.",
+      severity: "SUCCESS",
+      nextActions: ["Continue from inventory detail to publish an item.", "Check Executions if a publish later needs support review."],
+      canContinue: true
+    })
   };
 }

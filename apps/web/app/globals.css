@@ -321,6 +321,42 @@ body {
   border-top: 1px solid var(--line);
 }
 
+.marketplace-hint {
+  margin-top: 0.9rem;
+  padding: 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+}
+
+.marketplace-hint-warning {
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(217, 119, 6, 0.2);
+  color: #92400e;
+}
+
+.marketplace-hint-error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(185, 28, 28, 0.18);
+  color: #991b1b;
+}
+
+.marketplace-hint-success {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: rgba(15, 118, 110, 0.18);
+  color: #115e59;
+}
+
+.marketplace-hint-info {
+  background: rgba(14, 116, 144, 0.08);
+  border-color: rgba(14, 116, 144, 0.15);
+  color: #155e75;
+}
+
+.marketplace-hint-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
 .execution-detail-heading {
   margin: 0;
 }

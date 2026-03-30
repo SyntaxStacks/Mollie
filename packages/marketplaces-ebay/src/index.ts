@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 
 import { ConnectorError, type MarketplaceAdapter, type MarketplaceAccountContext, type PublishListingInput } from "@reselleros/marketplaces";
-import type { ConnectorPreflightCheck, EbayOperationalState } from "@reselleros/types";
+import type { ConnectorPreflightCheck, EbayOperationalState, OperatorHint } from "@reselleros/types";
 
 const DEFAULT_EBAY_SCOPES = [
   "https://api.ebay.com/oauth/api_scope",
@@ -66,7 +66,30 @@ type EbayOperationalEvaluation = {
   summary: string;
   detail: string;
   missingConfig: string[];
+  hint: OperatorHint;
 };
+
+function buildEbayHint(input: {
+  title: string;
+  explanation: string;
+  severity: OperatorHint["severity"];
+  nextActions: string[];
+  canContinue: boolean;
+  routeTarget?: string;
+  featureFamily?: OperatorHint["featureFamily"];
+  helpText?: string;
+}) {
+  return {
+    title: input.title,
+    explanation: input.explanation,
+    severity: input.severity,
+    nextActions: input.nextActions,
+    routeTarget: input.routeTarget ?? "/marketplaces",
+    featureFamily: input.featureFamily ?? null,
+    canContinue: input.canContinue,
+    helpText: input.helpText ?? "eBay is Mollie's strongest API-oriented connector, but live publish still depends on valid account and policy configuration."
+  } satisfies OperatorHint;
+}
 
 function resolveEbayEnvironment(): EbayEnvironment {
   return process.env.EBAY_ENVIRONMENT === "production" ? "production" : "sandbox";
@@ -330,7 +353,18 @@ export function getEbayOperationalState(input: {
       detail: liveEnabled
         ? "Connect and configure OAuth if you want this workspace to publish live eBay listings."
         : "This account uses the simulated pilot connector.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "This eBay account is using Mollie's simulated pilot path.",
+        explanation: liveEnabled
+          ? "Live eBay publishing is enabled for the workspace, but this account is still configured as a manual simulated connector."
+          : "This account can still support the pilot workflow, but it will not create a live eBay listing.",
+        severity: liveEnabled ? "WARNING" : "INFO",
+        nextActions: liveEnabled
+          ? ["Connect eBay with OAuth if you want live publish.", "Keep using this account only for simulated pilot flows."]
+          : ["You can continue with simulated publish jobs.", "Connect eBay with OAuth later when you are ready for live publish."],
+        canContinue: true
+      })
     };
   }
 
@@ -341,7 +375,14 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: input.lastErrorMessage?.trim() || "This eBay account is in a live connector error state.",
       detail: "Reconnect the account or clear the live connector error before publishing again.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "eBay needs attention before this account can publish live.",
+        explanation: input.lastErrorMessage?.trim() || "The live eBay connector is currently in an error state.",
+        severity: "ERROR",
+        nextActions: ["Reconnect eBay from the marketplaces screen.", "Review recent execution failures before retrying live publish.", "Use the simulated/manual path if the work cannot wait."],
+        canContinue: false
+      })
     };
   }
 
@@ -352,7 +393,14 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: "This eBay account is disabled.",
       detail: "Re-enable or reconnect the account before publishing live listings.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "This eBay account is disabled for live publish.",
+        explanation: "Mollie will not send live eBay publish jobs to this account until it is re-enabled or reconnected.",
+        severity: "ERROR",
+        nextActions: ["Reconnect the eBay account.", "Return here to confirm the account is ready before publishing again."],
+        canContinue: false
+      })
     };
   }
 
@@ -363,7 +411,14 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: "OAuth credentials are invalid.",
       detail: "Reconnect eBay before attempting another live publish.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "eBay authorization is no longer valid.",
+        explanation: "The saved OAuth credentials cannot be used for live eBay actions.",
+        severity: "ERROR",
+        nextActions: ["Reconnect eBay to refresh the account authorization.", "Retry live publish after the account shows ready again."],
+        canContinue: false
+      })
     };
   }
 
@@ -374,7 +429,14 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: input.lastErrorMessage?.trim() || "OAuth token needs refresh.",
       detail: "Reconnect eBay to refresh the account token set before publishing.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "eBay needs to be reconnected before live publish can continue.",
+        explanation: input.lastErrorMessage?.trim() || "The saved OAuth token set needs to be refreshed.",
+        severity: "ERROR",
+        nextActions: ["Reconnect eBay from the marketplaces screen.", "Retry the live publish once the account is ready again."],
+        canContinue: false
+      })
     };
   }
 
@@ -385,7 +447,14 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: "OAuth account has not been validated yet.",
       detail: "Finish the eBay OAuth flow before attempting live publish.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "Finish eBay setup before using live publish.",
+        explanation: "The OAuth flow has not been validated yet, so Mollie cannot trust this account for live eBay actions.",
+        severity: "WARNING",
+        nextActions: ["Finish the eBay OAuth connect flow.", "Return to /marketplaces and confirm the account is ready."],
+        canContinue: false
+      })
     };
   }
 
@@ -396,7 +465,14 @@ export function getEbayOperationalState(input: {
       publishMode: "simulated",
       summary: "OAuth account is connected, but live eBay publish is disabled.",
       detail: "Enable EBAY_LIVE_PUBLISH_ENABLED or keep using a simulated manual account for pilot publish jobs.",
-      missingConfig: []
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "eBay is connected, but live publish is still turned off.",
+        explanation: "The OAuth account is valid, but the workspace is still set to use the simulated/manual eBay path.",
+        severity: "WARNING",
+        nextActions: ["Continue with the simulated pilot path if that is intentional.", "Enable live eBay publish in deployment config when you are ready."],
+        canContinue: true
+      })
     };
   }
 
@@ -409,7 +485,15 @@ export function getEbayOperationalState(input: {
       publishMode: "live",
       summary: "OAuth account is connected, but live eBay defaults are incomplete.",
       detail: `Missing ${configStatus.missing.join(", ")}.`,
-      missingConfig: configStatus.missing
+      missingConfig: configStatus.missing,
+      hint: buildEbayHint({
+        title: "eBay is connected, but live publish still needs marketplace defaults.",
+        explanation: `Mollie is missing ${configStatus.missing.join(", ")}, so live eBay listings cannot be created yet.`,
+        severity: "WARNING",
+        nextActions: ["Open the eBay account on /marketplaces.", "Save the missing merchant location and policy defaults.", "Retry the item preflight after those values are saved."],
+        canContinue: false,
+        featureFamily: "EBAY_POLICY_CONFIGURATION"
+      })
     };
   }
 
@@ -417,9 +501,17 @@ export function getEbayOperationalState(input: {
     state: "LIVE_READY",
     status: "READY",
     publishMode: "live",
-    summary: "OAuth account is ready for live eBay publish.",
-    detail: "Live token validation and required eBay defaults are in place.",
-    missingConfig: []
+      summary: "OAuth account is ready for live eBay publish.",
+      detail: "Live token validation and required eBay defaults are in place.",
+      missingConfig: [],
+      hint: buildEbayHint({
+        title: "eBay is ready for live publish.",
+        explanation: "The account is validated and the required eBay defaults are configured.",
+        severity: "SUCCESS",
+        nextActions: ["Continue from inventory detail to run eBay preflight.", "Publish a live eBay listing when the item is ready."],
+        canContinue: true,
+        featureFamily: "EBAY_POLICY_CONFIGURATION"
+      })
   };
 }
 
@@ -563,7 +655,8 @@ export function getEbayAccountReadiness(input: {
     status: evaluation.status,
     publishMode: evaluation.publishMode,
     summary: evaluation.summary,
-    detail: evaluation.detail
+    detail: evaluation.detail,
+    hint: evaluation.hint
   };
 }
 

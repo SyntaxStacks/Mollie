@@ -317,6 +317,15 @@ test("marketplace account list surfaces ebay readiness for oauth refresh failure
         publishMode: string;
         summary: string;
         detail: string;
+        hint?: {
+          title: string;
+          explanation: string;
+          severity: string;
+          nextActions: string[];
+          routeTarget?: string | null;
+          featureFamily?: string | null;
+          canContinue?: boolean;
+        } | null;
       } | null;
     }>;
   };
@@ -333,6 +342,10 @@ test("marketplace account list surfaces ebay readiness for oauth refresh failure
   assert.equal(ebayAccount.readiness?.publishMode, "live");
   assert.match(ebayAccount.readiness?.summary ?? "", /refresh token expired/i);
   assert.match(ebayAccount.readiness?.detail ?? "", /reconnect/i);
+  assert.equal(ebayAccount.readiness?.hint?.severity, "ERROR");
+  assert.equal(ebayAccount.readiness?.hint?.routeTarget, "/marketplaces");
+  assert.equal(ebayAccount.readiness?.hint?.canContinue, false);
+  assert.ok(ebayAccount.readiness?.hint?.nextActions.some((action) => /reconnect ebay/i.test(action)));
 });
 
 test("ebay oauth account can persist live defaults for operator-managed publish config", async () => {

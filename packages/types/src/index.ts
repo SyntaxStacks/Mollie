@@ -89,6 +89,20 @@ export type ConnectorFallbackMode = (typeof connectorFallbackModes)[number];
 export const connectorRateLimitStrategies = ["PROVIDER", "SESSION_PACED", "MANUAL_ONLY"] as const;
 export type ConnectorRateLimitStrategy = (typeof connectorRateLimitStrategies)[number];
 
+export const operatorHintSeverities = ["INFO", "SUCCESS", "WARNING", "ERROR"] as const;
+export type OperatorHintSeverity = (typeof operatorHintSeverities)[number];
+
+export type OperatorHint = {
+  title: string;
+  explanation: string;
+  severity: OperatorHintSeverity;
+  nextActions: string[];
+  routeTarget?: string | null;
+  featureFamily?: ConnectorFeatureFamily | null;
+  canContinue?: boolean;
+  helpText?: string | null;
+};
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 
