@@ -4,7 +4,10 @@ import { Camera, Link2, ScanBarcode, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 
+import type { CatalogLookupResult } from "@reselleros/types";
 import { Button, Card } from "@reselleros/ui";
+
+import { OperatorHintCard } from "./operator-hint-card";
 
 type BarcodeImportCardProps = {
   token: string;
@@ -38,7 +41,9 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [pending, startTransition] = useTransition();
+  const [lookupPending, startLookupTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [lookupResult, setLookupResult] = useState<CatalogLookupResult | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerSupported, setScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -161,6 +166,75 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     setAmazonAsin("");
     setImageUrls("");
     setSubmitError(null);
+    setLookupResult(null);
+  }
+
+  async function handleLookup() {
+    startLookupTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/catalog/lookup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            provider: "AMAZON",
+            barcode: barcode || undefined,
+            amazonAsin: amazonAsin || undefined
+          })
+        });
+        const payload = (await response.json().catch(() => ({ error: "Amazon lookup failed" }))) as {
+          error?: string;
+          result?: CatalogLookupResult;
+        };
+
+        if (!response.ok || !payload.result) {
+          throw new Error(payload.error ?? "Amazon lookup failed");
+        }
+
+        setLookupResult(payload.result);
+
+        if (payload.result.item) {
+          setTitle(payload.result.item.title);
+          setBrand(payload.result.item.brand ?? "");
+          setCategory(payload.result.item.category ?? category);
+          setAmazonUrl(payload.result.item.amazonUrl ?? "");
+          setAmazonAsin(payload.result.item.amazonAsin ?? "");
+          setImageUrls(payload.result.item.imageUrls.join("\n"));
+
+          const amazonObservation = payload.result.item.observations.find((observation) => observation.market === "AMAZON");
+
+          if (amazonObservation) {
+            setObservedPrice(String(amazonObservation.price));
+            setPriceRecommendation((current) => current || String(amazonObservation.price));
+            setResaleMin((current) => current || String(amazonObservation.price));
+            setResaleMax((current) => current || String(amazonObservation.price));
+          }
+        }
+      } catch (caughtError) {
+        setLookupResult({
+          provider: "AMAZON",
+          mode: "MANUAL",
+          status: "ERROR",
+          query: {
+            barcode: barcode || null,
+            amazonAsin: amazonAsin || null
+          },
+          item: null,
+          hint: {
+            title: "Amazon lookup failed",
+            explanation: caughtError instanceof Error ? caughtError.message : "Amazon lookup failed.",
+            severity: "ERROR",
+            nextActions: [
+              "Retry the lookup after checking the barcode or ASIN.",
+              "Continue with manual Amazon fields if you need to keep moving."
+            ],
+            canContinue: true
+          }
+        });
+      }
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -255,6 +329,20 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                   ) : null}
                 </div>
               </label>
+              <div className="label">
+                Amazon lookup
+                <div className="scan-field-row">
+                  <Button
+                    data-testid="barcode-import-lookup"
+                    disabled={lookupPending || (!barcode.trim() && !amazonAsin.trim())}
+                    kind="secondary"
+                    onClick={handleLookup}
+                    type="button"
+                  >
+                    <Sparkles size={16} /> {lookupPending ? "Looking up..." : "Lookup Amazon details"}
+                  </Button>
+                </div>
+              </div>
               <label className="label">
                 Title
                 <input
@@ -298,6 +386,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 />
               </label>
             </div>
+
+            <OperatorHintCard hint={lookupResult?.hint ?? null} />
 
             <div className="market-observation-card" data-testid="amazon-observation-card">
               <div className="split">
@@ -402,7 +492,9 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </div>
               <div className="market-observation-summary">
                 <span>{normalizedImageUrls.length} image URL{normalizedImageUrls.length === 1 ? "" : "s"} ready to attach</span>
-                <span>{amazonUrl ? "Amazon link included" : "Amazon link optional"}</span>
+                <span>
+                  {lookupResult?.status === "READY" ? `Lookup mode: ${lookupResult.mode}` : amazonUrl ? "Amazon link included" : "Amazon link optional"}
+                </span>
               </div>
             </div>
 

@@ -267,6 +267,12 @@ export const imageInputSchema = z.object({
 export const catalogImportSources = ["AMAZON"] as const;
 export type CatalogImportSource = (typeof catalogImportSources)[number];
 
+export const catalogLookupModes = ["MANUAL", "FIXTURE", "AMAZON_PAAPI5"] as const;
+export type CatalogLookupMode = (typeof catalogLookupModes)[number];
+
+export const catalogLookupStatuses = ["READY", "NOT_CONFIGURED", "NOT_FOUND", "ERROR"] as const;
+export type CatalogLookupStatus = (typeof catalogLookupStatuses)[number];
+
 export const marketObservationSchema = z.object({
   market: z.string().trim().min(2).max(40),
   label: z.string().trim().min(2).max(80),
@@ -274,6 +280,16 @@ export const marketObservationSchema = z.object({
   sourceUrl: z.string().url().optional().nullable(),
   note: z.string().trim().max(240).optional().nullable()
 });
+
+export const catalogLookupRequestSchema = z
+  .object({
+    provider: z.enum(catalogImportSources),
+    barcode: z.string().trim().min(8).max(64).optional(),
+    amazonAsin: z.string().trim().max(32).optional()
+  })
+  .refine((input) => Boolean(input.barcode?.trim() || input.amazonAsin?.trim()), {
+    message: "Provide a barcode or Amazon ASIN"
+  });
 
 export const inventoryBarcodeImportSchema = z.object({
   barcode: z.string().trim().min(8).max(64),
@@ -294,6 +310,28 @@ export const inventoryBarcodeImportSchema = z.object({
   imageUrls: z.array(z.string().url()).max(12).default([]),
   observations: z.array(marketObservationSchema).min(1).max(8)
 });
+
+export type CatalogLookupItem = {
+  title: string;
+  brand?: string | null;
+  category?: string | null;
+  amazonUrl?: string | null;
+  amazonAsin?: string | null;
+  imageUrls: string[];
+  observations: Array<z.infer<typeof marketObservationSchema>>;
+};
+
+export type CatalogLookupResult = {
+  provider: CatalogImportSource;
+  mode: CatalogLookupMode;
+  status: CatalogLookupStatus;
+  query: {
+    barcode?: string | null;
+    amazonAsin?: string | null;
+  };
+  item: CatalogLookupItem | null;
+  hint?: OperatorHint | null;
+};
 
 export type DashboardMetric = {
   label: string;

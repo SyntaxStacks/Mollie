@@ -97,12 +97,13 @@ The CI workflow validates:
 3. Connect eBay, Depop, Poshmark, and Whatnot on `/marketplaces`
 4. Import a Mac.bid lot on `/lots`
 5. Convert a lot into inventory on `/lots/[id]`
-6. Open `/inventory/[id]` on desktop or phone, continue on mobile when needed, and manage photos on the same canonical item route
-7. Add workspace operators on `/settings`, then have them sign in through `/onboarding` to join the same workspace
-8. Generate and approve drafts from `/inventory/[id]` and `/drafts`
-9. Publish queued listings from `/inventory/[id]`
-10. Inspect runs on `/executions`
-11. Record sold items on `/sales`
+6. Scan or type a barcode on `/inventory`, capture Amazon pricing context, and create an inventory item from the scan flow
+7. Open `/inventory/[id]` on desktop or phone, continue on mobile when needed, and manage photos on the same canonical item route
+8. Add workspace operators on `/settings`, then have them sign in through `/onboarding` to join the same workspace
+9. Generate and approve drafts from `/inventory/[id]` and `/drafts`
+10. Publish queued listings from `/inventory/[id]`
+11. Inspect runs on `/executions`
+12. Record sold items on `/sales`
 
 The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually, the page shows the OAuth return result after redirect, and live eBay location/policy defaults can now be stored on the account instead of relying only on env configuration.
 
@@ -111,6 +112,8 @@ Depop, Poshmark, and Whatnot now also surface explicit automation readiness on `
 Inventory detail now includes an eBay preflight view that surfaces whether a specific item is ready for simulated or live eBay publish, including blocked checks for images, approved draft, account state, live config, and category mapping. The same screen now lets operators edit the eBay draft title, price, and `ebayCategoryId` without leaving the item detail page.
 
 Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop/Poshmark/Whatnot publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
+
+Inventory creation now also includes a barcode import surface with an Amazon-first observation flow. Operators can scan or type a UPC/EAN, capture Amazon pricing and image URLs, and create an inventory item directly from that import. A dedicated `/api/catalog/lookup` route is now in place so approved providers like Amazon Product Advertising API can auto-fill title, price, ASIN, and image data when credentials are configured. Until then, the UI fails closed with operator guidance instead of pretending public scraping is reliable.
 
 Inventory detail now has explicit cross-device continuity for pilot operators. Desktop users can open a "Continue on mobile" handoff with a QR code and canonical item link, then use the same `/inventory/[id]` route on mobile for a photo-first layout with larger tap targets, compact metadata, and lightweight continuity refresh when the same item changes on another device.
 
@@ -184,6 +187,8 @@ Production-facing public documents are available at:
 Use `https://mollie.biz/privacy` as the public privacy policy URL for marketplace app setup unless a provider requires a different policy URL.
 
 Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings. For eBay production OAuth, also set `EBAY_RU_NAME` to the production RuName from the eBay developer console.
+
+Amazon catalog lookup is controlled separately from barcode import. Set `AMAZON_CATALOG_LOOKUP_MODE=amazon_paapi5` and provide `AMAZON_PAAPI_ACCESS_KEY`, `AMAZON_PAAPI_SECRET_KEY`, and `AMAZON_PAAPI_PARTNER_TAG` if you want Amazon auto-fill to use Product Advertising API instead of manual operator entry.
 
 Example deploy:
 

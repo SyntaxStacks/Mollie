@@ -16,6 +16,7 @@
     "@fastify/sensible": "^6.0.3",
     "@reselleros/ai": "workspace:*",
     "@reselleros/auth": "workspace:*",
+    "@reselleros/catalog": "workspace:*",
     "@reselleros/config": "workspace:*",
     "@reselleros/db": "workspace:*",
     "@reselleros/macbid": "workspace:*",

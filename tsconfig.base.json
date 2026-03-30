@@ -24,6 +24,9 @@
       "@reselleros/auth": [
         "packages/auth/src/index.ts"
       ],
+      "@reselleros/catalog": [
+        "packages/catalog/src/index.ts"
+      ],
       "@reselleros/config": [
         "packages/config/src/index.ts"
       ],

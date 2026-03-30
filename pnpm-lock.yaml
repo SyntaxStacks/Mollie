@@ -50,6 +50,9 @@ importers:
       '@reselleros/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@reselleros/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
       '@reselleros/config':
         specifier: workspace:*
         version: link:../../packages/config
@@ -248,6 +251,12 @@ importers:
       '@reselleros/observability':
         specifier: workspace:*
         version: link:../observability
+      '@reselleros/types':
+        specifier: workspace:*
+        version: link:../types
+
+  packages/catalog:
+    dependencies:
       '@reselleros/types':
         specifier: workspace:*
         version: link:../types
