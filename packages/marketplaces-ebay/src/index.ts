@@ -1071,6 +1071,93 @@ async function publishLiveListing(input: PublishListingInput) {
 
 export const ebayAdapter: MarketplaceAdapter = {
   platform: "EBAY",
+  descriptor: {
+    platform: "EBAY",
+    displayName: "eBay",
+    executionMode: "OAUTH_API",
+    riskLevel: "MEDIUM",
+    fallbackMode: "SIMULATED",
+    rateLimitStrategy: "PROVIDER",
+    supportedCapabilities: [
+      {
+        capability: "CONNECT_ACCOUNT",
+        support: "SUPPORTED",
+        detail: "Supports both OAuth account connection and manual simulated account setup."
+      },
+      {
+        capability: "VALIDATE_AUTH",
+        support: "SUPPORTED",
+        detail: "Validates account readiness through OAuth state, account health, and live config checks."
+      },
+      {
+        capability: "REFRESH_AUTH",
+        support: "SUPPORTED",
+        detail: "Refreshes OAuth access tokens when a valid refresh token is available."
+      },
+      {
+        capability: "SYNC_ACCOUNT_STATE",
+        support: "SUPPORTED",
+        detail: "Can sync identity and account-level OAuth state for connected sellers."
+      },
+      {
+        capability: "SYNC_LISTINGS",
+        support: "SUPPORTED",
+        detail: "Supports listing status sync through the standard sync job path."
+      },
+      {
+        capability: "SYNC_ORDERS",
+        support: "PLANNED",
+        detail: "Order and fulfillment sync are planned but not implemented yet."
+      },
+      {
+        capability: "CREATE_LISTING",
+        support: "SUPPORTED",
+        detail: "Supports simulated publish today and live Inventory API publish when live mode is enabled and configured."
+      },
+      {
+        capability: "UPDATE_LISTING",
+        support: "PLANNED",
+        detail: "Revision support is not implemented yet."
+      },
+      {
+        capability: "DELIST_LISTING",
+        support: "PLANNED",
+        detail: "Delist/end-listing support is planned."
+      },
+      {
+        capability: "RELIST_LISTING",
+        support: "PLANNED",
+        detail: "Relist flows are planned."
+      },
+      {
+        capability: "SEND_OFFER",
+        support: "PLANNED",
+        detail: "Offer workflows are planned once the listing lifecycle is broader than initial publish."
+      },
+      {
+        capability: "FETCH_MESSAGES",
+        support: "UNSUPPORTED",
+        detail: "Buyer messaging is not part of the current eBay connector scope."
+      },
+      {
+        capability: "RECORD_HEALTH",
+        support: "SUPPORTED",
+        detail: "Readiness and health are surfaced through canonical eBay operational states."
+      },
+      {
+        capability: "FETCH_ANALYTICS",
+        support: "PLANNED",
+        detail: "Analytics and account activity retrieval are planned."
+      }
+    ],
+    supportedFeatureFamilies: [
+      {
+        family: "EBAY_POLICY_CONFIGURATION",
+        support: "SUPPORTED",
+        detail: "Merchant location, business policies, category mapping, and preflight checks are already part of the live eBay direction."
+      }
+    ]
+  },
   async publishListing(input) {
     const evaluation = getEbayOperationalState({
       account: input.marketplaceAccount

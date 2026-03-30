@@ -29,6 +29,66 @@ export const automationOperationalStates = [
 ] as const;
 export type AutomationOperationalState = (typeof automationOperationalStates)[number];
 
+export const connectorCapabilities = [
+  "CONNECT_ACCOUNT",
+  "VALIDATE_AUTH",
+  "REFRESH_AUTH",
+  "SYNC_ACCOUNT_STATE",
+  "SYNC_LISTINGS",
+  "SYNC_ORDERS",
+  "CREATE_LISTING",
+  "UPDATE_LISTING",
+  "DELIST_LISTING",
+  "RELIST_LISTING",
+  "SEND_OFFER",
+  "FETCH_MESSAGES",
+  "RECORD_HEALTH",
+  "FETCH_ANALYTICS"
+] as const;
+export type ConnectorCapability = (typeof connectorCapabilities)[number];
+
+export const connectorFeatureFamilies = [
+  "EBAY_POLICY_CONFIGURATION",
+  "DEPOP_PROMOTION",
+  "POSHMARK_SOCIAL",
+  "WHATNOT_LIVE_SELLING"
+] as const;
+export type ConnectorFeatureFamily = (typeof connectorFeatureFamilies)[number];
+
+export const connectorExecutionModes = [
+  "API",
+  "OAUTH_API",
+  "BROWSER_SESSION",
+  "LOCAL_AGENT",
+  "SIMULATED",
+  "MANUAL"
+] as const;
+export type ConnectorExecutionMode = (typeof connectorExecutionModes)[number];
+
+export const connectorSupportLevels = ["SUPPORTED", "MANUAL_ONLY", "SIMULATED", "PLANNED", "UNSUPPORTED"] as const;
+export type ConnectorSupportLevel = (typeof connectorSupportLevels)[number];
+
+export const connectorHealthStates = [
+  "READY",
+  "DEGRADED",
+  "SESSION_EXPIRED",
+  "AUTH_BLOCKED",
+  "RATE_LIMITED",
+  "SELECTOR_DRIFT",
+  "MANUAL_ONLY",
+  "ERROR"
+] as const;
+export type ConnectorHealthState = (typeof connectorHealthStates)[number];
+
+export const connectorRiskLevels = ["LOW", "MEDIUM", "HIGH"] as const;
+export type ConnectorRiskLevel = (typeof connectorRiskLevels)[number];
+
+export const connectorFallbackModes = ["MANUAL", "SIMULATED", "NONE"] as const;
+export type ConnectorFallbackMode = (typeof connectorFallbackModes)[number];
+
+export const connectorRateLimitStrategies = ["PROVIDER", "SESSION_PACED", "MANUAL_ONLY"] as const;
+export type ConnectorRateLimitStrategy = (typeof connectorRateLimitStrategies)[number];
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 

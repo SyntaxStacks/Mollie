@@ -160,6 +160,15 @@ test("automation marketplace accounts surface ready and error readiness states",
   const body = response.json() as {
     accounts: Array<{
       platform: string;
+      connectorDescriptor?: {
+        executionMode: string;
+        fallbackMode: string;
+        riskLevel: string;
+        supportedFeatureFamilies: Array<{
+          family: string;
+          support: string;
+        }>;
+      } | null;
       readiness: {
         state: string;
         status: string;
@@ -177,11 +186,17 @@ test("automation marketplace accounts surface ready and error readiness states",
   assert.equal(poshmark.readiness.state, "AUTOMATION_READY");
   assert.equal(poshmark.readiness.status, "READY");
   assert.equal(poshmark.readiness.publishMode, "automation");
+  assert.equal(poshmark.connectorDescriptor?.executionMode, "SIMULATED");
+  assert.equal(poshmark.connectorDescriptor?.fallbackMode, "MANUAL");
+  assert.equal(poshmark.connectorDescriptor?.riskLevel, "HIGH");
+  assert.equal(poshmark.connectorDescriptor?.supportedFeatureFamilies[0]?.family, "POSHMARK_SOCIAL");
 
   assert.ok(whatnot?.readiness);
   assert.equal(whatnot.readiness.state, "AUTOMATION_ERROR");
   assert.equal(whatnot.readiness.status, "BLOCKED");
   assert.match(whatnot.readiness.summary, /whatnot browser session expired/i);
+  assert.equal(whatnot.connectorDescriptor?.executionMode, "SIMULATED");
+  assert.equal(whatnot.connectorDescriptor?.supportedFeatureFamilies[0]?.family, "WHATNOT_LIVE_SELLING");
 });
 
 test("workspace connector automation disable blocks automation market readiness", async () => {

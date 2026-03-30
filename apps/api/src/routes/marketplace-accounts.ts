@@ -20,12 +20,23 @@ import {
   exchangeEbayAuthorizationCode,
   fetchEbayUserProfile,
   getEbayAccountReadiness,
-  parseEbayOAuthState
+  parseEbayOAuthState,
+  ebayAdapter
 } from "@reselleros/marketplaces-ebay";
+import { depopAdapter } from "@reselleros/marketplaces-depop";
 import { getAutomationAccountReadiness } from "@reselleros/marketplaces";
+import { poshmarkAdapter } from "@reselleros/marketplaces-poshmark";
+import { whatnotAdapter } from "@reselleros/marketplaces-whatnot";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 import { redactSecretRef } from "../lib/redaction.js";
+
+const connectorDescriptors = {
+  EBAY: ebayAdapter.descriptor,
+  DEPOP: depopAdapter.descriptor,
+  POSHMARK: poshmarkAdapter.descriptor,
+  WHATNOT: whatnotAdapter.descriptor
+} as const;
 
 function serializeMarketplaceAccount(
   account: Awaited<ReturnType<typeof db.marketplaceAccount.findFirstOrThrow>>,
@@ -83,6 +94,7 @@ function serializeMarketplaceAccount(
     createdAt: account.createdAt,
     ebayState: readiness?.state ?? null,
     publishMode: readiness?.publishMode ?? null,
+    connectorDescriptor: connectorDescriptors[account.platform],
     readiness
   };
 }

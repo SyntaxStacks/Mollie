@@ -1,6 +1,13 @@
 import type {
   AutomationOperationalState,
+  ConnectorCapability,
+  ConnectorExecutionMode,
   ConnectorFailureCode,
+  ConnectorFallbackMode,
+  ConnectorFeatureFamily,
+  ConnectorRateLimitStrategy,
+  ConnectorRiskLevel,
+  ConnectorSupportLevel,
   MarketplaceAccountStatus,
   CredentialValidationStatus,
   MarketplaceCredentialType,
@@ -36,9 +43,51 @@ export type PublishListingInput = {
   marketplaceAccount: MarketplaceAccountContext;
 };
 
+export type ConnectorCapabilitySupport = {
+  capability: ConnectorCapability;
+  support: ConnectorSupportLevel;
+  detail: string;
+};
+
+export type ConnectorFeatureFamilySupport = {
+  family: ConnectorFeatureFamily;
+  support: ConnectorSupportLevel;
+  detail: string;
+};
+
+export type ConnectorDescriptor = {
+  platform: Platform;
+  displayName: string;
+  executionMode: ConnectorExecutionMode;
+  riskLevel: ConnectorRiskLevel;
+  fallbackMode: ConnectorFallbackMode;
+  rateLimitStrategy: ConnectorRateLimitStrategy;
+  supportedCapabilities: ConnectorCapabilitySupport[];
+  supportedFeatureFamilies: ConnectorFeatureFamilySupport[];
+};
+
 export type MarketplaceAdapter = {
   platform: Platform;
+  descriptor: ConnectorDescriptor;
+  connect?(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
+  validateAuth?(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
+  refreshAuth?(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<Record<string, unknown> | null>;
+  syncAccountState?(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<Record<string, unknown> | null>;
   publishListing(input: PublishListingInput): Promise<PublishResult>;
+  reviseListing?(input: PublishListingInput & { externalListingId: string }): Promise<PublishResult>;
+  delistListing?(input: { externalListingId: string; marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean }>;
+  relistListing?(input: { externalListingId: string; marketplaceAccount: MarketplaceAccountContext }): Promise<PublishResult>;
+  sendOffer?(input: { externalListingId: string; marketplaceAccount: MarketplaceAccountContext; amount: number }): Promise<{ ok: boolean }>;
+  runFeatureAction?(
+    input: {
+      family: ConnectorFeatureFamily;
+      action: string;
+      marketplaceAccount: MarketplaceAccountContext;
+      payload?: Record<string, unknown>;
+    }
+  ): Promise<Record<string, unknown> | null>;
+  reportHealth?(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ state: string; detail: string }>;
+  emitArtifacts?(input: { marketplaceAccount: MarketplaceAccountContext; context: string }): Promise<string[]>;
   syncListing(input: { externalListingId: string; currentStatus: string }): Promise<{ status: string }>;
   testConnection(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
 };

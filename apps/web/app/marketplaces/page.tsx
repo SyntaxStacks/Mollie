@@ -12,6 +12,65 @@ import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
+function renderConnectorDescriptor(account: {
+  connectorDescriptor?: {
+    executionMode: string;
+    fallbackMode: string;
+    riskLevel: string;
+    rateLimitStrategy: string;
+    supportedCapabilities: Array<{
+      capability: string;
+      support: string;
+      detail: string;
+    }>;
+    supportedFeatureFamilies: Array<{
+      family: string;
+      support: string;
+      detail: string;
+    }>;
+  } | null;
+}) {
+  const descriptor = account.connectorDescriptor;
+
+  if (!descriptor) {
+    return null;
+  }
+
+  const visibleCapabilities = descriptor.supportedCapabilities.filter((entry) => entry.support !== "UNSUPPORTED");
+  const visibleFamilies = descriptor.supportedFeatureFamilies.filter((entry) => entry.support !== "UNSUPPORTED");
+
+  return (
+    <div className="stack" style={{ marginTop: "0.75rem" }}>
+      <div className="muted">
+        Execution mode: {descriptor.executionMode} | Fallback: {descriptor.fallbackMode} | Risk: {descriptor.riskLevel} |
+        Rate limit: {descriptor.rateLimitStrategy}
+      </div>
+      <div className="stack" style={{ gap: "0.45rem" }}>
+        <div className="muted">Shared capabilities</div>
+        <div className="inline-actions">
+          {visibleCapabilities.map((entry) => (
+            <span className="execution-inline-code" key={`${entry.capability}-${entry.support}`} title={entry.detail}>
+              {entry.capability} · {entry.support}
+            </span>
+          ))}
+        </div>
+      </div>
+      {visibleFamilies.length > 0 ? (
+        <div className="stack" style={{ gap: "0.45rem" }}>
+          <div className="muted">Marketplace-native feature families</div>
+          <div className="inline-actions">
+            {visibleFamilies.map((entry) => (
+              <span className="execution-inline-code" key={`${entry.family}-${entry.support}`} title={entry.detail}>
+                {entry.family} · {entry.support}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function MarketplacesPageContent() {
   const auth = useAuth();
   const searchParams = useSearchParams();
@@ -48,6 +107,22 @@ function MarketplacesPageContent() {
         summary: string;
         detail: string;
       } | null;
+      connectorDescriptor?: {
+        executionMode: string;
+        fallbackMode: string;
+        riskLevel: string;
+        rateLimitStrategy: string;
+        supportedCapabilities: Array<{
+          capability: string;
+          support: string;
+          detail: string;
+        }>;
+        supportedFeatureFamilies: Array<{
+          family: string;
+          support: string;
+          detail: string;
+        }>;
+      } | null;
     }>;
   }>("/api/marketplace-accounts", auth.token);
   const [pending, startTransition] = useTransition();
@@ -83,6 +158,7 @@ function MarketplacesPageContent() {
                 </div>
                 <div>{account.readiness.summary}</div>
                 <div className="muted">{account.readiness.detail}</div>
+                {renderConnectorDescriptor(account)}
                 {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
               </div>
             ) : null}
@@ -271,6 +347,7 @@ function MarketplacesPageContent() {
                         </div>
                         <div>{account.readiness.summary}</div>
                         <div className="muted">{account.readiness.detail}</div>
+                        {renderConnectorDescriptor(account)}
                         {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
                         {account.credentialType === "OAUTH_TOKEN_SET" ? (
                           <>
