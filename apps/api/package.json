@@ -22,6 +22,8 @@
     "@reselleros/marketplaces": "workspace:*",
     "@reselleros/marketplaces-depop": "workspace:*",
     "@reselleros/marketplaces-ebay": "workspace:*",
+    "@reselleros/marketplaces-poshmark": "workspace:*",
+    "@reselleros/marketplaces-whatnot": "workspace:*",
     "@reselleros/observability": "workspace:*",
     "@reselleros/queue": "workspace:*",
     "@reselleros/storage": "workspace:*",

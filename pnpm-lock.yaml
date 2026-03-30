@@ -68,6 +68,12 @@ importers:
       '@reselleros/marketplaces-ebay':
         specifier: workspace:*
         version: link:../../packages/marketplaces-ebay
+      '@reselleros/marketplaces-poshmark':
+        specifier: workspace:*
+        version: link:../../packages/marketplaces-poshmark
+      '@reselleros/marketplaces-whatnot':
+        specifier: workspace:*
+        version: link:../../packages/marketplaces-whatnot
       '@reselleros/observability':
         specifier: workspace:*
         version: link:../../packages/observability
