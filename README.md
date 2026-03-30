@@ -140,6 +140,8 @@ The canonical eBay operator truth model is now:
 - Isolated UI E2E runner: `infra/scripts/run-ui-e2e.mjs`
 - Pilot deploy checklist: `docs/pilot-deploy-checklist.md`
 - Cloud Run deployment guide: `docs/deployment-cloudrun.md`
+- Marketplace connector architecture: `docs/architecture-marketplace-connectors.md`
+- Marketplace connector task plan: `docs/tasks-marketplace-connectors.md`
 
 Cloud Run is now configured around per-service runtime config:
 
