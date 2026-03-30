@@ -50,16 +50,33 @@ Mollie should not flatten those native behaviors into generic listing CRUD. Doin
 
 ### Canonical Internal Model
 
-Mollie owns the internal operational model:
+Mollie owns the internal operational model, but the repo is not starting from a blank schema. This architecture should distinguish between:
+
+- current repo entities that already exist in code or persistence
+- conceptual future entities that are useful design targets but not yet first-class tables or modules
+
+Current repo entities include:
 
 - `Workspace`
 - `InventoryItem`
 - `ListingDraft`
-- `PlatformListing`
+- `MarketplaceListing` or listing records associated with a marketplace account
 - `ExecutionLog`
 - `AuditLog`
 
-External marketplaces map into that model. The connector layer exists to translate between Mollie's canonical model and each marketplace's native behaviors.
+Conceptual future entities include:
+
+- `MarketplaceCredential`
+- `MarketplaceSession`
+- `ListingRevision`
+- `Offer`
+- `Order`
+- `Conversation`
+- `AutomationRule`
+- `ConnectorHealthSnapshot`
+- `MarketplaceFeatureState`
+
+External marketplaces map into the current internal model first. The connector layer exists to translate between Mollie's canonical model and each marketplace's native behaviors without requiring every conceptual future entity to be implemented immediately.
 
 ### Capability-First Design
 
@@ -88,6 +105,14 @@ Manual fallback is not a temporary embarrassment. It is a valid operating mode f
 ## Shared Capability Model
 
 Mollie should formalize a capability matrix per marketplace account or adapter. The matrix should answer whether a connector supports, does not support, or only partially supports a shared action.
+
+Capability support should use explicit support states:
+
+- `SUPPORTED`: implemented and intended for normal operator use
+- `UNSUPPORTED`: not available for this marketplace or connector mode
+- `MANUAL_ONLY`: Mollie can prepare or track the action, but a human must finish it
+- `SIMULATED`: currently exercised through a non-live placeholder path that preserves workflow shape
+- `PLANNED`: intentionally not implemented yet, but part of the target connector surface
 
 Suggested shared capability set:
 
@@ -168,6 +193,15 @@ Feature families should be modeled separately because:
 - they have different failure modes
 - they often require different execution environments
 - they frequently have different compliance and support requirements
+
+Feature-family readiness should also use explicit state vocabulary so UI and execution logs can stay deterministic:
+
+- `AVAILABLE`: feature family exists and can be used now
+- `CONFIGURED`: feature family is enabled and operator/account configuration is complete
+- `BLOCKED`: required config, policy, or session state is missing
+- `DEGRADED`: the family exists but is impaired by transient or repeated failures
+- `SIMULATED`: the family is represented through a pilot-safe placeholder path
+- `MANUAL_ONLY`: the family is intentionally human-assisted even if adjacent connector actions are automated
 
 ## Connector Execution Modes
 
@@ -290,14 +324,35 @@ Required adapter declarations:
 - fallback mode
 - rate-limit strategy
 
+`riskLevel` should not be treated as a generic severity label. It should reflect the connector's operational fragility and support cost, including:
+
+- session volatility
+- selector or browser fragility
+- provider policy sensitivity
+- mutation blast radius when actions go wrong
+- operator support burden during degraded states
+
+For example:
+
+- eBay is likely `MEDIUM`: strong APIs exist, but auth/policy mistakes can still block publishing
+- automation-class browser connectors are often `HIGH`: they have more fragile execution environments and higher support cost
+- a read-only provider integration could eventually be `LOW`
+
 Suggested shape:
 
 ```ts
 type ConnectorDescriptor = {
   platform: Platform;
   executionMode: "API" | "OAUTH_API" | "BROWSER_SESSION" | "LOCAL_AGENT" | "SIMULATED" | "MANUAL";
-  supportedCapabilities: ConnectorCapability[];
-  supportedFeatureFamilies: ConnectorFeatureFamily[];
+  supportedCapabilities: {
+    capability: ConnectorCapability;
+    support: "SUPPORTED" | "UNSUPPORTED" | "MANUAL_ONLY" | "SIMULATED" | "PLANNED";
+  }[];
+  supportedFeatureFamilies: {
+    family: ConnectorFeatureFamily;
+    support: "SUPPORTED" | "UNSUPPORTED" | "MANUAL_ONLY" | "SIMULATED" | "PLANNED";
+    readiness?: "AVAILABLE" | "CONFIGURED" | "BLOCKED" | "DEGRADED" | "SIMULATED" | "MANUAL_ONLY";
+  }[];
   riskLevel: "LOW" | "MEDIUM" | "HIGH";
   fallbackMode: "MANUAL" | "SIMULATED" | "NONE";
   rateLimitStrategy: "PROVIDER" | "SESSION_PACED" | "MANUAL_ONLY";
