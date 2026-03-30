@@ -214,6 +214,15 @@ test("execution logs can be filtered by correlationId and include failure detail
       requestPayload: Record<string, unknown> | null;
       artifactUrls: string[];
       retryable: boolean;
+      hint:
+        | {
+            title: string;
+            severity: string;
+            routeTarget: string | null;
+            nextActions: string[];
+            featureFamily: string | null;
+          }
+        | null;
     }>;
   };
 
@@ -227,6 +236,11 @@ test("execution logs can be filtered by correlationId and include failure detail
   assert.equal(body.logs[0]?.responsePayload?.secretRef, "secret://...rivate");
   assert.deepEqual(body.logs[0]?.artifactUrls, ["artifact://failure/screenshot.png"]);
   assert.equal(body.logs[0]?.retryable, true);
+  assert.equal(body.logs[0]?.hint?.title, "This marketplace account needs attention before the run can continue.");
+  assert.equal(body.logs[0]?.hint?.severity, "ERROR");
+  assert.equal(body.logs[0]?.hint?.routeTarget, "/marketplaces");
+  assert.equal(body.logs[0]?.hint?.featureFamily, "DEPOP_PROMOTION");
+  assert.equal(body.logs[0]?.hint?.nextActions.some((action) => /repair the affected account/i.test(action)), true);
 });
 
 test("failed publish execution logs can be retried from the log route", async () => {
@@ -290,6 +304,12 @@ test("failed publish execution logs can be retried from the log route", async ()
       status: string;
       ebayState: string | null;
       publishMode: string | null;
+      hint:
+        | {
+            title: string;
+            severity: string;
+          }
+        | null;
     };
   };
 
@@ -298,6 +318,7 @@ test("failed publish execution logs can be retried from the log route", async ()
   assert.equal(body.executionLog.status, "QUEUED");
   assert.equal(body.executionLog.ebayState, "SIMULATED");
   assert.equal(body.executionLog.publishMode, "simulated");
+  assert.equal(body.executionLog.hint, null);
   assert.equal(queuedJobs.length, 1);
   assert.equal(queuedJobs[0]?.name, "listing.publishEbay");
   assert.deepEqual(queuedJobs[0]?.payload, {
@@ -394,6 +415,13 @@ test("execution log detail returns related attempts and audit trail", async () =
       id: string;
       correlationId: string;
       ebayState: string | null;
+      hint:
+        | {
+            title: string;
+            severity: string;
+            nextActions: string[];
+          }
+        | null;
     };
     relatedAttempts: Array<{ attempt: number; correlationId: string }>;
     auditLogs: Array<{ action: string; targetType: string }>;
@@ -402,6 +430,9 @@ test("execution log detail returns related attempts and audit trail", async () =
   assert.equal(body.log.id, firstLog.id);
   assert.equal(body.log.correlationId, "pilot-correlation-detail-001");
   assert.equal(body.log.ebayState, null);
+  assert.equal(body.log.hint?.title, "The marketplace is pacing this connector right now.");
+  assert.equal(body.log.hint?.severity, "WARNING");
+  assert.equal(body.log.hint?.nextActions.some((action) => /wait before retrying/i.test(action)), true);
   assert.equal(body.relatedAttempts.length, 2);
   assert.deepEqual(
     body.relatedAttempts.map((entry) => entry.attempt),

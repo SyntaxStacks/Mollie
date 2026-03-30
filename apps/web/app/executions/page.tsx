@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 
+import type { OperatorHint } from "@reselleros/types";
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
 import { useAuth } from "../../components/auth-provider";
 import { AppShell } from "../../components/app-shell";
+import { OperatorHintCard } from "../../components/operator-hint-card";
 import { ProtectedView } from "../../components/protected-view";
 import { apiFetch, formatDate, useAuthedResource } from "../../lib/api";
 
@@ -31,6 +33,7 @@ type ExecutionLogView = {
   retryable: boolean;
   ebayState: string | null;
   publishMode: string | null;
+  hint?: OperatorHint | null;
 };
 
 type ExecutionDetailView = {
@@ -253,6 +256,8 @@ export default function ExecutionsPage() {
                     </div>
                   ) : null}
 
+                  {log.hint ? <OperatorHintCard hint={log.hint} /> : null}
+
                   {log.platformListingUrl ? (
                     <div className="execution-log-detail">
                       <p className="eyebrow">Listing</p>
@@ -317,6 +322,13 @@ export default function ExecutionsPage() {
 
               {detail ? (
                 <div className="grid-2 execution-log-grid">
+                  {detail.log.hint ? (
+                    <div className="execution-log-detail" style={{ gridColumn: "1 / -1" }}>
+                      <p className="eyebrow">Operator guidance</p>
+                      <OperatorHintCard hint={detail.log.hint} />
+                    </div>
+                  ) : null}
+
                   <div className="execution-log-detail">
                     <p className="eyebrow">Attempts</p>
                     <div className="stack">

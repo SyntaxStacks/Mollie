@@ -162,6 +162,12 @@ test("ebay preflight shows blocked checks when inventory is not publishable", as
       ready: boolean;
       mode: string;
       summary: string;
+      hint: {
+        title: string;
+        severity: string;
+        routeTarget: string | null;
+        nextActions: string[];
+      };
       checks: Array<{ key: string; status: string }>;
     };
   };
@@ -170,6 +176,10 @@ test("ebay preflight shows blocked checks when inventory is not publishable", as
   assert.equal(body.preflight.state, null);
   assert.equal(body.preflight.mode, "simulated");
   assert.match(body.preflight.summary, /add at least one image/i);
+  assert.equal(body.preflight.hint.title, "Add photos before sending this item to eBay.");
+  assert.equal(body.preflight.hint.severity, "ERROR");
+  assert.equal(body.preflight.hint.routeTarget, null);
+  assert.equal(body.preflight.hint.nextActions.some((action) => /upload at least one image/i.test(action)), true);
   assert.equal(body.preflight.checks.find((check) => check.key === "images")?.status, "BLOCKED");
   assert.equal(body.preflight.checks.find((check) => check.key === "draft")?.status, "BLOCKED");
   assert.equal(body.preflight.checks.find((check) => check.key === "account")?.status, "BLOCKED");
@@ -230,6 +240,11 @@ test("ebay preflight shows ready for the simulated pilot path when account, draf
       mode: string;
       selectedCredentialType: string | null;
       summary: string;
+      hint: {
+        title: string;
+        severity: string;
+        canContinue: boolean;
+      };
       checks: Array<{ key: string; status: string }>;
     };
   };
@@ -239,6 +254,9 @@ test("ebay preflight shows ready for the simulated pilot path when account, draf
   assert.equal(body.preflight.mode, "simulated");
   assert.equal(body.preflight.selectedCredentialType, "SECRET_REF");
   assert.match(body.preflight.summary, /ready for simulated ebay publish/i);
+  assert.equal(body.preflight.hint.title, "This item is ready for the simulated eBay path.");
+  assert.equal(body.preflight.hint.severity, "SUCCESS");
+  assert.equal(body.preflight.hint.canContinue, true);
   assert.equal(body.preflight.checks.find((check) => check.key === "images")?.status, "READY");
   assert.equal(body.preflight.checks.find((check) => check.key === "draft")?.status, "READY");
   assert.equal(body.preflight.checks.find((check) => check.key === "account")?.status, "READY");
@@ -308,6 +326,11 @@ test("ebay preflight turns ready for live publish after updating the approved dr
       state: string | null;
       ready: boolean;
       mode: string;
+      hint: {
+        title: string;
+        severity: string;
+        featureFamily: string | null;
+      };
       checks: Array<{ key: string; status: string }>;
     };
   };
@@ -315,6 +338,9 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   assert.equal(blockedBody.preflight.ready, false);
   assert.equal(blockedBody.preflight.state, "LIVE_READY");
   assert.equal(blockedBody.preflight.mode, "live");
+  assert.equal(blockedBody.preflight.hint.title, "Add the eBay category mapping before live publish.");
+  assert.equal(blockedBody.preflight.hint.severity, "WARNING");
+  assert.equal(blockedBody.preflight.hint.featureFamily, "EBAY_POLICY_CONFIGURATION");
   assert.equal(blockedBody.preflight.checks.find((check) => check.key === "category")?.status, "BLOCKED");
   assert.equal(blockedBody.preflight.checks.find((check) => check.key === "account")?.status, "READY");
   assert.equal(blockedBody.preflight.checks.find((check) => check.key === "live-config")?.status, "READY");
@@ -348,6 +374,11 @@ test("ebay preflight turns ready for live publish after updating the approved dr
       ready: boolean;
       mode: string;
       summary: string;
+      hint: {
+        title: string;
+        severity: string;
+        featureFamily: string | null;
+      };
       checks: Array<{ key: string; status: string }>;
     };
   };
@@ -356,6 +387,9 @@ test("ebay preflight turns ready for live publish after updating the approved dr
   assert.equal(readyBody.preflight.state, "LIVE_READY");
   assert.equal(readyBody.preflight.mode, "live");
   assert.match(readyBody.preflight.summary, /ready for live ebay publish/i);
+  assert.equal(readyBody.preflight.hint.title, "This item is ready for live eBay publish.");
+  assert.equal(readyBody.preflight.hint.severity, "SUCCESS");
+  assert.equal(readyBody.preflight.hint.featureFamily, "EBAY_POLICY_CONFIGURATION");
   assert.equal(readyBody.preflight.checks.find((check) => check.key === "category")?.status, "READY");
 });
 

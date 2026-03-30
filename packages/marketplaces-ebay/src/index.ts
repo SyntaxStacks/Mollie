@@ -75,7 +75,7 @@ function buildEbayHint(input: {
   severity: OperatorHint["severity"];
   nextActions: string[];
   canContinue: boolean;
-  routeTarget?: string;
+  routeTarget?: string | null;
   featureFamily?: OperatorHint["featureFamily"];
   helpText?: string;
 }) {
@@ -84,7 +84,7 @@ function buildEbayHint(input: {
     explanation: input.explanation,
     severity: input.severity,
     nextActions: input.nextActions,
-    routeTarget: input.routeTarget ?? "/marketplaces",
+    routeTarget: input.routeTarget === undefined ? "/marketplaces" : input.routeTarget,
     featureFamily: input.featureFamily ?? null,
     canContinue: input.canContinue,
     helpText: input.helpText ?? "eBay is Mollie's strongest API-oriented connector, but live publish still depends on valid account and policy configuration."
@@ -626,6 +626,80 @@ export function getEbayPublishPreflight(input: {
   }
 
   const blockingChecks = checks.filter((check) => check.status === "BLOCKED");
+  const hasImages = checks.some((check) => check.key === "images" && check.status === "READY");
+  const hasDraft = checks.some((check) => check.key === "draft" && check.status === "READY");
+  const accountBlocked = checks.find((check) => check.key === "account" && check.status === "BLOCKED");
+  const missingLiveConfig = checks.find((check) => check.key === "live-config" && check.status === "BLOCKED");
+  const missingCategory = checks.find((check) => check.key === "category" && check.status === "BLOCKED");
+  const simulatedModeBlocked = checks.find((check) => check.key === "publish-mode" && check.status === "BLOCKED");
+  const hint =
+    !hasImages
+      ? buildEbayHint({
+          title: "Add photos before sending this item to eBay.",
+          explanation: "eBay publish is blocked because the item does not have any images yet.",
+          severity: "ERROR",
+          nextActions: ["Upload at least one image on this item page.", "Refresh preflight after the image gallery is updated."],
+          routeTarget: null,
+          canContinue: false
+        })
+      : !hasDraft
+        ? buildEbayHint({
+            title: "Approve an eBay draft before publishing.",
+            explanation: "Mollie has not found an approved eBay draft for this item yet.",
+            severity: "ERROR",
+            nextActions: ["Generate drafts if none exist yet.", "Approve the eBay draft from the item detail screen before publishing."],
+            routeTarget: null,
+            canContinue: false
+          })
+        : accountBlocked
+          ? buildEbayHint({
+              title: "eBay account setup is blocking this item.",
+              explanation: accountBlocked.detail,
+              severity: "ERROR",
+              nextActions: ["Open /marketplaces and repair the eBay account.", "Return to this item after the account shows ready again."],
+              routeTarget: "/marketplaces",
+              canContinue: false
+            })
+          : simulatedModeBlocked
+            ? buildEbayHint({
+                title: "This item cannot continue because eBay is between simulated and live modes.",
+                explanation: simulatedModeBlocked.detail,
+                severity: "WARNING",
+                nextActions: ["Choose a simulated account or fully enable live eBay publish.", "Retry preflight after the account mode is clear."],
+                routeTarget: "/marketplaces",
+                canContinue: false
+              })
+            : missingLiveConfig
+              ? buildEbayHint({
+                  title: "eBay needs marketplace defaults before this item can publish live.",
+                  explanation: missingLiveConfig.detail,
+                  severity: "WARNING",
+                  nextActions: ["Open the eBay account on /marketplaces.", "Save the missing merchant location or listing policies.", "Retry preflight after those defaults are saved."],
+                  routeTarget: "/marketplaces",
+                  featureFamily: "EBAY_POLICY_CONFIGURATION",
+                  canContinue: false
+                })
+              : missingCategory
+                ? buildEbayHint({
+                    title: "Add the eBay category mapping before live publish.",
+                    explanation: missingCategory.detail,
+                    severity: "WARNING",
+                    nextActions: ["Edit the eBay draft on this item page.", "Save the ebayCategoryId mapping and rerun preflight."],
+                    routeTarget: null,
+                    featureFamily: "EBAY_POLICY_CONFIGURATION",
+                    canContinue: false
+                  })
+                : buildEbayHint({
+                    title: liveEnabled ? "This item is ready for live eBay publish." : "This item is ready for the simulated eBay path.",
+                    explanation: liveEnabled
+                      ? "All required eBay checks passed for this item."
+                      : "The item is ready for the simulated pilot flow.",
+                    severity: "SUCCESS",
+                    nextActions: [liveEnabled ? "Publish the item to eBay when ready." : "Continue with the simulated eBay publish flow."],
+                    routeTarget: null,
+                    featureFamily: "EBAY_POLICY_CONFIGURATION",
+                    canContinue: true
+                  });
 
   return {
     state: selected.evaluation?.state ?? null,
@@ -639,7 +713,8 @@ export function getEbayPublishPreflight(input: {
           ? "Ready for live eBay publish"
           : "Ready for simulated eBay publish"
         : blockingChecks[0]?.detail ?? "eBay publish is blocked",
-    checks
+    checks,
+    hint
   };
 }
 

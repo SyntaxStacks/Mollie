@@ -12,9 +12,11 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
+import type { OperatorHint } from "@reselleros/types";
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
 import { currency } from "../lib/api";
+import { OperatorHintCard } from "./operator-hint-card";
 
 export type InventoryDetailRecord = {
   id: string;
@@ -45,6 +47,7 @@ export type InventoryPreflightRecord = {
   ready: boolean;
   summary: string;
   selectedCredentialType: string | null;
+  hint?: OperatorHint | null;
   checks: Array<{
     key: string;
     label: string;
@@ -492,6 +495,7 @@ function EbayPreflightCard({
         <div className="muted">Checking eBay readiness...</div>
       ) : (
         <div className="stack">
+          <OperatorHintCard hint={preflight.hint} />
           <div className="notice">{preflight.summary}</div>
           <div className="inventory-preflight-meta">
             <span>State: {preflight.state ?? "none"}</span>

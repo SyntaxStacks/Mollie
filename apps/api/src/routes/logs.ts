@@ -3,7 +3,13 @@ import { z } from "zod";
 import { createExecutionLog, db, recordAuditLog } from "@reselleros/db";
 import { getEbayOperationalState } from "@reselleros/marketplaces-ebay";
 import { enqueueJob, getPublishJobName } from "@reselleros/queue";
-import type { CredentialValidationStatus, MarketplaceAccountStatus, MarketplaceCredentialType } from "@reselleros/types";
+import type {
+  ConnectorFeatureFamily,
+  CredentialValidationStatus,
+  MarketplaceAccountStatus,
+  MarketplaceCredentialType,
+  OperatorHint
+} from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 import { redactForOperator } from "../lib/redaction.js";
@@ -41,6 +47,115 @@ function isExecutionLogRetryable(log: {
   );
 }
 
+function getExecutionFeatureFamily(connector: string | null): ConnectorFeatureFamily | null {
+  switch (connector) {
+    case "EBAY":
+      return "EBAY_POLICY_CONFIGURATION";
+    case "DEPOP":
+      return "DEPOP_PROMOTION";
+    case "POSHMARK":
+      return "POSHMARK_SOCIAL";
+    case "WHATNOT":
+      return "WHATNOT_LIVE_SELLING";
+    default:
+      return null;
+  }
+}
+
+function buildExecutionOperatorHint(input: {
+  log: {
+    jobName: string;
+    connector: string | null;
+    status: string;
+    inventoryItemId: string | null;
+    artifactUrlsJson: unknown;
+  };
+  responsePayload: Record<string, unknown> | null;
+  retryable: boolean;
+  marketplaceAccount?: {
+    lastErrorMessage: string | null;
+  } | null;
+}): OperatorHint | null {
+  if (input.log.status === "SUCCEEDED") {
+    return {
+      title: "This run completed successfully.",
+      explanation: "Mollie finished the connector action without a blocking error.",
+      severity: "SUCCESS",
+      nextActions: ["Continue with the next operator step for this item or account."],
+      canContinue: true,
+      featureFamily: getExecutionFeatureFamily(input.log.connector)
+    };
+  }
+
+  if (input.log.status !== "FAILED") {
+    return null;
+  }
+
+  const code = typeof input.responsePayload?.code === "string" ? input.responsePayload.code : null;
+  const message = typeof input.responsePayload?.message === "string" ? input.responsePayload.message : null;
+  const inventoryRoute = input.log.inventoryItemId ? `/inventory/${input.log.inventoryItemId}` : null;
+  const featureFamily = getExecutionFeatureFamily(input.log.connector);
+  const artifactUrls = asStringArray(input.log.artifactUrlsJson);
+
+  if (code === "PREREQUISITE_MISSING") {
+    return {
+      title: "This run is blocked by missing item or marketplace setup.",
+      explanation: message ?? "The connector is waiting on a required prerequisite before it can continue.",
+      severity: "WARNING",
+      nextActions: [
+        "Open the item and complete the missing requirement called out in the error.",
+        "Return here and retry once the prerequisite is fixed."
+      ],
+      routeTarget: inventoryRoute,
+      featureFamily,
+      canContinue: false
+    };
+  }
+
+  if (code === "ACCOUNT_UNAVAILABLE") {
+    return {
+      title: "This marketplace account needs attention before the run can continue.",
+      explanation: message ?? input.marketplaceAccount?.lastErrorMessage ?? "The connector could not use the selected marketplace account.",
+      severity: "ERROR",
+      nextActions: [
+        "Open /marketplaces and reconnect or repair the affected account.",
+        input.retryable ? "Retry this execution after the account shows ready again." : "Switch this work to manual handling if it cannot wait."
+      ],
+      routeTarget: "/marketplaces",
+      featureFamily,
+      canContinue: false
+    };
+  }
+
+  if (code === "RATE_LIMITED") {
+    return {
+      title: "The marketplace is pacing this connector right now.",
+      explanation: message ?? "This run hit a marketplace or session pacing limit.",
+      severity: "WARNING",
+      nextActions: [
+        "Wait before retrying this action.",
+        input.retryable ? "Retry from this screen later when pacing clears." : "Move the work to manual handling if timing matters."
+      ],
+      routeTarget: null,
+      featureFamily,
+      canContinue: false
+    };
+  }
+
+  return {
+    title: "This connector run needs operator review.",
+    explanation: message ?? "Mollie captured a connector failure that needs review before the next action.",
+    severity: "ERROR",
+    nextActions: [
+      artifactUrls.length > 0 ? "Review the execution artifacts for more context." : "Inspect the execution payload details for more context.",
+      input.retryable ? "Retry the run if the issue looks temporary." : "Move this workflow to manual handling if the issue persists."
+    ],
+    routeTarget: artifactUrls.length > 0 ? "/executions" : inventoryRoute,
+    featureFamily,
+    canContinue: false
+  };
+}
+
 function serializeExecutionLog(log: {
   id: string;
   jobName: string;
@@ -72,6 +187,7 @@ function serializeExecutionLog(log: {
   const requestPayload = asRecord(log.requestPayloadJson);
   const responsePayload = asRecord(redactForOperator(log.responsePayloadJson));
   const artifactUrls = asStringArray(log.artifactUrlsJson);
+  const retryable = isExecutionLogRetryable(log);
   const ebayState =
     log.connector === "EBAY" && marketplaceAccount
       ? getEbayOperationalState({
@@ -90,6 +206,12 @@ function serializeExecutionLog(log: {
           lastErrorMessage: marketplaceAccount.lastErrorMessage
         })
       : null;
+  const hint = buildExecutionOperatorHint({
+    log,
+    responsePayload,
+    retryable,
+    marketplaceAccount
+  });
 
   return {
     id: log.id,
@@ -110,9 +232,10 @@ function serializeExecutionLog(log: {
     requestPayload: asRecord(redactForOperator(requestPayload)),
     responsePayload,
     artifactUrls,
-    retryable: isExecutionLogRetryable(log),
+    retryable,
     ebayState: ebayState?.state ?? null,
-    publishMode: ebayState?.publishMode ?? null
+    publishMode: ebayState?.publishMode ?? null,
+    hint
   };
 }
 
