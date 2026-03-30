@@ -471,6 +471,106 @@ Should show:
 
 The current inventory detail eBay preflight is the best reference pattern already in the repo.
 
+## Operator Guidance, Copy, and Hints
+
+Connector architecture is not only a backend concern. Mollie must guide operators through setup, readiness, publishing, troubleshooting, and recovery with plain-language copy and contextual hints.
+
+This is especially important for automation-class connectors, where system states can otherwise feel opaque, fragile, or alarming. A technically accurate state model is necessary, but not sufficient. Operators also need to know:
+
+- what happened
+- why it matters
+- whether they can continue
+- what to do next
+
+### User-Centric Copy
+
+System state names should not be dumped directly into the UI without explanation.
+
+Bad:
+
+- `AUTOMATION_BLOCKED`
+
+Better:
+
+- `Poshmark needs attention before this account can publish. Reconnect the account or switch this workflow to manual review.`
+
+Every blocked, degraded, simulated, manual-only, or configured state should be expressed in plain operator language.
+
+### Next-Step Guidance
+
+Every meaningful state should map to recommended next actions.
+
+Examples:
+
+- reconnect account
+- add missing marketplace defaults
+- upload required photos
+- approve draft before publishing
+- retry later
+- switch to manual handling
+- review execution artifacts
+
+The operator should not need to infer the next step from a raw status code.
+
+### Contextual Hints
+
+Hints should appear where the operator is making a decision, not only in logs or support tooling.
+
+Examples:
+
+- `/marketplaces`
+  - explain whether a connector is live, simulated, degraded, or manual-only
+  - explain what the operator should do next when the account is blocked or incomplete
+- `/inventory/[id]`
+  - explain why an item cannot publish
+  - suggest the next field, photo, approval step, or marketplace config to fix
+- `/executions`
+  - explain failures in operator terms
+  - suggest retry, reconnect, wait, or manual fallback as appropriate
+
+### Marketplace-Specific Guidance
+
+Hints must respect marketplace-native feature families instead of collapsing into generic connector copy.
+
+Examples:
+
+- eBay policy configuration guidance should identify which default or mapping is missing and where to fix it
+- Poshmark social guidance should explain what a social action does and whether it is configured or manual-only
+- Depop promotion guidance should explain whether promotion actions are available, simulated, or blocked
+- Whatnot live-selling guidance should distinguish catalog-style actions from live show workflows
+
+### Progressive Disclosure
+
+Default copy should be concise, actionable, and calm. Detailed technical context should remain available in:
+
+- execution detail views
+- support/debug surfaces
+- artifacts and logs
+
+Operators should get the shortest message that still helps them make the next correct decision.
+
+### Trustworthy State Communication
+
+If an action is simulated, manual-only, blocked, or degraded, say so clearly.
+
+Mollie should not imply that an operator is fully live-ready when only part of the workflow is actually ready. This applies to both connector readiness and feature-family readiness.
+
+### Conceptual Hint Model
+
+The product should eventually standardize around a hint payload shape that can be reused across marketplace, inventory, and execution surfaces.
+
+Conceptually, each hint should be able to carry:
+
+- status label
+- plain-language explanation
+- severity
+- next recommended actions
+- optional deep-link target
+- optional feature-family context
+- optional learn-more or support text
+
+This does not require a full schema redesign immediately. It does require the architecture to treat operator guidance as a core connector responsibility rather than a cosmetic layer added later.
+
 ## Rollout Strategy
 
 ### Phase 1: Formalize abstractions and docs

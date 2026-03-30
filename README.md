@@ -143,6 +143,8 @@ The canonical eBay operator truth model is now:
 - Marketplace connector architecture: `docs/architecture-marketplace-connectors.md`
 - Marketplace connector task plan: `docs/tasks-marketplace-connectors.md`
 
+The marketplace connector docs also define operator-guidance and contextual-hint expectations, not just backend connector mechanics.
+
 Cloud Run is now configured around per-service runtime config:
 
 - non-secret env files:

@@ -378,9 +378,146 @@ Repo targets:
 - `apps/web/app/inventory/[id]/page.tsx`
 - future marketplace-specific UI helpers under `apps/web/components`
 
-### Workstream 6: Documentation and Test Strategy
+### Workstream 6: Operator Guidance and Copy System
 
-#### 6.1 Add adapter declaration tests
+#### 6.1 Define shared operator-state copy vocabulary
+
+Task:
+
+- map connector and feature-family states into plain-language operator messages
+- define patterns for:
+  - blocked
+  - degraded
+  - simulated
+  - manual-only
+  - ready
+  - configured
+
+Acceptance criteria:
+
+- engineers can render consistent status copy across marketplaces
+- system state names are not dumped directly into the UI without explanation
+
+Repo targets:
+
+- `packages/types/src/index.ts`
+- `apps/api/src/routes/marketplace-accounts.ts`
+- `apps/web/app/marketplaces/page.tsx`
+- `apps/web/app/inventory/[id]/page.tsx`
+- `apps/web/app/executions/page.tsx`
+
+#### 6.2 Add contextual hint payload support
+
+Task:
+
+- define how API responses can include operator-friendly hint data
+- support:
+  - message
+  - severity
+  - next actions
+  - optional route target
+  - optional feature-family context
+
+Acceptance criteria:
+
+- marketplace, account, item, and execution surfaces can render hints without duplicating logic in every component
+
+Repo targets:
+
+- `packages/types/src/index.ts`
+- `apps/api/src/routes/*`
+- relevant serializer or view-model layers in `apps/api`
+
+#### 6.3 Improve `/marketplaces` guidance
+
+Task:
+
+- add copy and hints explaining connection state, readiness, and next actions
+- distinguish live, simulated, blocked, degraded, and manual-only states clearly
+
+Acceptance criteria:
+
+- operators know what to do next from the marketplaces screen alone
+
+Repo targets:
+
+- `apps/web/app/marketplaces/page.tsx`
+- `apps/api/src/routes/marketplace-accounts.ts`
+
+#### 6.4 Improve `/inventory/[id]` guidance
+
+Task:
+
+- add item-level hints for publish blockers and next steps
+- guide operators through missing photos, missing draft approval, missing marketplace config, missing category mapping, and similar blockers
+
+Acceptance criteria:
+
+- blocked item states include actionable next steps, not just failed checks
+
+Repo targets:
+
+- `apps/web/app/inventory/[id]/page.tsx`
+- `apps/web/components/inventory-detail-view.tsx`
+- relevant API routes returning publish readiness
+
+#### 6.5 Improve `/executions` guidance
+
+Task:
+
+- add operator-centered failure and retry guidance
+- tell operators whether they should retry, reconnect, wait, or switch to manual handling
+
+Acceptance criteria:
+
+- execution failures are understandable without reading raw payloads first
+
+Repo targets:
+
+- `apps/web/app/executions/page.tsx`
+- `apps/api/src/routes/logs.ts`
+
+#### 6.6 Add marketplace-native hint coverage
+
+Task:
+
+- ensure hints can reflect feature-family context:
+  - `EBAY_POLICY_CONFIGURATION`
+  - `POSHMARK_SOCIAL`
+  - `DEPOP_PROMOTION`
+  - `WHATNOT_LIVE_SELLING`
+
+Acceptance criteria:
+
+- hints are not generic when the issue is marketplace-specific
+
+Repo targets:
+
+- `packages/types/src/index.ts`
+- `apps/api/src/routes/marketplace-accounts.ts`
+- marketplace-specific readiness evaluators if present
+
+#### 6.7 Add test coverage for operator guidance
+
+Task:
+
+- test that blocked, degraded, manual-only, simulated, and configured states produce useful operator copy
+- test that secrets are still redacted
+- test that hints include next steps when appropriate
+
+Acceptance criteria:
+
+- hint rendering and API hint payloads are covered by contract or UI tests
+
+Repo targets:
+
+- `tests/api/*`
+- `tests/e2e/*`
+- `tests/ui/*`
+
+### Workstream 7: Documentation and Test Strategy
+
+#### 7.1 Add adapter declaration tests
 
 Task:
 
@@ -395,7 +532,7 @@ Repo targets:
 - `tests/api`
 - `tests/connectors`
 
-#### 6.2 Add health-state tests
+#### 7.2 Add health-state tests
 
 Task:
 
@@ -411,7 +548,7 @@ Repo targets:
 - `tests/api`
 - `tests/e2e/workflow.test.ts`
 
-#### 6.3 Add execution-log redaction and mapping tests
+#### 7.3 Add execution-log redaction and mapping tests
 
 Task:
 
@@ -426,7 +563,7 @@ Repo targets:
 - `tests/api/execution-logs.test.ts`
 - `apps/api/src/routes/logs.ts`
 
-#### 6.4 Cross-link docs from README
+#### 7.4 Cross-link docs from README
 
 Task:
 
