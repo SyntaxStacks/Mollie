@@ -40,8 +40,9 @@ async function onboardOperator(page: Page, options?: { workspaceName?: string })
 
 async function createInventoryItem(page: Page, title: string) {
   await page.goto("/inventory");
-  await page.getByLabel(/^title$/i).fill(title);
-  await page.getByRole("button", { name: /create item/i }).click();
+  const manualEntryCard = page.locator("section").filter({ hasText: "Manual entry" }).first();
+  await manualEntryCard.getByLabel(/^title$/i).fill(title);
+  await manualEntryCard.getByRole("button", { name: /create item/i }).click();
 
   const itemLink = page.getByRole("link", { name: title });
   await expect(itemLink).toBeVisible();
@@ -103,6 +104,32 @@ test("desktop inventory detail exposes a continue-on-mobile handoff with the can
   await expect(page.getByRole("dialog", { name: /continue on mobile/i })).toBeVisible();
   await expect(page.getByTestId("continue-on-mobile-url")).toHaveValue(new RegExp(`^${baseURL?.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/inventory/.+`));
   await expect(page.getByTestId("continue-on-mobile-copy")).toBeVisible();
+});
+
+test("operators can create inventory from a barcode import with Amazon pricing and image URLs", async ({ page }) => {
+  const title = `Amazon Scan Item ${Date.now()}`;
+
+  await onboardOperator(page, {
+    workspaceName: "UI Barcode Workspace"
+  });
+
+  await page.goto("/inventory");
+  await page.getByTestId("barcode-import-barcode").fill("012345678905");
+  await page.getByTestId("barcode-import-title").fill(title);
+  await page.getByLabel(/^brand$/i).nth(1).fill("Nintendo");
+  await page.getByLabel(/^category$/i).nth(1).fill("Video Games");
+  await page.getByLabel(/^condition$/i).nth(1).fill("Good used condition");
+  await page.getByTestId("barcode-import-amazon-price").fill("39.99");
+  await page.getByLabel(/amazon product url/i).fill("https://www.amazon.com/dp/B000IMWK2G");
+  await page.getByTestId("barcode-import-image-urls").fill(
+    "https://m.media-amazon.com/images/I/example-one.jpg\nhttps://m.media-amazon.com/images/I/example-two.jpg"
+  );
+  await page.getByTestId("barcode-import-submit").click();
+
+  await expect(page).toHaveURL(/\/inventory\/.+/);
+  await expect(page.getByRole("heading", { name: new RegExp(title, "i") })).toBeVisible();
+  await expect(page.getByText(/example-one\.jpg/i)).toBeVisible();
+  await expect(page.getByText(/example-two\.jpg/i)).toBeVisible();
 });
 
 test.describe("inventory continuity on mobile", () => {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  addInventoryImage,
   addInventoryImageForWorkspace,
   createExecutionLog,
   createInventoryItem,
@@ -25,7 +26,7 @@ import {
   openManagedUploadStream,
   uploadInventoryImage
 } from "@reselleros/storage";
-import { imageInputSchema, inventoryInputSchema, platforms, type Platform } from "@reselleros/types";
+import { imageInputSchema, inventoryBarcodeImportSchema, inventoryInputSchema, platforms, type Platform } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 
@@ -52,6 +53,23 @@ function resolveApiPublicBaseUrl(request: {
   }
 
   return `${protocol}://${host}`;
+}
+
+function inferAmazonAsin(input: { amazonUrl?: string | null; amazonAsin?: string | null }) {
+  const direct = input.amazonAsin?.trim() ?? "";
+
+  if (direct) {
+    return direct.toUpperCase();
+  }
+
+  const urlValue = input.amazonUrl?.trim() ?? "";
+
+  if (!urlValue) {
+    return null;
+  }
+
+  const match = urlValue.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i);
+  return match?.[1]?.toUpperCase() ?? null;
 }
 
 async function queuePublish(
@@ -176,6 +194,69 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     });
 
     return { item };
+  });
+
+  app.post("/api/inventory/import/barcode", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const body = inventoryBarcodeImportSchema.parse(request.body);
+    const uniqueImageUrls = [...new Set(body.imageUrls.map((url) => url.trim()).filter(Boolean))];
+    const observedPrices = body.observations.map((observation) => observation.price);
+    const item = await createInventoryItem(workspace.id, {
+      title: body.title,
+      brand: body.brand ?? null,
+      category: body.category,
+      condition: body.condition,
+      size: body.size ?? null,
+      color: body.color ?? null,
+      quantity: body.quantity,
+      costBasis: body.costBasis,
+      estimatedResaleMin: body.estimatedResaleMin ?? (observedPrices.length ? Math.min(...observedPrices) : null),
+      estimatedResaleMax: body.estimatedResaleMax ?? (observedPrices.length ? Math.max(...observedPrices) : null),
+      priceRecommendation: body.priceRecommendation ?? body.observations[0]?.price ?? null,
+      attributes: {
+        importSource: "BARCODE_SCAN",
+        sourceMarket: body.sourceMarket,
+        barcode: body.barcode,
+        amazonUrl: body.amazonUrl ?? null,
+        amazonAsin: inferAmazonAsin(body),
+        marketObservations: body.observations.map((observation) => ({
+          ...observation,
+          observedAt: new Date().toISOString()
+        }))
+      }
+    });
+
+    await Promise.all(
+      uniqueImageUrls.map((url, position) =>
+        addInventoryImage(item.id, {
+          url,
+          kind: "ORIGINAL",
+          position
+        })
+      )
+    );
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "inventory.imported_from_barcode",
+      targetType: "inventory_item",
+      targetId: item.id,
+      metadata: {
+        barcode: body.barcode,
+        sourceMarket: body.sourceMarket,
+        amazonAsin: inferAmazonAsin(body),
+        imageCount: uniqueImageUrls.length,
+        observationCount: body.observations.length
+      }
+    });
+
+    const detail = await findInventoryItemDetailForWorkspace(workspace.id, item.id);
+
+    return {
+      item: detail ?? item
+    };
   });
 
   app.get("/api/inventory/:id", async (request) => {

@@ -264,6 +264,37 @@ export const imageInputSchema = z.object({
   position: z.number().int().nonnegative().default(0)
 });
 
+export const catalogImportSources = ["AMAZON"] as const;
+export type CatalogImportSource = (typeof catalogImportSources)[number];
+
+export const marketObservationSchema = z.object({
+  market: z.string().trim().min(2).max(40),
+  label: z.string().trim().min(2).max(80),
+  price: z.number().nonnegative(),
+  sourceUrl: z.string().url().optional().nullable(),
+  note: z.string().trim().max(240).optional().nullable()
+});
+
+export const inventoryBarcodeImportSchema = z.object({
+  barcode: z.string().trim().min(8).max(64),
+  sourceMarket: z.enum(catalogImportSources),
+  title: z.string().trim().min(2).max(180),
+  brand: z.string().trim().max(120).optional().nullable(),
+  category: z.string().trim().min(2).max(120),
+  condition: z.string().trim().min(2).max(120),
+  size: z.string().trim().max(40).optional().nullable(),
+  color: z.string().trim().max(40).optional().nullable(),
+  quantity: z.number().int().positive().default(1),
+  costBasis: z.number().nonnegative().default(0),
+  estimatedResaleMin: z.number().nonnegative().optional().nullable(),
+  estimatedResaleMax: z.number().nonnegative().optional().nullable(),
+  priceRecommendation: z.number().nonnegative().optional().nullable(),
+  amazonUrl: z.string().url().optional().nullable(),
+  amazonAsin: z.string().trim().max(32).optional().nullable(),
+  imageUrls: z.array(z.string().url()).max(12).default([]),
+  observations: z.array(marketObservationSchema).min(1).max(8)
+});
+
 export type DashboardMetric = {
   label: string;
   value: string;

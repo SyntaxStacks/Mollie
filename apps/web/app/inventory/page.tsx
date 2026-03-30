@@ -6,6 +6,7 @@ import { FormEvent, useState, useTransition } from "react";
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
+import { BarcodeImportCard } from "../../components/barcode-import-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
 import { currency, useAuthedResource } from "../../lib/api";
@@ -127,6 +128,8 @@ export default function InventoryPage() {
             </p>
           </Card>
         </div>
+
+        {auth.token ? <BarcodeImportCard token={auth.token} /> : null}
 
         <Card eyebrow="Inventory list" title="All inventory">
           {error ? <div className="notice">{error}</div> : null}
