@@ -1,8 +1,8 @@
 "use client";
 
-import { Camera, Link2, ScanBarcode, Sparkles, X } from "lucide-react";
+import { Camera, ExternalLink, ScanBarcode, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 
 import type { CatalogLookupResult } from "@reselleros/types";
 import { Button, Card } from "@reselleros/ui";
@@ -37,6 +37,18 @@ function normalizeImageUrls(value: string) {
   return [...new Set(value.split(/[\r\n,]+/).map((entry) => entry.trim()).filter(Boolean))];
 }
 
+function firstSourceUrl(result: CatalogLookupResult | null, market: "AMAZON" | "EBAY") {
+  return (
+    result?.record?.sourceReferences.find((reference) => reference.market === market)?.url ??
+    result?.record?.observations.find((observation) => observation.market === market)?.sourceUrl ??
+    null
+  );
+}
+
+function firstObservedPrice(result: CatalogLookupResult | null, market: "AMAZON" | "EBAY") {
+  return result?.record?.observations.find((observation) => observation.market === market)?.price ?? null;
+}
+
 export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -47,18 +59,19 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerSupported, setScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [barcode, setBarcode] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState("Media");
   const [condition, setCondition] = useState("Good used condition");
   const [costBasis, setCostBasis] = useState("0");
-  const [observedPrice, setObservedPrice] = useState("");
+  const [amazonPrice, setAmazonPrice] = useState("");
+  const [ebayPrice, setEbayPrice] = useState("");
   const [resaleMin, setResaleMin] = useState("");
   const [resaleMax, setResaleMax] = useState("");
   const [priceRecommendation, setPriceRecommendation] = useState("");
   const [amazonUrl, setAmazonUrl] = useState("");
-  const [amazonAsin, setAmazonAsin] = useState("");
+  const [ebayUrl, setEbayUrl] = useState("");
   const [imageUrls, setImageUrls] = useState("");
 
   useEffect(() => {
@@ -100,12 +113,12 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
         const BarcodeDetector = window.BarcodeDetector;
         const detector = BarcodeDetector
           ? new BarcodeDetector({
-          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+              formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
             })
           : null;
 
         if (!detector) {
-          setScannerError("Camera scanning is not supported on this browser. Type or paste the barcode instead.");
+          setScannerError("Camera scanning is not supported on this browser. Type or paste the identifier instead.");
           return;
         }
 
@@ -119,12 +132,12 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
 
             if (code) {
-              setBarcode(code);
+              setIdentifier(code);
               setScannerOpen(false);
               return;
             }
           } catch {
-            setScannerError("Could not read a barcode from the camera yet. Hold the barcode flatter and closer.");
+            setScannerError("Could not read the UPC, EAN, or ISBN yet. Hold the label flatter and closer.");
           }
 
           animationFrame = window.requestAnimationFrame(scanFrame);
@@ -132,7 +145,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
         animationFrame = window.requestAnimationFrame(scanFrame);
       } catch {
-        setScannerError("Camera access was denied. You can still type the barcode or use a hardware scanner.");
+        setScannerError("Camera access was denied. You can still type the identifier or use a hardware scanner.");
       }
     }
 
@@ -152,18 +165,19 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   }, [scannerOpen, scannerSupported]);
 
   function resetForm() {
-    setBarcode("");
+    setIdentifier("");
     setTitle("");
     setBrand("");
     setCategory("Media");
     setCondition("Good used condition");
     setCostBasis("0");
-    setObservedPrice("");
+    setAmazonPrice("");
+    setEbayPrice("");
     setResaleMin("");
     setResaleMax("");
     setPriceRecommendation("");
     setAmazonUrl("");
-    setAmazonAsin("");
+    setEbayUrl("");
     setImageUrls("");
     setSubmitError(null);
     setLookupResult(null);
@@ -179,56 +193,57 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            provider: "AMAZON",
-            barcode: barcode || undefined,
-            amazonAsin: amazonAsin || undefined
+            identifier: identifier || undefined
           })
         });
-        const payload = (await response.json().catch(() => ({ error: "Amazon lookup failed" }))) as {
+        const payload = (await response.json().catch(() => ({ error: "Identifier research failed" }))) as {
           error?: string;
           result?: CatalogLookupResult;
         };
 
         if (!response.ok || !payload.result) {
-          throw new Error(payload.error ?? "Amazon lookup failed");
+          throw new Error(payload.error ?? "Identifier research failed");
         }
 
         setLookupResult(payload.result);
 
-        if (payload.result.item) {
-          setTitle(payload.result.item.title);
-          setBrand(payload.result.item.brand ?? "");
-          setCategory(payload.result.item.category ?? category);
-          setAmazonUrl(payload.result.item.amazonUrl ?? "");
-          setAmazonAsin(payload.result.item.amazonAsin ?? "");
-          setImageUrls(payload.result.item.imageUrls.join("\n"));
+        if (payload.result.record) {
+          setTitle(payload.result.record.canonicalTitle ?? "");
+          setBrand(payload.result.record.brand ?? "");
+          setCategory(payload.result.record.category ?? "Media");
+          setImageUrls(payload.result.record.imageUrls.join("\n"));
 
-          const amazonObservation = payload.result.item.observations.find((observation) => observation.market === "AMAZON");
+          const amazonObservedPrice = firstObservedPrice(payload.result, "AMAZON");
+          const ebayObservedPrice = firstObservedPrice(payload.result, "EBAY");
+          const firstObserved = amazonObservedPrice ?? ebayObservedPrice ?? null;
 
-          if (amazonObservation) {
-            setObservedPrice(String(amazonObservation.price));
-            setPriceRecommendation((current) => current || String(amazonObservation.price));
-            setResaleMin((current) => current || String(amazonObservation.price));
-            setResaleMax((current) => current || String(amazonObservation.price));
+          setAmazonPrice(amazonObservedPrice ? String(amazonObservedPrice) : "");
+          setEbayPrice(ebayObservedPrice ? String(ebayObservedPrice) : "");
+          setAmazonUrl(firstSourceUrl(payload.result, "AMAZON") ?? "");
+          setEbayUrl(firstSourceUrl(payload.result, "EBAY") ?? "");
+
+          if (firstObserved) {
+            setPriceRecommendation((current) => current || String(firstObserved));
+            setResaleMin((current) => current || String(firstObserved));
+            setResaleMax((current) => current || String(firstObserved));
           }
         }
       } catch (caughtError) {
         setLookupResult({
-          provider: "AMAZON",
-          mode: "MANUAL",
-          status: "ERROR",
-          query: {
-            barcode: barcode || null,
-            amazonAsin: amazonAsin || null
-          },
-          item: null,
+          mode: "INTERNAL",
+          normalizedIdentifier: identifier.trim(),
+          identifierType: "UNKNOWN",
+          cacheStatus: "MISS",
+          record: null,
+          workspaceObservations: [],
+          researchLinks: [],
           hint: {
-            title: "Amazon lookup failed",
-            explanation: caughtError instanceof Error ? caughtError.message : "Amazon lookup failed.",
+            title: "Identifier research failed",
+            explanation: caughtError instanceof Error ? caughtError.message : "Identifier research failed.",
             severity: "ERROR",
             nextActions: [
-              "Retry the lookup after checking the barcode or ASIN.",
-              "Continue with manual Amazon fields if you need to keep moving."
+              "Retry after checking the UPC, EAN, or ISBN.",
+              "Use the research links and continue with manual entry if you still need to create the item."
             ],
             canContinue: true
           }
@@ -242,11 +257,35 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
     startTransition(async () => {
       try {
-        const numericObservedPrice = Number(observedPrice);
+        const observations = [
+          Number.isFinite(Number(amazonPrice)) && Number(amazonPrice) >= 0
+            ? {
+                market: "AMAZON",
+                label: "Amazon",
+                price: Number(amazonPrice),
+                sourceUrl: amazonUrl || null,
+                note: "Captured by operator during identifier research."
+              }
+            : null,
+          Number.isFinite(Number(ebayPrice)) && Number(ebayPrice) >= 0
+            ? {
+                market: "EBAY",
+                label: "eBay",
+                price: Number(ebayPrice),
+                sourceUrl: ebayUrl || null,
+                note: "Captured by operator during identifier research."
+              }
+            : null
+        ].filter((value): value is NonNullable<typeof value> => Boolean(value));
 
-        if (!Number.isFinite(numericObservedPrice) || numericObservedPrice < 0) {
-          throw new Error("Enter the Amazon price you observed for this item.");
+        if (observations.length === 0) {
+          throw new Error("Add at least one observed market price from Amazon or eBay.");
         }
+
+        const primarySourceMarket = amazonUrl ? "AMAZON" : ebayUrl ? "EBAY" : observations[0]?.market ?? "OTHER";
+        const primarySourceUrl = amazonUrl || ebayUrl || observations[0]?.sourceUrl || null;
+        const referenceUrls = [amazonUrl, ebayUrl].filter(Boolean);
+        const recommendationBase = Number(priceRecommendation || observations[0]?.price || 0);
 
         const response = await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
           method: "POST",
@@ -255,72 +294,65 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            barcode,
-            sourceMarket: "AMAZON",
+            identifier,
+            identifierType: lookupResult?.identifierType ?? null,
             title,
             brand: brand || null,
             category,
             condition,
             costBasis: Number(costBasis || 0),
-            estimatedResaleMin: resaleMin ? Number(resaleMin) : numericObservedPrice,
-            estimatedResaleMax: resaleMax ? Number(resaleMax) : numericObservedPrice,
-            priceRecommendation: priceRecommendation ? Number(priceRecommendation) : numericObservedPrice,
-            amazonUrl: amazonUrl || null,
-            amazonAsin: amazonAsin || null,
+            estimatedResaleMin: resaleMin ? Number(resaleMin) : recommendationBase,
+            estimatedResaleMax: resaleMax ? Number(resaleMax) : recommendationBase,
+            priceRecommendation: recommendationBase,
+            primarySourceMarket,
+            primarySourceUrl,
+            referenceUrls,
             imageUrls: normalizeImageUrls(imageUrls),
-            observations: [
-              {
-                market: "AMAZON",
-                label: "Amazon",
-                price: numericObservedPrice,
-                sourceUrl: amazonUrl || null,
-                note: "Captured by operator from Amazon while importing from a barcode scan."
-              }
-            ]
+            observations
           })
         });
-        const payload = (await response.json().catch(() => ({ error: "Could not create item from barcode import" }))) as {
+        const payload = (await response.json().catch(() => ({ error: "Could not create item from identifier research" }))) as {
           error?: string;
           item?: { id: string };
         };
 
         if (!response.ok || !payload.item?.id) {
-          throw new Error(payload.error ?? "Could not create item from barcode import");
+          throw new Error(payload.error ?? "Could not create item from identifier research");
         }
 
         resetForm();
         router.push(`/inventory/${payload.item.id}`);
       } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create item from barcode import");
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create item from identifier research");
       }
     });
   }
 
   const normalizedImageUrls = normalizeImageUrls(imageUrls);
-  const observedPriceNumber = Number(observedPrice);
+  const researchLinks = useMemo(() => lookupResult?.researchLinks ?? [], [lookupResult]);
 
   return (
     <>
-      <Card eyebrow="Barcode import" title="Scan, compare, and create from Amazon">
+      <Card eyebrow="Identifier research" title="Scan, research, and create from UPC, EAN, or ISBN">
         <div className="stack">
           <p className="muted">
-            Scan the barcode, capture the Amazon price you see, and create an inventory item with the Amazon image URLs
-            attached. This first slice is Amazon-first and keeps the import shape ready for more markets later.
+            Scan a UPC, EAN, or ISBN, use Google plus marketplace search links to research the item, and create an inventory
+            record that strengthens Mollie&apos;s internal identifier catalog for future scans.
           </p>
           <form className="stack" onSubmit={handleSubmit}>
             <div className="scan-import-grid">
               <label className="label">
-                Barcode
+                UPC / EAN / ISBN
                 <div className="scan-field-row">
                   <input
                     className="field"
                     data-testid="barcode-import-barcode"
                     inputMode="numeric"
-                    name="barcode"
-                    placeholder="Scan or type UPC / EAN"
+                    name="identifier"
+                    placeholder="Scan or type identifier"
                     required
-                    value={barcode}
-                    onChange={(event) => setBarcode(event.target.value)}
+                    value={identifier}
+                    onChange={(event) => setIdentifier(event.target.value)}
                   />
                   {scannerSupported ? (
                     <Button kind="secondary" onClick={() => setScannerOpen(true)} type="button">
@@ -330,16 +362,16 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 </div>
               </label>
               <div className="label">
-                Amazon lookup
+                Research
                 <div className="scan-field-row">
                   <Button
                     data-testid="barcode-import-lookup"
-                    disabled={lookupPending || (!barcode.trim() && !amazonAsin.trim())}
+                    disabled={lookupPending || !identifier.trim()}
                     kind="secondary"
                     onClick={handleLookup}
                     type="button"
                   >
-                    <Sparkles size={16} /> {lookupPending ? "Looking up..." : "Lookup Amazon details"}
+                    <Search size={16} /> {lookupPending ? "Loading..." : "Load saved research"}
                   </Button>
                 </div>
               </div>
@@ -349,7 +381,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                   className="field"
                   data-testid="barcode-import-title"
                   name="title"
-                  placeholder="Imported item title"
+                  placeholder="Product title"
                   required
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
@@ -357,16 +389,30 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </label>
               <label className="label">
                 Brand
-                <input className="field" name="brand" value={brand} onChange={(event) => setBrand(event.target.value)} />
+                <input
+                  className="field"
+                  data-testid="barcode-import-brand"
+                  name="brand"
+                  value={brand}
+                  onChange={(event) => setBrand(event.target.value)}
+                />
               </label>
               <label className="label">
                 Category
-                <input className="field" name="category" required value={category} onChange={(event) => setCategory(event.target.value)} />
+                <input
+                  className="field"
+                  data-testid="barcode-import-category"
+                  name="category"
+                  required
+                  value={category}
+                  onChange={(event) => setCategory(event.target.value)}
+                />
               </label>
               <label className="label">
                 Condition
                 <input
                   className="field"
+                  data-testid="barcode-import-condition"
                   name="condition"
                   required
                   value={condition}
@@ -389,14 +435,41 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
             <OperatorHintCard hint={lookupResult?.hint ?? null} />
 
-            <div className="market-observation-card" data-testid="amazon-observation-card">
+            {lookupResult ? (
+              <div className="market-observation-card">
+                <div className="split">
+                  <div>
+                    <p className="eyebrow">Research status</p>
+                    <strong>
+                      {lookupResult.identifierType} {lookupResult.cacheStatus.toLowerCase()}
+                    </strong>
+                  </div>
+                  <div className="market-observation-value">{lookupResult.normalizedIdentifier}</div>
+                </div>
+                {researchLinks.length > 0 ? (
+                  <div className="actions wrap-actions">
+                    {researchLinks.map((link) => (
+                      <a className="secondary-link-button" href={link.url} key={`${link.market}:${link.url}`} rel="noreferrer" target="_blank">
+                        <ExternalLink size={16} /> {link.label}
+                      </a>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="market-observation-summary">
+                  <span>{lookupResult.record ? "Saved catalog match available" : "No saved product match yet"}</span>
+                  <span>{lookupResult.workspaceObservations.length} workspace observation{lookupResult.workspaceObservations.length === 1 ? "" : "s"}</span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="market-observation-card" data-testid="research-observation-card">
               <div className="split">
                 <div>
-                  <p className="eyebrow">Observed market</p>
-                  <strong>Amazon</strong>
+                  <p className="eyebrow">Market observations</p>
+                  <strong>Compare Amazon and eBay</strong>
                 </div>
                 <div className="market-observation-value">
-                  {Number.isFinite(observedPriceNumber) && observedPriceNumber >= 0 ? `$${observedPriceNumber.toFixed(2)}` : "Add price"}
+                  {lookupResult?.record?.confidenceScore ? `${Math.round(lookupResult.record.confidenceScore * 100)}% confidence` : "Manual research"}
                 </div>
               </div>
               <div className="scan-import-grid">
@@ -406,32 +479,44 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                     className="field"
                     data-testid="barcode-import-amazon-price"
                     min="0"
-                    name="observedPrice"
-                    required
+                    name="amazonPrice"
                     step="0.01"
                     type="number"
-                    value={observedPrice}
-                    onChange={(event) => setObservedPrice(event.target.value)}
+                    value={amazonPrice}
+                    onChange={(event) => setAmazonPrice(event.target.value)}
                   />
                 </label>
                 <label className="label">
-                  Amazon product URL
+                  Amazon URL
                   <input
                     className="field"
                     name="amazonUrl"
-                    placeholder="https://www.amazon.com/dp/..."
+                    placeholder="https://www.amazon.com/..."
                     value={amazonUrl}
                     onChange={(event) => setAmazonUrl(event.target.value)}
                   />
                 </label>
                 <label className="label">
-                  Amazon ASIN
+                  eBay observed price
                   <input
                     className="field"
-                    name="amazonAsin"
-                    placeholder="Optional if the URL already contains it"
-                    value={amazonAsin}
-                    onChange={(event) => setAmazonAsin(event.target.value)}
+                    data-testid="barcode-import-ebay-price"
+                    min="0"
+                    name="ebayPrice"
+                    step="0.01"
+                    type="number"
+                    value={ebayPrice}
+                    onChange={(event) => setEbayPrice(event.target.value)}
+                  />
+                </label>
+                <label className="label">
+                  eBay URL
+                  <input
+                    className="field"
+                    name="ebayUrl"
+                    placeholder="https://www.ebay.com/..."
+                    value={ebayUrl}
+                    onChange={(event) => setEbayUrl(event.target.value)}
                   />
                 </label>
                 <label className="label">
@@ -472,35 +557,32 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 </label>
               </div>
               <label className="label">
-                Amazon image URLs
+                Reference image URLs
                 <textarea
                   className="field textarea-field"
                   data-testid="barcode-import-image-urls"
                   name="imageUrls"
-                  placeholder={"Paste one Amazon image URL per line.\nThese URLs will be attached to the new inventory item as imported images."}
+                  placeholder={"Paste one image URL per line.\nThese URLs become the initial item gallery in v1 and can be replaced later with operator photos."}
                   rows={4}
                   value={imageUrls}
                   onChange={(event) => setImageUrls(event.target.value)}
                 />
               </label>
               <div className="scan-import-hint">
-                <Link2 size={16} />
+                <Sparkles size={16} />
                 <span>
-                  Imported image URLs are attached to the created item immediately. For now, Amazon product details are captured
-                  from operator input instead of automated public scraping.
+                  Save what you confirm here and Mollie will reuse that identifier knowledge the next time someone scans the same item.
                 </span>
               </div>
               <div className="market-observation-summary">
                 <span>{normalizedImageUrls.length} image URL{normalizedImageUrls.length === 1 ? "" : "s"} ready to attach</span>
-                <span>
-                  {lookupResult?.status === "READY" ? `Lookup mode: ${lookupResult.mode}` : amazonUrl ? "Amazon link included" : "Amazon link optional"}
-                </span>
+                <span>{amazonPrice || ebayPrice ? "Observed pricing captured" : "Add at least one market price"}</span>
               </div>
             </div>
 
             <div className="actions">
               <Button data-testid="barcode-import-submit" disabled={pending} type="submit">
-                <Sparkles size={16} /> {pending ? "Creating from scan..." : "Create item from scan"}
+                <Sparkles size={16} /> {pending ? "Creating from research..." : "Create item from research"}
               </Button>
               <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
                 Reset
@@ -522,7 +604,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           >
             <div className="handoff-modal-header">
               <div>
-                <p className="eyebrow">Barcode scan</p>
+                <p className="eyebrow">Identifier scan</p>
                 <h3 id="barcode-scanner-title">Scan with camera</h3>
               </div>
               <Button kind="ghost" onClick={() => setScannerOpen(false)}>
@@ -530,7 +612,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </Button>
             </div>
             <p className="handoff-copy">
-              Hold the item barcode inside the frame. Mollie will fill the barcode field as soon as it detects a code.
+              Hold the UPC, EAN, or ISBN inside the frame. Mollie will fill the identifier field as soon as it detects a match.
             </p>
             <div className="barcode-scanner-video-shell">
               <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
@@ -538,7 +620,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="scan-import-hint">
               <Camera size={16} />
-              <span>If camera scanning is unavailable here, you can still type the barcode or use a hardware scanner.</span>
+              <span>If camera scanning is unavailable here, you can still type the identifier or use a hardware scanner.</span>
             </div>
           </div>
         </div>

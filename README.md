@@ -113,7 +113,7 @@ Inventory detail now includes an eBay preflight view that surfaces whether a spe
 
 Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop/Poshmark/Whatnot publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
 
-Inventory creation now also includes a barcode import surface with an Amazon-first observation flow. Operators can scan or type a UPC/EAN, capture Amazon pricing and image URLs, and create an inventory item directly from that import. A dedicated `/api/catalog/lookup` route is now in place so approved providers like Amazon Product Advertising API can auto-fill title, price, ASIN, and image data when credentials are configured. Until then, the UI fails closed with operator guidance instead of pretending public scraping is reliable.
+Inventory creation now also includes an identifier research surface for UPC, EAN, and ISBN workflows. Operators can scan or type an identifier, open Google/Amazon/eBay research links, capture observed prices and reference images, and create an inventory item while strengthening Mollie’s internal catalog for future scans.
 
 Inventory detail now has explicit cross-device continuity for pilot operators. Desktop users can open a "Continue on mobile" handoff with a QR code and canonical item link, then use the same `/inventory/[id]` route on mobile for a photo-first layout with larger tap targets, compact metadata, and lightweight continuity refresh when the same item changes on another device.
 
@@ -188,7 +188,7 @@ Use `https://mollie.biz/privacy` as the public privacy policy URL for marketplac
 
 Keep public URLs like `APP_BASE_URL`, `API_PUBLIC_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, and `EBAY_REDIRECT_URI` in the env YAML files, not in Secret Manager mappings. For eBay production OAuth, also set `EBAY_RU_NAME` to the production RuName from the eBay developer console.
 
-Amazon catalog lookup is controlled separately from barcode import. Set `AMAZON_CATALOG_LOOKUP_MODE=amazon_paapi5` and provide `AMAZON_PAAPI_ACCESS_KEY`, `AMAZON_PAAPI_SECRET_KEY`, and `AMAZON_PAAPI_PARTNER_TAG` if you want Amazon auto-fill to use Product Advertising API instead of manual operator entry.
+Identifier research is controlled separately from inventory item creation. Set `CATALOG_LOOKUP_MODE=fixture` only for test or demo environments. Production uses Mollie’s internal identifier catalog plus operator-entered research, and local seed/crawler tooling can be run through `pnpm catalog:seed` and `pnpm catalog:crawl`.
 
 Example deploy:
 

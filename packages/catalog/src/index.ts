@@ -1,31 +1,67 @@
-import { createHash, createHmac } from "node:crypto";
+import { db, type Prisma } from "@reselleros/db";
+import type {
+  CatalogCacheStatus,
+  CatalogImportSource,
+  CatalogIdentifierType,
+  CatalogLookupRecord,
+  CatalogLookupResult,
+  CatalogLookupMode,
+  CatalogTrustStatus,
+  OperatorHint
+} from "@reselleros/types";
 
-import type { CatalogLookupItem, CatalogLookupResult, CatalogLookupStatus, OperatorHint } from "@reselleros/types";
-
-type AmazonLookupInput = {
-  barcode?: string | null;
-  amazonAsin?: string | null;
+type LookupInput = {
+  workspaceId: string;
+  identifier: string;
+  identifierType?: CatalogIdentifierType | null;
 };
 
-type AmazonCatalogConfig = {
-  mode: "MANUAL" | "FIXTURE" | "AMAZON_PAAPI5";
-  accessKey?: string;
-  secretKey?: string;
-  partnerTag?: string;
-  host: string;
-  region: string;
+type ObservationInput = {
+  market: CatalogImportSource | string;
+  label: string;
+  price?: number | null;
+  sourceUrl?: string | null;
+  note?: string | null;
+  observedAt?: Date | string | null;
 };
 
-const AMAZON_RESOURCES = [
-  "Images.Primary.Large",
-  "Images.Variants.Large",
-  "ItemInfo.ByLineInfo",
-  "ItemInfo.Classifications",
-  "ItemInfo.ExternalIds",
-  "ItemInfo.Title",
-  "Offers.Listings.Price",
-  "OffersV2.Listings.Price"
-];
+type OperatorResearchInput = {
+  workspaceId: string;
+  identifier: string;
+  identifierType?: CatalogIdentifierType | null;
+  title: string;
+  brand?: string | null;
+  category: string;
+  imageUrls: string[];
+  sourceReferences: Array<{ market: CatalogImportSource; label: string; url: string }>;
+  observations: ObservationInput[];
+};
+
+type SeedRecordInput = {
+  identifier: string;
+  identifierType?: CatalogIdentifierType | null;
+  title: string;
+};
+
+type CrawlerHarvestInput = {
+  identifier: string;
+  identifierType?: CatalogIdentifierType | null;
+  title?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  imageUrls?: string[];
+  sourceReferences?: Array<{ market: CatalogImportSource; label: string; url: string }>;
+  observations?: ObservationInput[];
+  confidenceScore: number;
+};
+
+type CatalogRecordWithRelations = Awaited<ReturnType<typeof fetchCatalogRecord>>;
+
+const STALE_LOOKUP_DAYS = 30;
+const CRAWLER_CANONICAL_THRESHOLD = 0.7;
+const LOOKUP_DISCOVERED_CONFIDENCE = 0.05;
+const SEED_CONFIDENCE = 0.25;
+const OPERATOR_CONFIDENCE = 1;
 
 function createHint(input: {
   title: string;
@@ -45,375 +81,682 @@ function createHint(input: {
   } satisfies OperatorHint;
 }
 
-function normalizeLookupMode(raw: string | undefined) {
-  switch ((raw ?? "manual").trim().toLowerCase()) {
-    case "fixture":
-      return "FIXTURE";
-    case "amazon_paapi5":
-      return "AMAZON_PAAPI5";
-    default:
-      return "MANUAL";
+function getLookupMode(): CatalogLookupMode {
+  return process.env.CATALOG_LOOKUP_MODE?.trim().toLowerCase() === "fixture" ? "FIXTURE" : "INTERNAL";
+}
+
+export function normalizeIdentifier(identifier: string) {
+  return identifier.trim().toUpperCase().replace(/[^0-9X]/g, "");
+}
+
+export function classifyIdentifier(identifier: string): CatalogIdentifierType {
+  const normalized = normalizeIdentifier(identifier);
+
+  if (/^\d{12}$/.test(normalized)) {
+    return "UPC";
   }
+
+  if (/^(97[89])\d{10}$/.test(normalized)) {
+    return "ISBN";
+  }
+
+  if (/^\d{13}$/.test(normalized)) {
+    return "EAN";
+  }
+
+  if (/^\d{9}[\dX]$/.test(normalized)) {
+    return "ISBN";
+  }
+
+  return "UNKNOWN";
 }
 
-function getAmazonCatalogConfig(): AmazonCatalogConfig {
-  return {
-    mode: normalizeLookupMode(process.env.AMAZON_CATALOG_LOOKUP_MODE),
-    accessKey: process.env.AMAZON_PAAPI_ACCESS_KEY?.trim(),
-    secretKey: process.env.AMAZON_PAAPI_SECRET_KEY?.trim(),
-    partnerTag: process.env.AMAZON_PAAPI_PARTNER_TAG?.trim(),
-    host: process.env.AMAZON_PAAPI_HOST?.trim() || "webservices.amazon.com",
-    region: process.env.AMAZON_PAAPI_REGION?.trim() || "us-east-1"
-  };
-}
+function resolveIdentifierType(identifier: string, preferred?: CatalogIdentifierType | null) {
+  if (preferred && preferred !== "UNKNOWN") {
+    return preferred;
+  }
 
-function createResult(input: {
-  mode: CatalogLookupResult["mode"];
-  status: CatalogLookupStatus;
-  query: CatalogLookupResult["query"];
-  item?: CatalogLookupItem | null;
-  hint?: OperatorHint | null;
-}): CatalogLookupResult {
-  return {
-    provider: "AMAZON",
-    mode: input.mode,
-    status: input.status,
-    query: input.query,
-    item: input.item ?? null,
-    hint: input.hint ?? null
-  };
+  return classifyIdentifier(identifier);
 }
 
 function dedupeUrls(urls: Array<string | null | undefined>) {
   return [...new Set(urls.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
 
-function getItemPrice(item: Record<string, any>) {
-  const oldPrice = item.Offers?.Listings?.[0]?.Price;
-  const newPrice = item.OffersV2?.Listings?.[0]?.Price;
-  const candidate = newPrice ?? oldPrice ?? null;
-
-  if (!candidate) {
-    return null;
+function mapTrustStatus(input: unknown): CatalogTrustStatus {
+  if (
+    input === "LOOKUP_DISCOVERED" ||
+    input === "SEED_TENTATIVE" ||
+    input === "CRAWLER_DERIVED" ||
+    input === "OPERATOR_CONFIRMED"
+  ) {
+    return input;
   }
 
-  const amount = Number(candidate.Amount ?? candidate.DisplayAmount?.replace(/[^0-9.]/g, "") ?? NaN);
+  return "LOOKUP_DISCOVERED";
+}
 
-  if (!Number.isFinite(amount)) {
-    return null;
+function mapIdentifierType(input: unknown): CatalogIdentifierType {
+  if (input === "UPC" || input === "EAN" || input === "ISBN" || input === "UNKNOWN") {
+    return input;
   }
+
+  return "UNKNOWN";
+}
+
+function mapJsonStringArray(input: unknown) {
+  return Array.isArray(input)
+    ? input.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean)
+    : [];
+}
+
+function mapImportSource(input: unknown): CatalogImportSource {
+  return input === "GOOGLE" || input === "AMAZON" || input === "EBAY" || input === "OTHER" ? input : "OTHER";
+}
+
+function mapSourceReferences(input: unknown) {
+  if (!Array.isArray(input)) {
+    return [] as Array<{ market: CatalogImportSource; label: string; url: string }>;
+  }
+
+  return input
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const candidate = entry as Record<string, unknown>;
+      return typeof candidate.url === "string" && typeof candidate.label === "string"
+        ? {
+            market: mapImportSource(candidate.market),
+            label: candidate.label,
+            url: candidate.url
+          }
+        : null;
+    })
+    .filter((entry): entry is { market: CatalogImportSource; label: string; url: string } => Boolean(entry));
+}
+
+function observationTimestamp(input: Date | string | null | undefined) {
+  if (input instanceof Date) {
+    return input;
+  }
+
+  if (typeof input === "string" && Date.parse(input) > 0) {
+    return new Date(input);
+  }
+
+  return new Date();
+}
+
+function isStale(date: Date | null | undefined) {
+  if (!date) {
+    return false;
+  }
+
+  return Date.now() - date.getTime() > STALE_LOOKUP_DAYS * 24 * 60 * 60 * 1000;
+}
+
+function hasMeaningfulRecord(record: {
+  canonicalTitle: string | null;
+  brand: string | null;
+  category: string | null;
+  canonicalImageUrlsJson: unknown;
+}) {
+  return Boolean(
+    record.canonicalTitle?.trim() ||
+      record.brand?.trim() ||
+      record.category?.trim() ||
+      mapJsonStringArray(record.canonicalImageUrlsJson).length
+  );
+}
+
+function buildResearchLinks(normalizedIdentifier: string, identifierType: CatalogIdentifierType) {
+  const queryPrefix = identifierType === "UNKNOWN" ? "product" : identifierType;
+  const googleQuery = encodeURIComponent(`${queryPrefix} ${normalizedIdentifier}`);
+  const encodedIdentifier = encodeURIComponent(normalizedIdentifier);
+
+  return [
+    {
+      market: "GOOGLE" as const,
+      label: `Search Google for ${queryPrefix} ${normalizedIdentifier}`,
+      url: `https://www.google.com/search?q=${googleQuery}`
+    },
+    {
+      market: "AMAZON" as const,
+      label: `Search Amazon for ${normalizedIdentifier}`,
+      url: `https://www.amazon.com/s?k=${encodedIdentifier}`
+    },
+    {
+      market: "EBAY" as const,
+      label: `Search eBay for ${normalizedIdentifier}`,
+      url: `https://www.ebay.com/sch/i.html?_nkw=${encodedIdentifier}`
+    }
+  ];
+}
+
+function serializeRecord(record: NonNullable<CatalogRecordWithRelations>): CatalogLookupRecord {
+  const override = record.workspaceOverrides[0] ?? null;
+  const imageUrls = override
+    ? mapJsonStringArray(override.imageUrlsJson).length > 0
+      ? mapJsonStringArray(override.imageUrlsJson)
+      : mapJsonStringArray(record.canonicalImageUrlsJson)
+    : mapJsonStringArray(record.canonicalImageUrlsJson);
 
   return {
-    amount,
-    displayAmount: typeof candidate.DisplayAmount === "string" ? candidate.DisplayAmount : `$${amount.toFixed(2)}`
+    id: record.id,
+    normalizedIdentifier: record.normalizedIdentifier,
+    identifierType: mapIdentifierType(record.identifierType),
+    canonicalTitle: override?.title?.trim() || record.canonicalTitle,
+    brand: override?.brand?.trim() || record.brand,
+    category: override?.category?.trim() || record.category,
+    imageUrls,
+    sourceReferences: mapSourceReferences(record.sourceReferencesJson),
+    trustStatus: mapTrustStatus(record.trustStatus),
+    confidenceScore: record.confidenceScore,
+    lastConfirmedAt: record.lastConfirmedAt?.toISOString() ?? null,
+    lastRefreshedAt: record.lastRefreshedAt?.toISOString() ?? null,
+    observations: record.observations.map((observation) => ({
+      market: observation.market,
+      label: observation.label,
+      price: observation.price ?? null,
+      sourceUrl: observation.sourceUrl,
+      note: observation.note,
+      observedAt: observation.observedAt.toISOString(),
+      provenance: mapTrustStatus(observation.provenance),
+      confidenceScore: observation.confidenceScore ?? null
+    }))
   };
 }
 
-function getItemImages(item: Record<string, any>) {
-  const primary = item.Images?.Primary?.Large?.URL ?? item.Images?.Primary?.Medium?.URL ?? null;
-  const variants = Array.isArray(item.Images?.Variants)
-    ? item.Images.Variants.map((variant: Record<string, any>) => variant?.Large?.URL ?? variant?.Medium?.URL ?? null)
-    : [];
-
-  return dedupeUrls([primary, ...variants]);
+async function fetchCatalogRecord(workspaceId: string, normalizedIdentifier: string) {
+  return db.catalogIdentifier.findUnique({
+    where: { normalizedIdentifier },
+    include: {
+      observations: {
+        orderBy: { observedAt: "desc" },
+        take: 12
+      },
+      workspaceObservations: {
+        where: { workspaceId },
+        orderBy: { observedAt: "desc" },
+        take: 12
+      },
+      workspaceOverrides: {
+        where: { workspaceId },
+        take: 1
+      }
+    }
+  });
 }
 
-function serializeAmazonItem(item: Record<string, any>) {
-  const price = getItemPrice(item);
-  const imageUrls = getItemImages(item);
-  const asin = typeof item.ASIN === "string" ? item.ASIN : null;
-  const title =
-    item.ItemInfo?.Title?.DisplayValue ??
-    item.ItemInfo?.ByLineInfo?.Brand?.DisplayValue ??
-    "Imported Amazon item";
-
-  return {
-    title,
-    brand:
-      item.ItemInfo?.ByLineInfo?.Brand?.DisplayValue ??
-      item.ItemInfo?.ByLineInfo?.Manufacturer?.DisplayValue ??
-      null,
-    category: item.ItemInfo?.Classifications?.ProductGroup?.DisplayValue ?? null,
-    amazonUrl: item.DetailPageURL ?? null,
-    amazonAsin: asin,
-    imageUrls,
-    observations: price
-      ? [
-          {
-            market: "AMAZON",
-            label: "Amazon",
-            price: price.amount,
-            sourceUrl: item.DetailPageURL ?? null,
-            note: "Auto-filled from Amazon Product Advertising API."
-          }
-        ]
-      : []
-  } satisfies CatalogLookupItem;
-}
-
-function scoreSearchMatch(item: Record<string, any>, barcode: string) {
-  const normalized = barcode.replace(/\D/g, "");
-  const candidates = [
-    ...(item.ItemInfo?.ExternalIds?.UPCs?.DisplayValues ?? []),
-    ...(item.ItemInfo?.ExternalIds?.EANs?.DisplayValues ?? []),
-    ...(item.ItemInfo?.ExternalIds?.ISBNs?.DisplayValues ?? [])
-  ]
-    .map((value: unknown) => (typeof value === "string" ? value.replace(/\D/g, "") : ""))
-    .filter(Boolean);
-
-  if (candidates.includes(normalized)) {
-    return 100;
+function buildLookupHint(input: {
+  cacheStatus: CatalogCacheStatus;
+  normalizedIdentifier: string;
+  identifierType: CatalogIdentifierType;
+  record: CatalogRecordWithRelations | null;
+}) {
+  if (input.cacheStatus === "MISS") {
+    return createHint({
+      title: "No saved catalog match yet",
+      explanation: `Mollie has not built a reusable ${input.identifierType} record for ${input.normalizedIdentifier} yet. Use the research links to gather a title, price, and images, then save the item to strengthen the catalog.`,
+      severity: "INFO",
+      nextActions: [
+        "Open Google, Amazon, or eBay from the research links.",
+        "Paste the best title, price observations, and image URLs you find.",
+        "Create the item to save this identifier into Mollie's catalog."
+      ],
+      canContinue: true
+    });
   }
 
-  return candidates.some((candidate) => candidate.includes(normalized) || normalized.includes(candidate)) ? 50 : 0;
-}
-
-function selectBestSearchItem(items: Array<Record<string, any>>, barcode: string) {
-  return [...items].sort((left, right) => scoreSearchMatch(right, barcode) - scoreSearchMatch(left, barcode))[0] ?? null;
-}
-
-function fixtureLookup(input: AmazonLookupInput): CatalogLookupResult {
-  const key = (input.amazonAsin?.trim() || input.barcode?.trim() || "AMAZON-FIXTURE").toUpperCase();
-
-  return createResult({
-    mode: "FIXTURE",
-    status: "READY",
-    query: {
-      barcode: input.barcode ?? null,
-      amazonAsin: input.amazonAsin ?? null
-    },
-    item: {
-      title: `Amazon Fixture Item ${key}`,
-      brand: "Amazon Fixture",
-      category: "Media",
-      amazonUrl: `https://www.amazon.com/dp/${key.slice(0, 10).padEnd(10, "X")}`,
-      amazonAsin: key.slice(0, 10).padEnd(10, "X"),
-      imageUrls: [
-        "https://m.media-amazon.com/images/I/fixture-one.jpg",
-        "https://m.media-amazon.com/images/I/fixture-two.jpg"
+  if (input.cacheStatus === "STALE") {
+    return createHint({
+      title: "Saved identifier data may be stale",
+      explanation: "Mollie found a prior catalog record, but it has not been refreshed recently. Recheck the current market prices before you create or publish from this item.",
+      severity: "WARNING",
+      nextActions: [
+        "Use the research links to confirm today's pricing.",
+        "Update the title, price, or images if they no longer match."
       ],
+      canContinue: true
+    });
+  }
+
+  return createHint({
+    title: "Saved catalog match found",
+    explanation: "Mollie already knows this identifier and can prefill the research form with saved product data and prior observations.",
+    severity: "SUCCESS",
+    nextActions: [
+      "Review the cached title, prices, and images.",
+      "Adjust anything that no longer matches the item in front of you."
+    ],
+    canContinue: true
+  });
+}
+
+function fixtureLookup(input: LookupInput): CatalogLookupResult {
+  const normalizedIdentifier = normalizeIdentifier(input.identifier);
+  const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
+
+  return {
+    mode: "FIXTURE",
+    normalizedIdentifier,
+    identifierType,
+    cacheStatus: "HIT",
+    record: {
+      id: `fixture-${normalizedIdentifier}`,
+      normalizedIdentifier,
+      identifierType,
+      canonicalTitle: `Fixture Catalog Item ${normalizedIdentifier}`,
+      brand: "Fixture Brand",
+      category: "Media",
+      imageUrls: [
+        "https://example.test/images/fixture-1.jpg",
+        "https://example.test/images/fixture-2.jpg"
+      ],
+      sourceReferences: buildResearchLinks(normalizedIdentifier, identifierType),
+      trustStatus: "CRAWLER_DERIVED",
+      confidenceScore: 0.82,
+      lastConfirmedAt: null,
+      lastRefreshedAt: new Date().toISOString(),
       observations: [
         {
           market: "AMAZON",
           label: "Amazon",
           price: 39.99,
-          sourceUrl: `https://www.amazon.com/dp/${key.slice(0, 10).padEnd(10, "X")}`,
-          note: "Fixture catalog response used for automated tests."
+          sourceUrl: `https://www.amazon.com/s?k=${encodeURIComponent(normalizedIdentifier)}`,
+          note: "Fixture observation for automated tests.",
+          observedAt: new Date().toISOString(),
+          provenance: "CRAWLER_DERIVED",
+          confidenceScore: 0.82
         }
       ]
     },
+    workspaceObservations: [],
+    researchLinks: buildResearchLinks(normalizedIdentifier, identifierType),
     hint: createHint({
-      title: "Amazon lookup ready",
-      explanation: "Amazon catalog lookup is returning a fixture response in this environment.",
+      title: "Fixture catalog match loaded",
+      explanation: "The identifier lookup is running in fixture mode, so Mollie returned a deterministic catalog match for this test environment.",
       severity: "INFO",
-      nextActions: ["Review the imported title, price, and image URLs before creating the item."],
+      nextActions: ["Review the fixture data before creating the item."],
       canContinue: true
     })
-  });
-}
-
-function sha256Hex(value: string) {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
-
-function hmac(key: Buffer | string, value: string) {
-  return createHmac("sha256", key).update(value, "utf8").digest();
-}
-
-function formatAmzDate(date: Date) {
-  const iso = date.toISOString().replace(/[:-]|\.\d{3}/g, "");
-  return {
-    amzDate: iso,
-    dateStamp: iso.slice(0, 8)
   };
 }
 
-async function callAmazonPaapi(
-  config: Required<Pick<AmazonCatalogConfig, "accessKey" | "secretKey" | "partnerTag" | "host" | "region">>,
-  input: {
-    path: string;
-    target: string;
-    payload: Record<string, unknown>;
-  }
+function buildSourceReferences(
+  primary: { market: CatalogImportSource; label: string; url: string },
+  extraUrls: string[]
 ) {
-  const body = JSON.stringify(input.payload);
-  const { amzDate, dateStamp } = formatAmzDate(new Date());
-  const canonicalHeaders = [
-    `content-encoding:amz-1.0`,
-    `content-type:application/json; charset=utf-8`,
-    `host:${config.host}`,
-    `x-amz-date:${amzDate}`,
-    `x-amz-target:${input.target}`
-  ].join("\n");
-  const signedHeaders = "content-encoding;content-type;host;x-amz-date;x-amz-target";
-  const canonicalRequest = ["POST", input.path, "", canonicalHeaders, "", signedHeaders, sha256Hex(body)].join("\n");
-  const credentialScope = `${dateStamp}/${config.region}/ProductAdvertisingAPI/aws4_request`;
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    sha256Hex(canonicalRequest)
-  ].join("\n");
-  const signingKey = hmac(hmac(hmac(hmac(`AWS4${config.secretKey}`, dateStamp), config.region), "ProductAdvertisingAPI"), "aws4_request");
-  const signature = createHmac("sha256", signingKey).update(stringToSign, "utf8").digest("hex");
-  const authorization = `AWS4-HMAC-SHA256 Credential=${config.accessKey}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  const response = await fetch(`https://${config.host}${input.path}`, {
-    method: "POST",
-    headers: {
-      "content-encoding": "amz-1.0",
-      "content-type": "application/json; charset=utf-8",
-      host: config.host,
-      "x-amz-date": amzDate,
-      "x-amz-target": input.target,
-      authorization
-    },
-    body
-  });
-  const json = (await response.json().catch(() => null)) as Record<string, any> | null;
+  const unique = new Map<string, { market: CatalogImportSource; label: string; url: string }>();
+  unique.set(primary.url, primary);
 
-  if (!response.ok) {
-    const message =
-      json?.Errors?.[0]?.Message ??
-      json?.__type ??
-      `Amazon lookup failed with status ${response.status}`;
-    throw new Error(message);
+  for (const url of extraUrls) {
+    if (!unique.has(url)) {
+      unique.set(url, {
+        market: "OTHER",
+        label: "Reference",
+        url
+      });
+    }
   }
 
-  return json ?? {};
+  return [...unique.values()];
 }
 
-export async function lookupAmazonCatalog(input: AmazonLookupInput): Promise<CatalogLookupResult> {
-  const config = getAmazonCatalogConfig();
-  const query = {
-    barcode: input.barcode?.trim() || null,
-    amazonAsin: input.amazonAsin?.trim() || null
-  };
+function selectCanonicalUpdate(record: {
+  trustStatus: CatalogTrustStatus;
+  canonicalTitle: string | null;
+  brand: string | null;
+  category: string | null;
+  canonicalImageUrlsJson: unknown;
+}, incoming: {
+  title?: string | null;
+  brand?: string | null;
+  category?: string | null;
+  imageUrls?: string[];
+  trustStatus: CatalogTrustStatus;
+  confidenceScore: number;
+}) {
+  if (record.trustStatus === "OPERATOR_CONFIRMED" && incoming.trustStatus !== "OPERATOR_CONFIRMED") {
+    return null;
+  }
 
-  if (config.mode === "FIXTURE") {
+  const existingStrength =
+    (record.canonicalTitle ? 1 : 0) +
+    (record.brand ? 1 : 0) +
+    (record.category ? 1 : 0) +
+    (mapJsonStringArray(record.canonicalImageUrlsJson).length > 0 ? 1 : 0);
+  const incomingStrength =
+    (incoming.title ? 1 : 0) +
+    (incoming.brand ? 1 : 0) +
+    (incoming.category ? 1 : 0) +
+    ((incoming.imageUrls?.length ?? 0) > 0 ? 1 : 0);
+
+  if (incoming.trustStatus !== "OPERATOR_CONFIRMED" && incomingStrength < existingStrength) {
+    return null;
+  }
+
+  return {
+    canonicalTitle: incoming.title ?? record.canonicalTitle,
+    brand: incoming.brand ?? record.brand,
+    category: incoming.category ?? record.category,
+    canonicalImageUrlsJson: (incoming.imageUrls?.length ? incoming.imageUrls : mapJsonStringArray(record.canonicalImageUrlsJson)) as Prisma.InputJsonValue,
+    trustStatus: incoming.trustStatus,
+    confidenceScore: incoming.confidenceScore,
+    lastRefreshedAt: new Date(),
+    ...(incoming.trustStatus === "OPERATOR_CONFIRMED" ? { lastConfirmedAt: new Date() } : {})
+  } satisfies Prisma.CatalogIdentifierUpdateInput;
+}
+
+export async function lookupCatalogIdentifier(input: LookupInput): Promise<CatalogLookupResult> {
+  const normalizedIdentifier = normalizeIdentifier(input.identifier);
+  const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
+
+  if (getLookupMode() === "FIXTURE") {
     return fixtureLookup(input);
   }
 
-  if (
-    config.mode !== "AMAZON_PAAPI5" ||
-    !config.accessKey ||
-    !config.secretKey ||
-    !config.partnerTag
-  ) {
-    return createResult({
-      mode: config.mode,
-      status: "NOT_CONFIGURED",
-      query,
-      hint: createHint({
-        title: "Amazon lookup is not configured yet",
-        explanation:
-          "This workspace can still import from a barcode scan, but Amazon auto-fill needs approved Amazon Product Advertising API credentials before it can fetch title, price, and images automatically.",
-        severity: "WARNING",
-        nextActions: [
-          "Add the Amazon Product Advertising API access key, secret key, and partner tag.",
-          "Use the manual Amazon fields on this form until the provider is configured."
-        ],
-        canContinue: true,
-        helpText: "Public Amazon page scraping is intentionally not used as the production data source."
-      })
+  await db.catalogIdentifier.upsert({
+    where: { normalizedIdentifier },
+    update: {
+      identifierType,
+      lastLookupAt: new Date()
+    },
+    create: {
+      normalizedIdentifier,
+      identifierType,
+      trustStatus: "LOOKUP_DISCOVERED",
+      confidenceScore: LOOKUP_DISCOVERED_CONFIDENCE,
+      lastLookupAt: new Date()
+    }
+  });
+
+  const record = await fetchCatalogRecord(input.workspaceId, normalizedIdentifier);
+  const cacheStatus: CatalogCacheStatus = !record || !hasMeaningfulRecord(record) ? "MISS" : isStale(record.lastRefreshedAt ?? record.updatedAt) ? "STALE" : "HIT";
+
+  return {
+    mode: "INTERNAL",
+    normalizedIdentifier,
+    identifierType,
+    cacheStatus,
+    record: record && hasMeaningfulRecord(record) ? serializeRecord(record) : null,
+    workspaceObservations:
+      record?.workspaceObservations.map((observation) => ({
+        market: observation.market,
+        label: observation.label,
+        price: observation.price ?? null,
+        sourceUrl: observation.sourceUrl,
+        note: observation.note,
+        observedAt: observation.observedAt.toISOString()
+      })) ?? [],
+    researchLinks: buildResearchLinks(normalizedIdentifier, identifierType),
+    hint: buildLookupHint({
+      cacheStatus,
+      normalizedIdentifier,
+      identifierType,
+      record
+    })
+  };
+}
+
+export async function upsertSeedCatalogRecord(input: SeedRecordInput) {
+  const normalizedIdentifier = normalizeIdentifier(input.identifier);
+  const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
+  const existing = await db.catalogIdentifier.findUnique({
+    where: { normalizedIdentifier }
+  });
+
+  if (!existing) {
+    return db.catalogIdentifier.create({
+      data: {
+        normalizedIdentifier,
+        identifierType,
+        canonicalTitle: input.title,
+        trustStatus: "SEED_TENTATIVE",
+        confidenceScore: SEED_CONFIDENCE,
+        lastRefreshedAt: new Date()
+      }
     });
   }
 
-  try {
-    const response = query.amazonAsin
-      ? await callAmazonPaapi(
-          {
-            accessKey: config.accessKey,
-            secretKey: config.secretKey,
-            partnerTag: config.partnerTag,
-            host: config.host,
-            region: config.region
-          },
-          {
-            path: "/paapi5/getitems",
-            target: "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.GetItems",
-            payload: {
-              ItemIds: [query.amazonAsin],
-              PartnerTag: config.partnerTag,
-              PartnerType: "Associates",
-              Resources: AMAZON_RESOURCES
-            }
-          }
-        )
-      : await callAmazonPaapi(
-          {
-            accessKey: config.accessKey,
-            secretKey: config.secretKey,
-            partnerTag: config.partnerTag,
-            host: config.host,
-            region: config.region
-          },
-          {
-            path: "/paapi5/searchitems",
-            target: "com.amazon.paapi5.v1.ProductAdvertisingAPIv1.SearchItems",
-            payload: {
-              Keywords: query.barcode,
-              SearchIndex: "All",
-              ItemCount: 10,
-              PartnerTag: config.partnerTag,
-              PartnerType: "Associates",
-              Resources: AMAZON_RESOURCES
-            }
-          }
-        );
+  const nextData = selectCanonicalUpdate(
+    {
+      trustStatus: mapTrustStatus(existing.trustStatus),
+      canonicalTitle: existing.canonicalTitle,
+      brand: existing.brand,
+      category: existing.category,
+      canonicalImageUrlsJson: existing.canonicalImageUrlsJson
+    },
+    {
+      title: input.title,
+      trustStatus: "SEED_TENTATIVE",
+      confidenceScore: SEED_CONFIDENCE
+    }
+  );
 
-    const items = query.amazonAsin
-      ? (response.ItemsResult?.Items as Array<Record<string, any>> | undefined) ?? []
-      : (response.SearchResult?.Items as Array<Record<string, any>> | undefined) ?? [];
-    const selectedItem =
-      query.amazonAsin && items.length > 0 ? items[0] ?? null : query.barcode ? selectBestSearchItem(items, query.barcode) : items[0] ?? null;
+  if (!nextData) {
+    return existing;
+  }
 
-    if (!selectedItem) {
-      return createResult({
-        mode: "AMAZON_PAAPI5",
-        status: "NOT_FOUND",
-        query,
-        hint: createHint({
-          title: "Amazon did not return a matching catalog item",
-          explanation:
-            "Mollie could not find a reliable Amazon catalog match for this barcode or ASIN. You can still continue by filling the fields manually.",
-          severity: "WARNING",
-          nextActions: [
-            "Check that the barcode or ASIN is correct.",
-            "Paste the Amazon details manually if you still want to create the item."
-          ],
-          canContinue: true
-        })
+  return db.catalogIdentifier.update({
+    where: { id: existing.id },
+    data: nextData
+      ? {
+          ...nextData,
+          identifierType: existing.identifierType === "UNKNOWN" ? identifierType : undefined
+        }
+      : nextData
+  });
+}
+
+export async function applyOperatorResearch(input: OperatorResearchInput) {
+  const normalizedIdentifier = normalizeIdentifier(input.identifier);
+  const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
+  const sourceReferences = input.sourceReferences;
+  const existing = await db.catalogIdentifier.findUnique({
+    where: { normalizedIdentifier }
+  });
+
+  const catalogIdentifier = existing
+    ? await db.catalogIdentifier.update({
+        where: { id: existing.id },
+        data: {
+          normalizedIdentifier,
+          identifierType,
+          canonicalTitle: input.title,
+          brand: input.brand ?? null,
+          category: input.category,
+          canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
+          sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
+          trustStatus: "OPERATOR_CONFIRMED",
+          confidenceScore: OPERATOR_CONFIDENCE,
+          lastConfirmedAt: new Date(),
+          lastRefreshedAt: new Date(),
+          lastLookupAt: new Date()
+        }
+      })
+    : await db.catalogIdentifier.create({
+        data: {
+          normalizedIdentifier,
+          identifierType,
+          canonicalTitle: input.title,
+          brand: input.brand ?? null,
+          category: input.category,
+          canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
+          sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
+          trustStatus: "OPERATOR_CONFIRMED",
+          confidenceScore: OPERATOR_CONFIDENCE,
+          lastConfirmedAt: new Date(),
+          lastRefreshedAt: new Date(),
+          lastLookupAt: new Date()
+        }
       });
+
+  await db.workspaceCatalogOverride.upsert({
+    where: {
+      workspaceId_catalogIdentifierId: {
+        workspaceId: input.workspaceId,
+        catalogIdentifierId: catalogIdentifier.id
+      }
+    },
+    update: {
+      title: input.title,
+      brand: input.brand ?? null,
+      category: input.category,
+      imageUrlsJson: dedupeUrls(input.imageUrls),
+      lastConfirmedAt: new Date()
+    },
+    create: {
+      workspaceId: input.workspaceId,
+      catalogIdentifierId: catalogIdentifier.id,
+      title: input.title,
+      brand: input.brand ?? null,
+      category: input.category,
+      imageUrlsJson: dedupeUrls(input.imageUrls),
+      lastConfirmedAt: new Date()
+    }
+  });
+
+  if (input.observations.length > 0) {
+    await db.catalogObservation.createMany({
+      data: input.observations.map((observation) => ({
+        catalogIdentifierId: catalogIdentifier.id,
+        market: observation.market,
+        label: observation.label,
+        price: observation.price ?? null,
+        sourceUrl: observation.sourceUrl ?? null,
+        note: observation.note ?? null,
+        observedAt: observationTimestamp(observation.observedAt),
+        provenance: "OPERATOR_CONFIRMED",
+        confidenceScore: OPERATOR_CONFIDENCE
+      }))
+    });
+
+    await db.workspaceCatalogObservation.createMany({
+      data: input.observations.map((observation) => ({
+        workspaceId: input.workspaceId,
+        catalogIdentifierId: catalogIdentifier.id,
+        market: observation.market,
+        label: observation.label,
+        price: observation.price ?? null,
+        sourceUrl: observation.sourceUrl ?? null,
+        note: observation.note ?? null,
+        observedAt: observationTimestamp(observation.observedAt)
+      }))
+    });
+  }
+
+  return catalogIdentifier;
+}
+
+export async function applyCrawlerHarvest(input: CrawlerHarvestInput) {
+  const normalizedIdentifier = normalizeIdentifier(input.identifier);
+  const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
+  const existing = await db.catalogIdentifier.findUnique({
+    where: { normalizedIdentifier }
+  });
+  const shouldPromoteCanonical = input.confidenceScore >= CRAWLER_CANONICAL_THRESHOLD;
+
+  const catalogIdentifier = existing
+    ? await db.catalogIdentifier.update({
+        where: { id: existing.id },
+        data: shouldPromoteCanonical
+          ? ({
+              ...(selectCanonicalUpdate(
+              {
+                trustStatus: mapTrustStatus(existing.trustStatus),
+                canonicalTitle: existing.canonicalTitle,
+                brand: existing.brand,
+                category: existing.category,
+                canonicalImageUrlsJson: existing.canonicalImageUrlsJson
+              },
+              {
+                title: input.title ?? null,
+                brand: input.brand ?? null,
+                category: input.category ?? null,
+                imageUrls: dedupeUrls(input.imageUrls ?? []),
+                trustStatus: "CRAWLER_DERIVED",
+                confidenceScore: input.confidenceScore
+              }
+              ) ?? {
+                lastRefreshedAt: new Date(),
+                lastLookupAt: new Date()
+              }),
+              sourceReferencesJson: (input.sourceReferences?.length
+                ? input.sourceReferences
+                : mapSourceReferences(existing.sourceReferencesJson)) as Prisma.InputJsonValue,
+              identifierType: existing.identifierType === "UNKNOWN" ? identifierType : undefined
+            })
+          : {
+              lastRefreshedAt: new Date(),
+              lastLookupAt: new Date()
+            }
+      })
+    : await db.catalogIdentifier.create({
+        data: {
+          normalizedIdentifier,
+          identifierType,
+          canonicalTitle: shouldPromoteCanonical ? input.title ?? null : null,
+          brand: shouldPromoteCanonical ? input.brand ?? null : null,
+          category: shouldPromoteCanonical ? input.category ?? null : null,
+          canonicalImageUrlsJson: (shouldPromoteCanonical ? dedupeUrls(input.imageUrls ?? []) : []) as Prisma.InputJsonValue,
+          sourceReferencesJson: (shouldPromoteCanonical ? input.sourceReferences ?? [] : []) as Prisma.InputJsonValue,
+          trustStatus: shouldPromoteCanonical ? "CRAWLER_DERIVED" : "LOOKUP_DISCOVERED",
+          confidenceScore: shouldPromoteCanonical ? input.confidenceScore : LOOKUP_DISCOVERED_CONFIDENCE,
+          lastRefreshedAt: new Date(),
+          lastLookupAt: new Date()
+        }
+      });
+
+  if ((input.observations?.length ?? 0) > 0) {
+    await db.catalogObservation.createMany({
+      data: (input.observations ?? []).map((observation) => ({
+        catalogIdentifierId: catalogIdentifier.id,
+        market: observation.market,
+        label: observation.label,
+        price: observation.price ?? null,
+        sourceUrl: observation.sourceUrl ?? null,
+        note: observation.note ?? null,
+        observedAt: observationTimestamp(observation.observedAt),
+        provenance: "CRAWLER_DERIVED",
+        confidenceScore: input.confidenceScore
+      }))
+    });
+  }
+
+  return catalogIdentifier;
+}
+
+export function buildCatalogSourceReferences(input: {
+  primarySourceMarket: CatalogImportSource;
+  primarySourceUrl?: string | null;
+  referenceUrls?: string[];
+}) {
+  const fallbackUrls = dedupeUrls(input.referenceUrls ?? []);
+
+  if (!input.primarySourceUrl?.trim()) {
+    if (fallbackUrls.length === 0) {
+      return [];
     }
 
-    return createResult({
-      mode: "AMAZON_PAAPI5",
-      status: "READY",
-      query,
-      item: serializeAmazonItem(selectedItem),
-      hint: createHint({
-        title: "Amazon details imported",
-        explanation: "Mollie pulled title, price, and image data from Amazon for this barcode or ASIN.",
-        severity: "SUCCESS",
-        nextActions: ["Review the imported details before creating the item."],
-        canContinue: true
-      })
-    });
-  } catch (error) {
-    return createResult({
-      mode: "AMAZON_PAAPI5",
-      status: "ERROR",
-      query,
-      hint: createHint({
-        title: "Amazon lookup failed",
-        explanation: error instanceof Error ? error.message : "Amazon lookup failed unexpectedly.",
-        severity: "ERROR",
-        nextActions: [
-          "Retry the lookup in a moment.",
-          "If the error persists, continue with manual Amazon fields instead of blocking the import."
-        ],
-        canContinue: true
-      })
-    });
+    return buildSourceReferences(
+      {
+        market: "OTHER",
+        label: "Reference",
+        url: fallbackUrls[0] ?? ""
+      },
+      fallbackUrls.slice(1)
+    );
   }
+
+  return buildSourceReferences(
+    {
+      market: input.primarySourceMarket,
+      label: `${input.primarySourceMarket} reference`,
+      url: input.primarySourceUrl
+    },
+    fallbackUrls
+  );
 }

@@ -91,6 +91,12 @@ before(async () => {
 });
 
 after(async () => {
+  await db.catalogIdentifier.deleteMany({
+    where: {
+      normalizedIdentifier: "012345678905"
+    }
+  });
+
   for (const email of createdEmails) {
     await db.user.deleteMany({
       where: { email }
@@ -114,14 +120,17 @@ test("barcode import creates an inventory item with market observations and impo
     url: "/api/inventory/import/barcode",
     headers: session.headers,
     payload: {
-      barcode: "012345678905",
-      sourceMarket: "AMAZON",
+      identifier: "012345678905",
       title: "Nintendo Wii Remote",
       brand: "Nintendo",
       category: "Video Games",
       condition: "Good used condition",
       costBasis: 14,
-      amazonUrl: "https://www.amazon.com/dp/B000IMWK2G",
+      primarySourceMarket: "AMAZON",
+      primarySourceUrl: "https://www.amazon.com/dp/B000IMWK2G",
+      referenceUrls: [
+        "https://www.ebay.com/sch/i.html?_nkw=012345678905"
+      ],
       imageUrls: [
         "https://m.media-amazon.com/images/I/example-one.jpg",
         "https://m.media-amazon.com/images/I/example-two.jpg",
@@ -170,18 +179,40 @@ test("barcode import creates an inventory item with market observations and impo
 
   assert.ok(persistedItem);
   const attributes = persistedItem?.attributesJson as {
-    barcode: string;
-    sourceMarket: string;
-    amazonAsin: string | null;
+    identifier: string;
+    identifierType: string;
+    primarySourceMarket: string;
+    catalogIdentifierId: string;
     marketObservations: Array<{ market: string; price: number; observedAt: string }>;
   };
-  assert.equal(attributes.barcode, "012345678905");
-  assert.equal(attributes.sourceMarket, "AMAZON");
-  assert.equal(attributes.amazonAsin, "B000IMWK2G");
+  assert.equal(attributes.identifier, "012345678905");
+  assert.equal(attributes.identifierType, "UPC");
+  assert.equal(attributes.primarySourceMarket, "AMAZON");
+  assert.ok(attributes.catalogIdentifierId);
   assert.equal(attributes.marketObservations.length, 1);
   assert.equal(attributes.marketObservations[0]?.market, "AMAZON");
   assert.equal(attributes.marketObservations[0]?.price, 39.99);
   assert.ok(Date.parse(attributes.marketObservations[0]?.observedAt ?? "") > 0);
+
+  const catalogIdentifier = await db.catalogIdentifier.findUnique({
+    where: {
+      id: attributes.catalogIdentifierId
+    },
+    include: {
+      observations: true,
+      workspaceOverrides: {
+        where: {
+          workspaceId: session.workspaceId
+        }
+      }
+    }
+  });
+
+  assert.ok(catalogIdentifier);
+  assert.equal(catalogIdentifier?.canonicalTitle, "Nintendo Wii Remote");
+  assert.equal(catalogIdentifier?.trustStatus, "OPERATOR_CONFIRMED");
+  assert.equal(catalogIdentifier?.observations.length, 1);
+  assert.equal(catalogIdentifier?.workspaceOverrides.length, 1);
 
   const auditLog = await db.auditLog.findFirst({
     where: {

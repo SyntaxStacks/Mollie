@@ -18,6 +18,8 @@
     "docker:smoke-build": "powershell -ExecutionPolicy Bypass -File infra/scripts/smoke-build-images.ps1",
     "docker:smoke-start": "powershell -ExecutionPolicy Bypass -File infra/scripts/smoke-start-containers.ps1",
     "deploy:validate": "powershell -ExecutionPolicy Bypass -File infra/scripts/validate-cloudrun-config.ps1",
+    "catalog:seed": "pnpm --filter @reselleros/catalog-tools seed:upc-corpus",
+    "catalog:crawl": "pnpm --filter @reselleros/catalog-tools crawl",
     "typecheck": "turbo run typecheck",
     "db:generate": "pnpm --filter @reselleros/db db:generate",
     "db:migrate": "pnpm --filter @reselleros/db db:migrate",

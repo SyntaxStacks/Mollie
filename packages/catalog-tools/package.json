@@ -1,0 +1,17 @@
+{
+  "name": "@reselleros/catalog-tools",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed:upc-corpus": "tsx src/seed-upc-corpus.ts",
+    "crawl": "tsx src/crawl-identifiers.ts"
+  },
+  "dependencies": {
+    "@playwright/test": "1.58.2",
+    "@reselleros/catalog": "workspace:*",
+    "@reselleros/db": "workspace:*"
+  }
+}

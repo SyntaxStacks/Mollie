@@ -88,6 +88,20 @@ enum WorkspaceRole {
   MEMBER
 }
 
+enum CatalogIdentifierType {
+  UPC
+  EAN
+  ISBN
+  UNKNOWN
+}
+
+enum CatalogTrustStatus {
+  LOOKUP_DISCOVERED
+  SEED_TENTATIVE
+  CRAWLER_DERIVED
+  OPERATOR_CONFIRMED
+}
+
 model User {
   id               String                @id @default(cuid())
   email            String                @unique
@@ -143,6 +157,8 @@ model Workspace {
   marketplaceAccounts MarketplaceAccount[]
   sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
+  catalogWorkspaceObservations WorkspaceCatalogObservation[]
+  catalogWorkspaceOverrides WorkspaceCatalogOverride[]
   executionLogs      ExecutionLog[]
   auditLogs          AuditLog[]
 }
@@ -242,6 +258,83 @@ model InventoryItem {
   @@index([workspaceId, status])
   @@index([sourceLotId])
   @@unique([workspaceId, sku])
+}
+
+model CatalogIdentifier {
+  id                   String                @id @default(cuid())
+  normalizedIdentifier String                @unique
+  identifierType       CatalogIdentifierType
+  canonicalTitle       String?
+  brand                String?
+  category             String?
+  canonicalImageUrlsJson Json?
+  sourceReferencesJson Json?
+  trustStatus          CatalogTrustStatus    @default(LOOKUP_DISCOVERED)
+  confidenceScore      Float                 @default(0)
+  lastConfirmedAt      DateTime?
+  lastRefreshedAt      DateTime?
+  lastLookupAt         DateTime?
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  observations         CatalogObservation[]
+  workspaceObservations WorkspaceCatalogObservation[]
+  workspaceOverrides   WorkspaceCatalogOverride[]
+
+  @@index([identifierType, updatedAt])
+}
+
+model CatalogObservation {
+  id                  String             @id @default(cuid())
+  catalogIdentifierId String
+  market              String
+  label               String
+  price               Float?
+  sourceUrl           String?
+  note                String?
+  observedAt          DateTime
+  imageUrlsJson       Json?
+  provenance          CatalogTrustStatus @default(CRAWLER_DERIVED)
+  confidenceScore     Float?
+  createdAt           DateTime           @default(now())
+  catalogIdentifier   CatalogIdentifier  @relation(fields: [catalogIdentifierId], references: [id], onDelete: Cascade)
+
+  @@index([catalogIdentifierId, observedAt])
+}
+
+model WorkspaceCatalogObservation {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  catalogIdentifierId String
+  market              String
+  label               String
+  price               Float?
+  sourceUrl           String?
+  note                String?
+  observedAt          DateTime
+  createdAt           DateTime          @default(now())
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  catalogIdentifier   CatalogIdentifier @relation(fields: [catalogIdentifierId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, observedAt])
+  @@index([catalogIdentifierId, observedAt])
+}
+
+model WorkspaceCatalogOverride {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  catalogIdentifierId String
+  title               String?
+  brand               String?
+  category            String?
+  imageUrlsJson       Json?
+  lastConfirmedAt     DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  catalogIdentifier   CatalogIdentifier @relation(fields: [catalogIdentifierId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, catalogIdentifierId])
+  @@index([workspaceId, updatedAt])
 }
 
 model ImageAsset {

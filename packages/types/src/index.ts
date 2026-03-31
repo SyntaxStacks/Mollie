@@ -264,14 +264,25 @@ export const imageInputSchema = z.object({
   position: z.number().int().nonnegative().default(0)
 });
 
-export const catalogImportSources = ["AMAZON"] as const;
+export const catalogImportSources = ["GOOGLE", "AMAZON", "EBAY", "OTHER"] as const;
 export type CatalogImportSource = (typeof catalogImportSources)[number];
 
-export const catalogLookupModes = ["MANUAL", "FIXTURE", "AMAZON_PAAPI5"] as const;
+export const catalogIdentifierTypes = ["UPC", "EAN", "ISBN", "UNKNOWN"] as const;
+export type CatalogIdentifierType = (typeof catalogIdentifierTypes)[number];
+
+export const catalogLookupModes = ["INTERNAL", "FIXTURE"] as const;
 export type CatalogLookupMode = (typeof catalogLookupModes)[number];
 
-export const catalogLookupStatuses = ["READY", "NOT_CONFIGURED", "NOT_FOUND", "ERROR"] as const;
-export type CatalogLookupStatus = (typeof catalogLookupStatuses)[number];
+export const catalogCacheStatuses = ["HIT", "MISS", "STALE"] as const;
+export type CatalogCacheStatus = (typeof catalogCacheStatuses)[number];
+
+export const catalogTrustStatuses = [
+  "LOOKUP_DISCOVERED",
+  "SEED_TENTATIVE",
+  "CRAWLER_DERIVED",
+  "OPERATOR_CONFIRMED"
+] as const;
+export type CatalogTrustStatus = (typeof catalogTrustStatuses)[number];
 
 export const marketObservationSchema = z.object({
   market: z.string().trim().min(2).max(40),
@@ -281,19 +292,26 @@ export const marketObservationSchema = z.object({
   note: z.string().trim().max(240).optional().nullable()
 });
 
+export const catalogResearchLinkSchema = z.object({
+  market: z.enum(catalogImportSources),
+  label: z.string().trim().min(2).max(80),
+  url: z.string().url()
+});
+
 export const catalogLookupRequestSchema = z
   .object({
-    provider: z.enum(catalogImportSources),
+    identifier: z.string().trim().min(8).max(64).optional(),
     barcode: z.string().trim().min(8).max(64).optional(),
-    amazonAsin: z.string().trim().max(32).optional()
+    identifierType: z.enum(catalogIdentifierTypes).optional().nullable()
   })
-  .refine((input) => Boolean(input.barcode?.trim() || input.amazonAsin?.trim()), {
-    message: "Provide a barcode or Amazon ASIN"
+  .refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
+    message: "Provide a UPC, EAN, or ISBN"
   });
 
 export const inventoryBarcodeImportSchema = z.object({
-  barcode: z.string().trim().min(8).max(64),
-  sourceMarket: z.enum(catalogImportSources),
+  identifier: z.string().trim().min(8).max(64).optional(),
+  barcode: z.string().trim().min(8).max(64).optional(),
+  identifierType: z.enum(catalogIdentifierTypes).optional().nullable(),
   title: z.string().trim().min(2).max(180),
   brand: z.string().trim().max(120).optional().nullable(),
   category: z.string().trim().min(2).max(120),
@@ -305,31 +323,56 @@ export const inventoryBarcodeImportSchema = z.object({
   estimatedResaleMin: z.number().nonnegative().optional().nullable(),
   estimatedResaleMax: z.number().nonnegative().optional().nullable(),
   priceRecommendation: z.number().nonnegative().optional().nullable(),
-  amazonUrl: z.string().url().optional().nullable(),
-  amazonAsin: z.string().trim().max(32).optional().nullable(),
+  primarySourceMarket: z.enum(catalogImportSources).default("AMAZON"),
+  primarySourceUrl: z.string().url().optional().nullable(),
+  referenceUrls: z.array(z.string().url()).max(8).default([]),
   imageUrls: z.array(z.string().url()).max(12).default([]),
   observations: z.array(marketObservationSchema).min(1).max(8)
+}).refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
+  message: "Provide a UPC, EAN, or ISBN",
+  path: ["identifier"]
 });
 
-export type CatalogLookupItem = {
-  title: string;
-  brand?: string | null;
-  category?: string | null;
-  amazonUrl?: string | null;
-  amazonAsin?: string | null;
+export type CatalogLookupRecord = {
+  id: string;
+  normalizedIdentifier: string;
+  identifierType: CatalogIdentifierType;
+  canonicalTitle: string | null;
+  brand: string | null;
+  category: string | null;
   imageUrls: string[];
-  observations: Array<z.infer<typeof marketObservationSchema>>;
+  sourceReferences: Array<z.infer<typeof catalogResearchLinkSchema>>;
+  trustStatus: CatalogTrustStatus;
+  confidenceScore: number;
+  lastConfirmedAt: string | null;
+  lastRefreshedAt: string | null;
+  observations: Array<{
+    market: string;
+    label: string;
+    price: number | null;
+    sourceUrl?: string | null;
+    note?: string | null;
+    observedAt: string | null;
+    provenance: CatalogTrustStatus;
+    confidenceScore: number | null;
+  }>;
 };
 
 export type CatalogLookupResult = {
-  provider: CatalogImportSource;
   mode: CatalogLookupMode;
-  status: CatalogLookupStatus;
-  query: {
-    barcode?: string | null;
-    amazonAsin?: string | null;
-  };
-  item: CatalogLookupItem | null;
+  normalizedIdentifier: string;
+  identifierType: CatalogIdentifierType;
+  cacheStatus: CatalogCacheStatus;
+  record: CatalogLookupRecord | null;
+  workspaceObservations: Array<{
+    market: string;
+    label: string;
+    price: number | null;
+    sourceUrl?: string | null;
+    note?: string | null;
+    observedAt: string | null;
+  }>;
+  researchLinks: Array<z.infer<typeof catalogResearchLinkSchema>>;
   hint?: OperatorHint | null;
 };
 

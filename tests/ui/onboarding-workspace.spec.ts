@@ -106,8 +106,8 @@ test("desktop inventory detail exposes a continue-on-mobile handoff with the can
   await expect(page.getByTestId("continue-on-mobile-copy")).toBeVisible();
 });
 
-test("operators can create inventory from a barcode import with Amazon pricing and image URLs", async ({ page }) => {
-  const title = `Amazon Scan Item ${Date.now()}`;
+test("operators can research an identifier and create inventory with reference images", async ({ page }) => {
+  const title = `Identifier Scan Item ${Date.now()}`;
 
   await onboardOperator(page, {
     workspaceName: "UI Barcode Workspace"
@@ -115,12 +115,18 @@ test("operators can create inventory from a barcode import with Amazon pricing a
 
   await page.goto("/inventory");
   await page.getByTestId("barcode-import-barcode").fill("012345678905");
+  await page.getByTestId("barcode-import-lookup").click();
+  await expect(page.getByRole("link", { name: /search google for/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /search amazon for/i })).toBeVisible();
+  await expect(page.getByRole("link", { name: /search ebay for/i })).toBeVisible();
   await page.getByTestId("barcode-import-title").fill(title);
-  await page.getByLabel(/^brand$/i).nth(1).fill("Nintendo");
-  await page.getByLabel(/^category$/i).nth(1).fill("Video Games");
-  await page.getByLabel(/^condition$/i).nth(1).fill("Good used condition");
+  await page.getByTestId("barcode-import-brand").fill("Nintendo");
+  await page.getByTestId("barcode-import-category").fill("Video Games");
+  await page.getByTestId("barcode-import-condition").fill("Good used condition");
   await page.getByTestId("barcode-import-amazon-price").fill("39.99");
-  await page.getByLabel(/amazon product url/i).fill("https://www.amazon.com/dp/B000IMWK2G");
+  await page.getByLabel(/^amazon url$/i).fill("https://www.amazon.com/dp/B000IMWK2G");
+  await page.getByTestId("barcode-import-ebay-price").fill("34.99");
+  await page.getByLabel(/^ebay url$/i).fill("https://www.ebay.com/itm/1234567890");
   await page.getByTestId("barcode-import-image-urls").fill(
     "https://m.media-amazon.com/images/I/example-one.jpg\nhttps://m.media-amazon.com/images/I/example-two.jpg"
   );

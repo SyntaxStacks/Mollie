@@ -257,9 +257,24 @@ importers:
 
   packages/catalog:
     dependencies:
+      '@reselleros/db':
+        specifier: workspace:*
+        version: link:../db
       '@reselleros/types':
         specifier: workspace:*
         version: link:../types
+
+  packages/catalog-tools:
+    dependencies:
+      '@playwright/test':
+        specifier: 1.58.2
+        version: 1.58.2
+      '@reselleros/catalog':
+        specifier: workspace:*
+        version: link:../catalog
+      '@reselleros/db':
+        specifier: workspace:*
+        version: link:../db
 
   packages/config:
     dependencies:

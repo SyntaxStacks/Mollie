@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 
+import { upsertSeedCatalogRecord } from "@reselleros/catalog";
+
 process.env.NODE_ENV = "test";
 process.env.RESELLEROS_DISABLE_API_BOOTSTRAP = "1";
 process.env.DATABASE_URL ??= "postgresql://postgres:postgres@localhost:5432/reselleros";
@@ -19,6 +21,7 @@ type DbModule = typeof import("@reselleros/db");
 let app: Awaited<ReturnType<AppModule["buildApiApp"]>>;
 let db: DbModule["db"];
 const createdEmails = new Set<string>();
+const touchedIdentifiers = new Set<string>();
 
 function buildHeaders(token: string, workspaceId?: string) {
   const headers: Record<string, string> = {
@@ -90,7 +93,13 @@ before(async () => {
 });
 
 after(async () => {
-  delete process.env.AMAZON_CATALOG_LOOKUP_MODE;
+  delete process.env.CATALOG_LOOKUP_MODE;
+
+  for (const normalizedIdentifier of touchedIdentifiers) {
+    await db.catalogIdentifier.deleteMany({
+      where: { normalizedIdentifier }
+    });
+  }
 
   for (const email of createdEmails) {
     await db.user.deleteMany({
@@ -107,36 +116,85 @@ after(async () => {
   }
 });
 
-test("catalog lookup explains when Amazon lookup is not configured", async () => {
-  delete process.env.AMAZON_CATALOG_LOOKUP_MODE;
-  const session = await createWorkspaceSession("catalog-lookup-manual");
+test("catalog lookup explains when Mollie has no saved identifier record yet", async () => {
+  touchedIdentifiers.add("012345678905");
+  await db.catalogIdentifier.deleteMany({
+    where: { normalizedIdentifier: "012345678905" }
+  });
+  const session = await createWorkspaceSession("catalog-lookup-miss");
 
   const response = await app.inject({
     method: "POST",
     url: "/api/catalog/lookup",
     headers: session.headers,
     payload: {
-      provider: "AMAZON",
-      barcode: "012345678905"
+      identifier: "012345678905"
     }
   });
 
   assert.equal(response.statusCode, 200);
   const result = response.json<{
     result: {
-      status: string;
-      mode: string;
+      normalizedIdentifier: string;
+      identifierType: string;
+      cacheStatus: string;
+      record: null;
+      researchLinks: Array<{ market: string; url: string }>;
       hint: { title: string; nextActions: string[] };
     };
   }>().result;
-  assert.equal(result.status, "NOT_CONFIGURED");
-  assert.equal(result.mode, "MANUAL");
-  assert.match(result.hint.title, /not configured/i);
+  assert.equal(result.normalizedIdentifier, "012345678905");
+  assert.equal(result.identifierType, "UPC");
+  assert.equal(result.cacheStatus, "MISS");
+  assert.equal(result.record, null);
+  assert.deepEqual(
+    result.researchLinks.map((link) => link.market),
+    ["GOOGLE", "AMAZON", "EBAY"]
+  );
+  assert.match(result.hint.title, /no saved catalog match/i);
   assert.ok(result.hint.nextActions.length > 0);
 });
 
-test("catalog lookup can return a fixture-backed Amazon item for autofill", async () => {
-  process.env.AMAZON_CATALOG_LOOKUP_MODE = "fixture";
+test("catalog lookup can return a seeded identifier record from Mollie's internal catalog", async () => {
+  const normalizedIdentifier = "4006381333931";
+  touchedIdentifiers.add(normalizedIdentifier);
+  await upsertSeedCatalogRecord({
+    identifier: normalizedIdentifier,
+    title: "Seeded EAN Product"
+  });
+  const session = await createWorkspaceSession("catalog-lookup-hit");
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/catalog/lookup",
+    headers: session.headers,
+    payload: {
+      identifier: normalizedIdentifier
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+  const result = response.json<{
+    result: {
+      cacheStatus: string;
+      normalizedIdentifier: string;
+      identifierType: string;
+      record: {
+        canonicalTitle: string | null;
+        trustStatus: string;
+      } | null;
+    };
+  }>().result;
+  assert.equal(result.cacheStatus, "HIT");
+  assert.equal(result.normalizedIdentifier, normalizedIdentifier);
+  assert.equal(result.identifierType, "EAN");
+  assert.equal(result.record?.canonicalTitle, "Seeded EAN Product");
+  assert.equal(result.record?.trustStatus, "SEED_TENTATIVE");
+});
+
+test("catalog lookup can return a fixture-backed record for UI and contract tests", async () => {
+  process.env.CATALOG_LOOKUP_MODE = "fixture";
+  touchedIdentifiers.add("9780316769488");
   const session = await createWorkspaceSession("catalog-lookup-fixture");
 
   const response = await app.inject({
@@ -144,27 +202,25 @@ test("catalog lookup can return a fixture-backed Amazon item for autofill", asyn
     url: "/api/catalog/lookup",
     headers: session.headers,
     payload: {
-      provider: "AMAZON",
-      barcode: "012345678905"
+      identifier: "9780316769488"
     }
   });
 
   assert.equal(response.statusCode, 200);
   const result = response.json<{
     result: {
-      status: string;
       mode: string;
-      item: {
-        title: string;
+      cacheStatus: string;
+      identifierType: string;
+      record: {
+        canonicalTitle: string | null;
         imageUrls: string[];
-        observations: Array<{ market: string; price: number }>;
-      };
+      } | null;
     };
   }>().result;
-  assert.equal(result.status, "READY");
   assert.equal(result.mode, "FIXTURE");
-  assert.match(result.item.title, /amazon fixture item/i);
-  assert.equal(result.item.imageUrls.length, 2);
-  assert.equal(result.item.observations[0]?.market, "AMAZON");
-  assert.equal(result.item.observations[0]?.price, 39.99);
+  assert.equal(result.cacheStatus, "HIT");
+  assert.equal(result.identifierType, "ISBN");
+  assert.match(result.record?.canonicalTitle ?? "", /fixture catalog item/i);
+  assert.equal(result.record?.imageUrls.length, 2);
 });

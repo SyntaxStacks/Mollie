@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { applyOperatorResearch, buildCatalogSourceReferences, classifyIdentifier, normalizeIdentifier } from "@reselleros/catalog";
 import {
   addInventoryImage,
   addInventoryImageForWorkspace,
@@ -53,23 +54,6 @@ function resolveApiPublicBaseUrl(request: {
   }
 
   return `${protocol}://${host}`;
-}
-
-function inferAmazonAsin(input: { amazonUrl?: string | null; amazonAsin?: string | null }) {
-  const direct = input.amazonAsin?.trim() ?? "";
-
-  if (direct) {
-    return direct.toUpperCase();
-  }
-
-  const urlValue = input.amazonUrl?.trim() ?? "";
-
-  if (!urlValue) {
-    return null;
-  }
-
-  const match = urlValue.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})(?:[/?]|$)/i);
-  return match?.[1]?.toUpperCase() ?? null;
 }
 
 async function queuePublish(
@@ -200,8 +184,34 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const body = inventoryBarcodeImportSchema.parse(request.body);
+    const identifier = (body.identifier?.trim() || body.barcode?.trim() || "").trim();
+    const normalizedIdentifier = normalizeIdentifier(identifier);
+    const identifierType = body.identifierType ?? classifyIdentifier(normalizedIdentifier);
     const uniqueImageUrls = [...new Set(body.imageUrls.map((url) => url.trim()).filter(Boolean))];
     const observedPrices = body.observations.map((observation) => observation.price);
+    const primaryObservation = body.observations[0] ?? null;
+
+    const sourceReferences = buildCatalogSourceReferences({
+      primarySourceMarket: body.primarySourceMarket,
+      primarySourceUrl: body.primarySourceUrl ?? primaryObservation?.sourceUrl ?? null,
+      referenceUrls: body.referenceUrls
+    });
+
+    const catalogRecord = await applyOperatorResearch({
+      workspaceId: workspace.id,
+      identifier: normalizedIdentifier,
+      identifierType,
+      title: body.title,
+      brand: body.brand ?? null,
+      category: body.category,
+      imageUrls: uniqueImageUrls,
+      sourceReferences,
+      observations: body.observations.map((observation) => ({
+        ...observation,
+        observedAt: new Date()
+      }))
+    });
+
     const item = await createInventoryItem(workspace.id, {
       title: body.title,
       brand: body.brand ?? null,
@@ -215,11 +225,13 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       estimatedResaleMax: body.estimatedResaleMax ?? (observedPrices.length ? Math.max(...observedPrices) : null),
       priceRecommendation: body.priceRecommendation ?? body.observations[0]?.price ?? null,
       attributes: {
-        importSource: "BARCODE_SCAN",
-        sourceMarket: body.sourceMarket,
-        barcode: body.barcode,
-        amazonUrl: body.amazonUrl ?? null,
-        amazonAsin: inferAmazonAsin(body),
+        importSource: "IDENTIFIER_RESEARCH",
+        identifier: normalizedIdentifier,
+        identifierType,
+        primarySourceMarket: body.primarySourceMarket,
+        primarySourceUrl: body.primarySourceUrl ?? primaryObservation?.sourceUrl ?? null,
+        referenceUrls: body.referenceUrls,
+        catalogIdentifierId: catalogRecord.id,
         marketObservations: body.observations.map((observation) => ({
           ...observation,
           observedAt: new Date().toISOString()
@@ -244,9 +256,10 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       targetType: "inventory_item",
       targetId: item.id,
       metadata: {
-        barcode: body.barcode,
-        sourceMarket: body.sourceMarket,
-        amazonAsin: inferAmazonAsin(body),
+        identifier: normalizedIdentifier,
+        identifierType,
+        primarySourceMarket: body.primarySourceMarket,
+        catalogIdentifierId: catalogRecord.id,
         imageCount: uniqueImageUrls.length,
         observationCount: body.observations.length
       }

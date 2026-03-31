@@ -1,4 +1,4 @@
-import { lookupAmazonCatalog } from "@reselleros/catalog";
+import { lookupCatalogIdentifier } from "@reselleros/catalog";
 import { catalogLookupRequestSchema } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
@@ -6,18 +6,21 @@ import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
   app.post("/api/catalog/lookup", async (request) => {
     const auth = await context.requireAuth(request);
-    await context.requireWorkspace(auth);
+    const workspace = await context.requireWorkspace(auth);
     const body = catalogLookupRequestSchema.parse(request.body);
 
-    if (body.provider === "AMAZON") {
-      const result = await lookupAmazonCatalog({
-        barcode: body.barcode ?? null,
-        amazonAsin: body.amazonAsin ?? null
-      });
+    const identifier = body.identifier?.trim() || body.barcode?.trim();
 
-      return { result };
+    if (!identifier) {
+      throw app.httpErrors.badRequest("Provide a UPC, EAN, or ISBN");
     }
 
-    throw app.httpErrors.badRequest("Unsupported catalog provider");
+    const result = await lookupCatalogIdentifier({
+      workspaceId: workspace.id,
+      identifier,
+      identifierType: body.identifierType ?? null
+    });
+
+    return { result };
   });
 }
