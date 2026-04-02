@@ -1,4 +1,10 @@
-import { ConnectorError, type MarketplaceAdapter, type PublishListingInput } from "@reselleros/marketplaces";
+import {
+  ConnectorError,
+  createAutomationVendorConnectAdapter,
+  type AutomationVendorConnectAdapter,
+  type MarketplaceAdapter,
+  type PublishListingInput
+} from "@reselleros/marketplaces";
 
 function simulateDepopPublish(input: PublishListingInput) {
   if (!input.images.length) {
@@ -30,6 +36,15 @@ function simulateDepopPublish(input: PublishListingInput) {
   };
 }
 
+export const depopConnectAdapter: AutomationVendorConnectAdapter = createAutomationVendorConnectAdapter({
+  platform: "DEPOP",
+  platformLabel: "Depop",
+  loginUrl: "https://www.depop.com/login/",
+  challengeLabel: "Depop verification code",
+  challengeDetail: "Enter the 6-digit code Depop sent to finish secure sign-in.",
+  summaryLabel: "Depop shop"
+});
+
 export const depopAdapter: MarketplaceAdapter = {
   platform: "DEPOP",
   descriptor: {
@@ -42,13 +57,13 @@ export const depopAdapter: MarketplaceAdapter = {
     supportedCapabilities: [
       {
         capability: "CONNECT_ACCOUNT",
-        support: "MANUAL_ONLY",
-        detail: "Operators currently attach a session reference manually."
+        support: "SUPPORTED",
+        detail: "Operators connect Depop through a helper-assisted secure sign-in flow."
       },
       {
         capability: "VALIDATE_AUTH",
-        support: "MANUAL_ONLY",
-        detail: "Session validation is currently operator-managed and readiness-based."
+        support: "SUPPORTED",
+        detail: "Depop sessions are validated after helper-assisted sign-in before the account is marked ready."
       },
       {
         capability: "REFRESH_AUTH",

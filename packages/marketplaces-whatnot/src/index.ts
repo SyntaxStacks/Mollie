@@ -1,4 +1,10 @@
-import { ConnectorError, type MarketplaceAdapter, type PublishListingInput } from "@reselleros/marketplaces";
+import {
+  ConnectorError,
+  createAutomationVendorConnectAdapter,
+  type AutomationVendorConnectAdapter,
+  type MarketplaceAdapter,
+  type PublishListingInput
+} from "@reselleros/marketplaces";
 
 function simulateWhatnotPublish(input: PublishListingInput) {
   if (!input.images.length) {
@@ -27,6 +33,15 @@ function simulateWhatnotPublish(input: PublishListingInput) {
   };
 }
 
+export const whatnotConnectAdapter: AutomationVendorConnectAdapter = createAutomationVendorConnectAdapter({
+  platform: "WHATNOT",
+  platformLabel: "Whatnot",
+  loginUrl: "https://www.whatnot.com/login",
+  challengeLabel: "Whatnot verification code",
+  challengeDetail: "Enter the 6-digit code Whatnot requested to finish secure sign-in.",
+  summaryLabel: "Whatnot seller account"
+});
+
 export const whatnotAdapter: MarketplaceAdapter = {
   platform: "WHATNOT",
   descriptor: {
@@ -39,13 +54,13 @@ export const whatnotAdapter: MarketplaceAdapter = {
     supportedCapabilities: [
       {
         capability: "CONNECT_ACCOUNT",
-        support: "MANUAL_ONLY",
-        detail: "Operators currently attach a session reference manually."
+        support: "SUPPORTED",
+        detail: "Operators connect Whatnot through a helper-assisted secure sign-in flow."
       },
       {
         capability: "VALIDATE_AUTH",
-        support: "MANUAL_ONLY",
-        detail: "Account readiness is currently session-driven and connector-health-driven."
+        support: "SUPPORTED",
+        detail: "Whatnot sessions are validated after helper-assisted sign-in before the account is marked ready."
       },
       {
         capability: "REFRESH_AUTH",

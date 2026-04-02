@@ -88,6 +88,74 @@ async function createWorkspaceSession(label: string): Promise<WorkspaceSession> 
   };
 }
 
+async function connectAutomationMarketplace(
+  session: WorkspaceSession,
+  vendor: "DEPOP" | "POSHMARK" | "WHATNOT",
+  input?: {
+    displayName?: string;
+    accountHandle?: string;
+    challengeRequired?: boolean;
+    challengeCode?: string;
+  }
+) {
+  const startResponse = await app.inject({
+    method: "POST",
+    url: `/api/marketplace-accounts/${vendor}/connect/start`,
+    headers: session.headers,
+    payload: {
+      displayName: input?.displayName ?? `${vendor} account`
+    }
+  });
+
+  assert.equal(startResponse.statusCode, 200);
+  const startBody = startResponse.json() as {
+    attempt: {
+      id: string;
+      helperNonce: string;
+    };
+  };
+
+  const sessionResponse = await app.inject({
+    method: "POST",
+    url: `/api/marketplace-accounts/${vendor}/connect/${startBody.attempt.id}/session`,
+    headers: session.headers,
+    payload: {
+      helperNonce: startBody.attempt.helperNonce,
+      accountHandle: input?.accountHandle ?? `${vendor.toLowerCase()}-seller`,
+      sessionLabel: input?.displayName ?? `${vendor} account`,
+      captureMode: "WEB_POPUP_HELPER",
+      challengeRequired: input?.challengeRequired ?? false
+    }
+  });
+
+  assert.equal(sessionResponse.statusCode, 200);
+  const sessionBody = sessionResponse.json() as {
+    account?: { id: string } | null;
+    attempt: { id: string; state: string };
+  };
+
+  if (input?.challengeRequired) {
+    assert.equal(sessionBody.attempt.state, "AWAITING_2FA");
+    const challengeResponse = await app.inject({
+      method: "POST",
+      url: `/api/marketplace-accounts/${vendor}/connect/${startBody.attempt.id}/challenge`,
+      headers: session.headers,
+      payload: {
+        code: input.challengeCode ?? "123456",
+        method: "SMS"
+      }
+    });
+
+    assert.equal(challengeResponse.statusCode, 200);
+    return challengeResponse.json() as {
+      account?: { id: string } | null;
+      attempt: { id: string; state: string };
+    };
+  }
+
+  return sessionBody;
+}
+
 before(async () => {
   const [apiModule, dbModule] = await Promise.all([import("../../apps/api/src/index.js"), import("@reselleros/db")]);
   app = apiModule.buildApiApp();
@@ -117,32 +185,20 @@ test("automation marketplace accounts surface ready and error readiness states",
   const session = await createWorkspaceSession("automation-readiness");
 
   const [poshmarkResponse, whatnotResponse] = await Promise.all([
-    app.inject({
-      method: "POST",
-      url: "/api/marketplace-accounts/poshmark/session",
-      headers: session.headers,
-      payload: {
-        displayName: "Main Poshmark closet",
-        secretRef: "secret://poshmark/session"
-      }
+    connectAutomationMarketplace(session, "POSHMARK", {
+      displayName: "Main Poshmark closet",
+      accountHandle: "main-poshmark-closet"
     }),
-    app.inject({
-      method: "POST",
-      url: "/api/marketplace-accounts/whatnot/session",
-      headers: session.headers,
-      payload: {
-        displayName: "Main Whatnot account",
-        secretRef: "secret://whatnot/session"
-      }
+    connectAutomationMarketplace(session, "WHATNOT", {
+      displayName: "Main Whatnot account",
+      accountHandle: "main-whatnot-account"
     })
   ]);
 
-  assert.equal(poshmarkResponse.statusCode, 200);
-  assert.equal(whatnotResponse.statusCode, 200);
-
-  const whatnotAccountId = ((whatnotResponse.json() as { account: { id: string } }).account.id);
+  const whatnotAccountId = whatnotResponse.account?.id;
+  assert.ok(whatnotAccountId);
   await db.marketplaceAccount.update({
-    where: { id: whatnotAccountId },
+    where: { id: whatnotAccountId! },
     data: {
       status: "ERROR",
       lastErrorCode: "AUTOMATION_FAILED",
@@ -220,17 +276,10 @@ test("automation marketplace accounts surface ready and error readiness states",
 test("workspace connector automation disable blocks automation market readiness", async () => {
   const session = await createWorkspaceSession("automation-blocked");
 
-  const depopResponse = await app.inject({
-    method: "POST",
-    url: "/api/marketplace-accounts/depop/session",
-    headers: session.headers,
-    payload: {
-      displayName: "Main Depop shop",
-      secretRef: "secret://depop/session"
-    }
+  await connectAutomationMarketplace(session, "DEPOP", {
+    displayName: "Main Depop shop",
+    accountHandle: "main-depop-shop"
   });
-
-  assert.equal(depopResponse.statusCode, 200);
 
   const disableAutomationResponse = await app.inject({
     method: "PATCH",

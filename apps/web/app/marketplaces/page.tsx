@@ -1,18 +1,27 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useState, useTransition } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
-import type { OperatorHint } from "@reselleros/types";
+import type { AutomationVendor, OperatorHint, VendorConnectAttempt } from "@reselleros/types";
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
+import { AutomationVendorConnectModal } from "../../components/automation-vendor-connect-modal";
 import { OperatorHintCard } from "../../components/operator-hint-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
 import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+
+const automationVendorLabels: Record<AutomationVendor, string> = {
+  DEPOP: "Depop",
+  POSHMARK: "Poshmark",
+  WHATNOT: "Whatnot"
+};
+
+const finalAttemptStates = new Set(["CONNECTED", "FAILED", "EXPIRED"]);
 
 function renderConnectorDescriptor(account: {
   connectorDescriptor?: {
@@ -99,6 +108,7 @@ function MarketplacesPageContent() {
       credentialMetadata?: {
         publishMode?: string;
         username?: string;
+        accountHandle?: string;
         ebayLiveDefaults?: {
           merchantLocationKey?: string;
           paymentPolicyId?: string;
@@ -138,53 +148,143 @@ function MarketplacesPageContent() {
   }>("/api/marketplace-accounts", auth.token);
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [activeAutomationVendor, setActiveAutomationVendor] = useState<AutomationVendor | null>(null);
+  const [connectDisplayName, setConnectDisplayName] = useState("");
+  const [connectAttempt, setConnectAttempt] = useState<VendorConnectAttempt | null>(null);
+  const [challengeCode, setChallengeCode] = useState("");
+  const [connectModalOpen, setConnectModalOpen] = useState(false);
+  const [desktopSupported, setDesktopSupported] = useState(true);
+  const popupRef = useRef<Window | null>(null);
   const oauthStatus = searchParams.get("ebay_oauth");
   const oauthMessage = searchParams.get("message");
   const oauthCode = searchParams.get("code");
   const oauthAccountId = searchParams.get("accountId");
   const accounts = data?.accounts ?? [];
 
-  function renderAutomationAccounts(platform: "DEPOP" | "POSHMARK" | "WHATNOT") {
-    const platformAccounts = accounts.filter((account) => account.platform === platform);
+  const activeAutomationAccounts = useMemo(
+    () => ({
+      DEPOP: accounts.filter((account) => account.platform === "DEPOP"),
+      POSHMARK: accounts.filter((account) => account.platform === "POSHMARK"),
+      WHATNOT: accounts.filter((account) => account.platform === "WHATNOT")
+    }),
+    [accounts]
+  );
 
-    if (platformAccounts.length === 0) {
-      return null;
+  useEffect(() => {
+    if (typeof navigator === "undefined") {
+      return;
     }
 
-    return (
-      <div className="stack" style={{ marginTop: "1rem" }}>
-        {platformAccounts.map((account) => (
-          <div className="rs-card" key={account.id}>
-            <div className="split">
-              <div>
-                <strong>{account.displayName}</strong>
-                <div className="muted">{account.externalAccountId ?? account.secretRef}</div>
-              </div>
-              {account.readiness ? <StatusPill status={account.readiness.state} /> : <StatusPill status={account.status} />}
-            </div>
-            {account.readiness ? (
-              <div className="stack" style={{ marginTop: "0.75rem" }}>
-                <div className="muted">
-                  State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
-                </div>
-                <div>{account.readiness.summary}</div>
-                <div className="muted">{account.readiness.detail}</div>
-                {renderOperatorHint(account)}
-                {renderConnectorDescriptor(account)}
-                {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    );
-  }
+    setDesktopSupported(!/iphone|ipad|android|mobile/i.test(navigator.userAgent));
+  }, []);
 
   useEffect(() => {
     if (oauthStatus === "connected") {
       void refresh();
     }
   }, [oauthStatus, refresh]);
+
+  useEffect(() => {
+    if (!connectAttempt || finalAttemptStates.has(connectAttempt.state)) {
+      return;
+    }
+
+    const interval = window.setInterval(async () => {
+      if (!activeAutomationVendor) {
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}`,
+          {
+            headers: {
+              Authorization: `Bearer ${auth.token}`
+            },
+            cache: "no-store"
+          }
+        );
+        const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
+
+        if (!response.ok || !payload.attempt) {
+          throw new Error(payload.error ?? "Could not refresh vendor sign-in status.");
+        }
+
+        setConnectAttempt(payload.attempt);
+
+        if (payload.attempt.state === "CONNECTED") {
+          setSubmitError(null);
+          await refresh();
+        }
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not refresh vendor sign-in status.");
+      }
+    }, 1500);
+
+    return () => window.clearInterval(interval);
+  }, [activeAutomationVendor, auth.token, connectAttempt, refresh]);
+
+  useEffect(() => {
+    function handleMessage(event: MessageEvent) {
+      if (event.origin !== window.location.origin) {
+        return;
+      }
+
+      if (event.data?.type !== "reselleros-vendor-connect") {
+        return;
+      }
+
+      if (!connectAttempt || event.data.attemptId !== connectAttempt.id || !activeAutomationVendor) {
+        return;
+      }
+
+      void (async () => {
+        try {
+          const response = await fetch(
+            `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}`,
+            {
+              headers: {
+                Authorization: `Bearer ${auth.token}`
+              },
+              cache: "no-store"
+            }
+          );
+          const payload = (await response.json()) as { attempt?: VendorConnectAttempt };
+          if (response.ok && payload.attempt) {
+            setConnectAttempt(payload.attempt);
+            if (payload.attempt.state === "CONNECTED") {
+              await refresh();
+            }
+          }
+        } catch {
+          // polling already handles errors
+        }
+      })();
+    }
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [activeAutomationVendor, auth.token, connectAttempt, refresh]);
+
+  async function fetchAttempt(vendor: AutomationVendor, attemptId: string) {
+    const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/${attemptId}`, {
+      headers: {
+        Authorization: `Bearer ${auth.token}`
+      },
+      cache: "no-store"
+    });
+    const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
+
+    if (!response.ok || !payload.attempt) {
+      throw new Error(payload.error ?? "Could not load vendor sign-in attempt.");
+    }
+
+    setConnectAttempt(payload.attempt);
+
+    if (payload.attempt.state === "CONNECTED") {
+      await refresh();
+    }
+  }
 
   function launchEbayOAuth(displayName: string) {
     startTransition(async () => {
@@ -225,50 +325,175 @@ function MarketplacesPageContent() {
     launchEbayOAuth(displayName);
   }
 
-  function connect(platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT") {
-    return async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const form = event.currentTarget;
-      const formData = new FormData(form);
+  function connectSimulatedEbay(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
-      startTransition(async () => {
-        try {
-          const route =
-            platform === "EBAY"
-              ? "ebay/connect"
-              : platform === "DEPOP"
-                ? "depop/session"
-                : platform === "POSHMARK"
-                  ? "poshmark/session"
-                  : "whatnot/session";
-          const response = await fetch(
-            `${API_BASE_URL}/api/marketplace-accounts/${route}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${auth.token}`
-              },
-              body: JSON.stringify({
-                displayName: formData.get(`${platform.toLowerCase()}DisplayName`),
-                secretRef: formData.get(`${platform.toLowerCase()}SecretRef`)
-              })
-            }
-          );
-          const payload = (await response.json()) as { error?: string };
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/ebay/connect`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            displayName: formData.get("ebayDisplayName"),
+            secretRef: formData.get("ebaySecretRef")
+          })
+        });
+        const payload = (await response.json()) as { error?: string };
 
-          if (!response.ok) {
-            throw new Error(payload.error ?? "Could not connect account");
-          }
-
-          setSubmitError(null);
-          await refresh();
-          form.reset();
-        } catch (caughtError) {
-          setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not connect account");
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not connect simulated eBay account");
         }
-      });
-    };
+
+        setSubmitError(null);
+        form.reset();
+        await refresh();
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not connect simulated eBay account");
+      }
+    });
+  }
+
+  function openAutomationConnect(vendor: AutomationVendor, displayName?: string) {
+    setActiveAutomationVendor(vendor);
+    setConnectDisplayName(displayName ?? `Main ${automationVendorLabels[vendor]} account`);
+    setConnectAttempt(null);
+    setChallengeCode("");
+    setSubmitError(null);
+    setConnectModalOpen(true);
+  }
+
+  function startAutomationConnect() {
+    if (!activeAutomationVendor) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            displayName: connectDisplayName
+          })
+        });
+        const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
+
+        if (!response.ok || !payload.attempt) {
+          throw new Error(payload.error ?? "Could not start vendor sign-in.");
+        }
+
+        setConnectAttempt(payload.attempt);
+        setSubmitError(null);
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not start vendor sign-in.");
+      }
+    });
+  }
+
+  function openHelperPopup() {
+    if (!connectAttempt?.helperLaunchUrl) {
+      return;
+    }
+
+    popupRef.current = window.open(
+      connectAttempt.helperLaunchUrl,
+      "mollie-vendor-connect",
+      "popup=yes,width=720,height=860,noopener=no,noreferrer=no"
+    );
+  }
+
+  function submitAutomationChallenge(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!activeAutomationVendor || !connectAttempt) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(
+          `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}/challenge`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+              code: challengeCode,
+              method: "SMS"
+            })
+          }
+        );
+        const payload = (await response.json()) as {
+          error?: string;
+          attempt?: VendorConnectAttempt;
+        };
+
+        if (!response.ok || !payload.attempt) {
+          throw new Error(payload.error ?? "Could not verify vendor code.");
+        }
+
+        setConnectAttempt(payload.attempt);
+        setChallengeCode("");
+        setSubmitError(null);
+        if (payload.attempt.state === "CONNECTED") {
+          await refresh();
+        }
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not verify vendor code.");
+      }
+    });
+  }
+
+  function refreshAutomationAttempt() {
+    if (!activeAutomationVendor || !connectAttempt) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await fetchAttempt(activeAutomationVendor, connectAttempt.id);
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not refresh vendor sign-in status.");
+      }
+    });
+  }
+
+  function closeAutomationConnect() {
+    if (!activeAutomationVendor || !connectAttempt || finalAttemptStates.has(connectAttempt.state)) {
+      setConnectModalOpen(false);
+      setConnectAttempt(null);
+      setActiveAutomationVendor(null);
+      setChallengeCode("");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await fetch(`${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}/cancel`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${auth.token}`
+          }
+        });
+      } catch {
+        // ignore cancel errors on close
+      } finally {
+        setConnectModalOpen(false);
+        setConnectAttempt(null);
+        setActiveAutomationVendor(null);
+        setChallengeCode("");
+      }
+    });
   }
 
   function saveEbayLiveDefaults(accountId: string) {
@@ -306,6 +531,77 @@ function MarketplacesPageContent() {
         }
       });
     };
+  }
+
+  function renderAutomationAccounts(platform: AutomationVendor) {
+    const platformAccounts = activeAutomationAccounts[platform];
+
+    if (platformAccounts.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="stack" style={{ marginTop: "1rem" }}>
+        {platformAccounts.map((account) => (
+          <div className="rs-card" key={account.id}>
+            <div className="split">
+              <div>
+                <strong>{account.displayName}</strong>
+                <div className="muted">
+                  {account.credentialMetadata?.accountHandle ?? account.externalAccountId ?? account.secretRef}
+                </div>
+              </div>
+              {account.readiness ? <StatusPill status={account.readiness.state} /> : <StatusPill status={account.status} />}
+            </div>
+            {account.readiness ? (
+              <div className="stack" style={{ marginTop: "0.75rem" }}>
+                <div className="muted">
+                  State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
+                </div>
+                <div>{account.readiness.summary}</div>
+                <div className="muted">{account.readiness.detail}</div>
+                {renderOperatorHint(account)}
+                {renderConnectorDescriptor(account)}
+                <div className="actions">
+                  <Button disabled={pending} kind="secondary" onClick={() => openAutomationConnect(platform, account.displayName)}>
+                    Reconnect {automationVendorLabels[platform]}
+                  </Button>
+                </div>
+                {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
+              </div>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  function renderAutomationCard(platform: AutomationVendor) {
+    const platformAccounts = activeAutomationAccounts[platform];
+    const label = automationVendorLabels[platform];
+
+    return (
+      <Card eyebrow={label} title="Automation connector">
+        <div className="stack">
+          <div className="muted">
+            {label} uses a secure helper-assisted sign-in flow. Mollie validates the captured workspace session before the
+            account becomes automation-ready.
+          </div>
+          <div className="actions">
+            <Button disabled={pending} onClick={() => openAutomationConnect(platform, platformAccounts[0]?.displayName)}>
+              {platformAccounts.length > 0 ? `Reconnect ${label}` : `Connect ${label}`}
+            </Button>
+          </div>
+          {!desktopSupported ? (
+            <div className="notice">
+              {label} sign-in capture is desktop-first for MVP. Start this flow on desktop so Mollie can validate the session
+              reliably.
+            </div>
+          ) : null}
+        </div>
+        {renderAutomationAccounts(platform)}
+      </Card>
+    );
   }
 
   return (
@@ -350,7 +646,11 @@ function MarketplacesPageContent() {
                         <strong>{account.displayName}</strong>
                         <div className="muted">{account.credentialMetadata?.username ?? account.externalAccountId ?? account.secretRef}</div>
                       </div>
-                      {account.ebayState ? <StatusPill status={account.ebayState} /> : account.readiness ? <StatusPill status={account.readiness.status} /> : null}
+                      {account.ebayState ? (
+                        <StatusPill status={account.ebayState} />
+                      ) : account.readiness ? (
+                        <StatusPill status={account.readiness.status} />
+                      ) : null}
                     </div>
                     {account.readiness ? (
                       <div className="stack" style={{ marginTop: "0.75rem" }}>
@@ -445,7 +745,7 @@ function MarketplacesPageContent() {
                 ))}
             </div>
 
-            <form className="stack" onSubmit={connect("EBAY")}>
+            <form className="stack" onSubmit={connectSimulatedEbay}>
               <label className="label">
                 Manual display name
                 <input className="field" name="ebayDisplayName" placeholder="Simulated eBay account" required />
@@ -460,58 +760,9 @@ function MarketplacesPageContent() {
             </form>
           </Card>
 
-          <Card eyebrow="Depop" title="Automation connector">
-            <form className="stack" onSubmit={connect("DEPOP")}>
-              <label className="label">
-                Display name
-                <input className="field" name="depopDisplayName" placeholder="Main Depop shop" required />
-              </label>
-              <label className="label">
-                Session secret reference
-                <input className="field" name="depopSecretRef" placeholder="secret://depop/session" required />
-              </label>
-              <Button type="submit" disabled={pending}>
-                Connect Depop
-              </Button>
-            </form>
-            {renderAutomationAccounts("DEPOP")}
-          </Card>
-
-          <Card eyebrow="Poshmark" title="Automation connector">
-            <form className="stack" onSubmit={connect("POSHMARK")}>
-              <label className="label">
-                Display name
-                <input className="field" name="poshmarkDisplayName" placeholder="Main Poshmark closet" required />
-              </label>
-              <label className="label">
-                Session secret reference
-                <input className="field" name="poshmarkSecretRef" placeholder="secret://poshmark/session" required />
-              </label>
-              <Button type="submit" disabled={pending}>
-                Connect Poshmark
-              </Button>
-            </form>
-            <div className="notice">Poshmark is currently handled through isolated automation, like Depop.</div>
-            {renderAutomationAccounts("POSHMARK")}
-          </Card>
-
-          <Card eyebrow="Whatnot" title="Automation connector">
-            <form className="stack" onSubmit={connect("WHATNOT")}>
-              <label className="label">
-                Display name
-                <input className="field" name="whatnotDisplayName" placeholder="Main Whatnot account" required />
-              </label>
-              <label className="label">
-                Session secret reference
-                <input className="field" name="whatnotSecretRef" placeholder="secret://whatnot/session" required />
-              </label>
-              <Button type="submit" disabled={pending}>
-                Connect Whatnot
-              </Button>
-            </form>
-            <div className="notice">Whatnot is currently handled through isolated automation, like Depop.</div>
-            {renderAutomationAccounts("WHATNOT")}
-          </Card>
+          {renderAutomationCard("DEPOP")}
+          {renderAutomationCard("POSHMARK")}
+          {renderAutomationCard("WHATNOT")}
         </div>
 
         <Card eyebrow="Connections" title="Connected marketplace accounts">
@@ -550,7 +801,7 @@ function MarketplacesPageContent() {
                     )}
                   </td>
                   <td>
-                    <div>{account.credentialMetadata?.username ?? account.externalAccountId ?? account.secretRef}</div>
+                    <div>{account.credentialMetadata?.username ?? account.credentialMetadata?.accountHandle ?? account.externalAccountId ?? account.secretRef}</div>
                     {account.lastValidatedAt ? (
                       <div className="muted">Last validated: {new Date(account.lastValidatedAt).toLocaleString()}</div>
                     ) : null}
@@ -561,6 +812,24 @@ function MarketplacesPageContent() {
             </tbody>
           </table>
         </Card>
+
+        <AutomationVendorConnectModal
+          attempt={connectAttempt}
+          challengeCode={challengeCode}
+          desktopSupported={desktopSupported}
+          displayName={connectDisplayName}
+          error={submitError}
+          onChallengeCodeChange={setChallengeCode}
+          onClose={closeAutomationConnect}
+          onDisplayNameChange={setConnectDisplayName}
+          onOpenHelper={openHelperPopup}
+          onRetry={refreshAutomationAttempt}
+          onStart={startAutomationConnect}
+          onSubmitChallenge={submitAutomationChallenge}
+          open={connectModalOpen}
+          pending={pending}
+          vendor={activeAutomationVendor}
+        />
       </AppShell>
     </ProtectedView>
   );

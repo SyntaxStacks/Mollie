@@ -42,7 +42,7 @@ function parseCsvLine(line: string) {
 
 type PendingSeedRecord = {
   normalizedIdentifier: string;
-  identifierType: "UPC" | "EAN" | "ISBN" | "UNKNOWN";
+  identifierType: "UPC" | "EAN" | "ISBN" | "CODE128" | "UNKNOWN";
   title: string;
 };
 

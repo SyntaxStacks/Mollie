@@ -165,25 +165,52 @@ async function createWorkspaceSession(label: string): Promise<WorkspaceSession> 
 }
 
 async function connectMarketplace(session: WorkspaceSession, platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT") {
-  const url =
-    platform === "EBAY"
-      ? "/api/marketplace-accounts/ebay/connect"
-      : platform === "DEPOP"
-        ? "/api/marketplace-accounts/depop/session"
-        : platform === "POSHMARK"
-          ? "/api/marketplace-accounts/poshmark/session"
-          : "/api/marketplace-accounts/whatnot/session";
-  const response = await app.inject({
+  if (platform === "EBAY") {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/marketplace-accounts/ebay/connect",
+      headers: session.headers,
+      payload: {
+        displayName: `${platform} Account`,
+        secretRef: `sm://pilot/${platform.toLowerCase()}`
+      }
+    });
+
+    assert.equal(response.statusCode, 200);
+    return;
+  }
+
+  const startResponse = await app.inject({
     method: "POST",
-    url,
+    url: `/api/marketplace-accounts/${platform}/connect/start`,
     headers: session.headers,
     payload: {
-      displayName: `${platform} Account`,
-      secretRef: `sm://pilot/${platform.toLowerCase()}`
+      displayName: `${platform} Account`
     }
   });
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(startResponse.statusCode, 200);
+  const startBody = startResponse.json() as {
+    attempt: {
+      id: string;
+      helperNonce: string;
+    };
+  };
+
+  const sessionResponse = await app.inject({
+    method: "POST",
+    url: `/api/marketplace-accounts/${platform}/connect/${startBody.attempt.id}/session`,
+    headers: session.headers,
+    payload: {
+      helperNonce: startBody.attempt.helperNonce,
+      accountHandle: `${platform.toLowerCase()}-seller`,
+      sessionLabel: `${platform} Account`,
+      captureMode: "WEB_POPUP_HELPER",
+      challengeRequired: false
+    }
+  });
+
+  assert.equal(sessionResponse.statusCode, 200);
 }
 
 async function createInventoryItem(session: WorkspaceSession, overrides?: Record<string, unknown>) {

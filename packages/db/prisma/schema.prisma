@@ -103,6 +103,17 @@ enum CatalogTrustStatus {
   OPERATOR_CONFIRMED
 }
 
+enum MarketplaceConnectAttemptState {
+  PENDING
+  AWAITING_LOGIN
+  AWAITING_2FA
+  CAPTURING_SESSION
+  VALIDATING
+  CONNECTED
+  FAILED
+  EXPIRED
+}
+
 model User {
   id               String                @id @default(cuid())
   email            String                @unique
@@ -155,6 +166,7 @@ model Workspace {
   createdAt          DateTime             @default(now())
   owner              User                 @relation("WorkspaceOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
   memberships        WorkspaceMembership[]
+  marketplaceConnectAttempts MarketplaceConnectAttempt[]
   marketplaceAccounts MarketplaceAccount[]
   sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
@@ -197,9 +209,33 @@ model MarketplaceAccount {
   lastSyncAt     DateTime?
   createdAt      DateTime                 @default(now())
   workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  connectAttempts MarketplaceConnectAttempt[]
   platformListings PlatformListing[]
 
   @@index([workspaceId, platform])
+}
+
+model MarketplaceConnectAttempt {
+  id                 String                         @id @default(cuid())
+  workspaceId        String
+  marketplaceAccountId String?
+  platform           MarketplacePlatform
+  displayName        String
+  state              MarketplaceConnectAttemptState @default(PENDING)
+  helperNonce        String                         @unique
+  promptsJson        Json?
+  metadataJson       Json?
+  externalAccountId  String?
+  lastErrorCode      String?
+  lastErrorMessage   String?
+  expiresAt          DateTime
+  createdAt          DateTime                       @default(now())
+  updatedAt          DateTime                       @updatedAt
+  workspace          Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  marketplaceAccount MarketplaceAccount?           @relation(fields: [marketplaceAccountId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, platform, createdAt])
+  @@index([workspaceId, state, expiresAt])
 }
 
 model SourceLot {

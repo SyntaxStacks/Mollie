@@ -315,6 +315,73 @@ export async function createMarketplaceAccountForWorkspace(
   });
 }
 
+export async function createMarketplaceConnectAttemptForWorkspace(
+  workspaceId: string,
+  input: {
+    platform: "DEPOP" | "POSHMARK" | "WHATNOT";
+    displayName: string;
+    state:
+      | "PENDING"
+      | "AWAITING_LOGIN"
+      | "AWAITING_2FA"
+      | "CAPTURING_SESSION"
+      | "VALIDATING"
+      | "CONNECTED"
+      | "FAILED"
+      | "EXPIRED";
+    helperNonce: string;
+    prompts?: Prisma.InputJsonValue;
+    metadata?: Prisma.InputJsonValue;
+    expiresAt: Date;
+  }
+) {
+  return db.marketplaceConnectAttempt.create({
+    data: {
+      workspaceId,
+      platform: input.platform,
+      displayName: input.displayName,
+      state: input.state,
+      helperNonce: input.helperNonce,
+      promptsJson: input.prompts,
+      metadataJson: input.metadata,
+      expiresAt: input.expiresAt
+    }
+  });
+}
+
+export async function findMarketplaceConnectAttemptForWorkspace(
+  workspaceId: string,
+  attemptId: string,
+  platform?: "DEPOP" | "POSHMARK" | "WHATNOT"
+) {
+  return db.marketplaceConnectAttempt.findFirst({
+    where: {
+      id: attemptId,
+      workspaceId,
+      ...(platform ? { platform } : {})
+    }
+  });
+}
+
+export async function findMarketplaceConnectAttemptByHelperNonce(attemptId: string, helperNonce: string) {
+  return db.marketplaceConnectAttempt.findFirst({
+    where: {
+      id: attemptId,
+      helperNonce
+    }
+  });
+}
+
+export async function updateMarketplaceConnectAttempt(
+  attemptId: string,
+  data: Prisma.MarketplaceConnectAttemptUpdateInput
+) {
+  return db.marketplaceConnectAttempt.update({
+    where: { id: attemptId },
+    data
+  });
+}
+
 export async function upsertMarketplaceAccountConnectionForWorkspace(
   workspaceId: string,
   input: {
@@ -328,7 +395,7 @@ export async function upsertMarketplaceAccountConnectionForWorkspace(
     credentialPayload?: Prisma.InputJsonValue;
   }
 ) {
-  const existing =
+  const existingByExternalId =
     input.externalAccountId
       ? await db.marketplaceAccount.findFirst({
           where: {
@@ -338,6 +405,16 @@ export async function upsertMarketplaceAccountConnectionForWorkspace(
           }
         })
       : null;
+
+  const existing =
+    existingByExternalId ??
+    (await db.marketplaceAccount.findFirst({
+      where: {
+        workspaceId,
+        platform: input.platform,
+        displayName: input.displayName
+      }
+    }));
 
   if (!existing) {
     return createMarketplaceAccountForWorkspace(workspaceId, input);

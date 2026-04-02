@@ -120,7 +120,7 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
   await expect(firstCandidate).toBeVisible();
   await expect(firstCandidate.getByText(/amazon enriched/i)).toBeVisible();
   await page.getByTestId("scan-identify-accept-0").click();
-  await expect(page.getByText(/accepted source/i)).toBeVisible();
+  await expect(page.getByText(/^accepted source$/i)).toBeVisible();
   await expect(page.getByText(/valid starting point for this item/i)).toBeVisible();
   await page.getByTestId("scan-identify-title").fill(title);
   await page.getByTestId("scan-identify-condition").fill("Good used condition");
@@ -135,6 +135,24 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
 
   await expect(page).toHaveURL(/\/drafts\?fromScan=/);
   await expect(page.getByRole("heading", { name: /draft review queue/i })).toBeVisible();
+});
+
+test("operators can start a helper-assisted automation vendor sign-in from marketplaces", async ({ page }) => {
+  await onboardOperator(page, {
+    workspaceName: "UI Marketplaces Workspace"
+  });
+
+  await page.goto("/marketplaces");
+  await page.getByRole("button", { name: /connect depop/i }).click();
+
+  await expect(page.getByRole("dialog", { name: /connect depop/i })).toBeVisible();
+  await page.getByLabel(/account label in mollie/i).fill("Main Depop account");
+  await page.getByRole("button", { name: /start secure depop sign-in/i }).click();
+
+  await expect(page.getByText(/depop sign-in is ready to start/i)).toBeVisible();
+  await expect(page.getByText(/sign in to depop/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /open secure sign-in/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /refresh status/i })).toBeVisible();
 });
 
 test.describe("inventory continuity on mobile", () => {

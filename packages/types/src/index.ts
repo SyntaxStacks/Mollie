@@ -2,6 +2,8 @@ import { z } from "zod";
 
 export const platforms = ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"] as const;
 export type Platform = (typeof platforms)[number];
+export const automationVendors = ["DEPOP", "POSHMARK", "WHATNOT"] as const;
+export type AutomationVendor = (typeof automationVendors)[number];
 
 export const marketplaceAccountStatuses = ["PENDING", "CONNECTED", "DISABLED", "ERROR"] as const;
 export type MarketplaceAccountStatus = (typeof marketplaceAccountStatuses)[number];
@@ -92,6 +94,24 @@ export type ConnectorRateLimitStrategy = (typeof connectorRateLimitStrategies)[n
 export const operatorHintSeverities = ["INFO", "SUCCESS", "WARNING", "ERROR"] as const;
 export type OperatorHintSeverity = (typeof operatorHintSeverities)[number];
 
+export const vendorConnectStates = [
+  "PENDING",
+  "AWAITING_LOGIN",
+  "AWAITING_2FA",
+  "CAPTURING_SESSION",
+  "VALIDATING",
+  "CONNECTED",
+  "FAILED",
+  "EXPIRED"
+] as const;
+export type VendorConnectState = (typeof vendorConnectStates)[number];
+
+export const vendorConnectPromptKinds = ["INFO", "LOGIN", "CODE", "APPROVAL"] as const;
+export type VendorConnectPromptKind = (typeof vendorConnectPromptKinds)[number];
+
+export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE"] as const;
+export type VendorConnectCaptureMode = (typeof vendorConnectCaptureModes)[number];
+
 export type OperatorHint = {
   title: string;
   explanation: string;
@@ -101,6 +121,52 @@ export type OperatorHint = {
   featureFamily?: ConnectorFeatureFamily | null;
   canContinue?: boolean;
   helpText?: string | null;
+};
+
+export type VendorConnectPrompt = {
+  kind: VendorConnectPromptKind;
+  label: string;
+  detail: string;
+  required: boolean;
+  codeLength?: number | null;
+};
+
+export type VendorSessionArtifactMetadata = {
+  captureMode: VendorConnectCaptureMode;
+  capturedAt: string;
+  validatedAt?: string | null;
+  accountHandle: string;
+  externalAccountId?: string | null;
+  sessionLabel?: string | null;
+  connectAttemptId: string;
+};
+
+export type VendorValidationResult = {
+  validationStatus: CredentialValidationStatus;
+  accountHandle: string;
+  externalAccountId?: string | null;
+  summary: string;
+  detail: string;
+  operatorHint: OperatorHint;
+};
+
+export type VendorConnectAttempt = {
+  id: string;
+  workspaceId: string;
+  vendor: AutomationVendor;
+  displayName: string;
+  state: VendorConnectState;
+  helperNonce: string;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  helperLaunchUrl?: string | null;
+  prompts: VendorConnectPrompt[];
+  hint: OperatorHint;
+  externalAccountId?: string | null;
+  marketplaceAccountId?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
 };
 
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
@@ -172,6 +238,29 @@ export const marketplaceAccountSchema = z.object({
   displayName: z.string().min(2).max(120),
   secretRef: z.string().min(4).max(255),
   credentialType: z.enum(marketplaceCredentialTypes).default("SECRET_REF")
+});
+
+export const automationVendorParamsSchema = z.object({
+  vendor: z.enum(automationVendors),
+  attemptId: z.string().min(1).optional()
+});
+
+export const automationVendorConnectStartSchema = z.object({
+  displayName: z.string().trim().min(2).max(120)
+});
+
+export const automationVendorConnectChallengeSchema = z.object({
+  code: z.string().trim().min(4).max(12),
+  method: z.enum(["SMS", "EMAIL", "APPROVAL"]).default("SMS")
+});
+
+export const automationVendorConnectSessionSchema = z.object({
+  helperNonce: z.string().trim().min(16).max(160),
+  accountHandle: z.string().trim().min(2).max(160),
+  externalAccountId: z.string().trim().min(2).max(160).optional().nullable(),
+  sessionLabel: z.string().trim().min(2).max(160).optional().nullable(),
+  captureMode: z.enum(vendorConnectCaptureModes).default("WEB_POPUP_HELPER"),
+  challengeRequired: z.boolean().default(false)
 });
 
 export const ebayOAuthStartSchema = z.object({

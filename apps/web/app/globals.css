@@ -868,6 +868,26 @@ body {
   font-weight: 600;
 }
 
+.connect-modal {
+  width: min(760px, 100%);
+}
+
+.connect-state-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.connect-prompt-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.74);
+}
+
 @media (max-width: 1100px) {
   .layout,
   .hero-grid,

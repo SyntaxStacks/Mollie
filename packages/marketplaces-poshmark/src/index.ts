@@ -1,4 +1,10 @@
-import { ConnectorError, type MarketplaceAdapter, type PublishListingInput } from "@reselleros/marketplaces";
+import {
+  ConnectorError,
+  createAutomationVendorConnectAdapter,
+  type AutomationVendorConnectAdapter,
+  type MarketplaceAdapter,
+  type PublishListingInput
+} from "@reselleros/marketplaces";
 
 function simulatePoshmarkPublish(input: PublishListingInput) {
   if (!input.images.length) {
@@ -27,6 +33,15 @@ function simulatePoshmarkPublish(input: PublishListingInput) {
   };
 }
 
+export const poshmarkConnectAdapter: AutomationVendorConnectAdapter = createAutomationVendorConnectAdapter({
+  platform: "POSHMARK",
+  platformLabel: "Poshmark",
+  loginUrl: "https://poshmark.com/login",
+  challengeLabel: "Poshmark security code",
+  challengeDetail: "Enter the 6-digit code Poshmark requested to finish secure sign-in.",
+  summaryLabel: "Poshmark closet"
+});
+
 export const poshmarkAdapter: MarketplaceAdapter = {
   platform: "POSHMARK",
   descriptor: {
@@ -39,13 +54,13 @@ export const poshmarkAdapter: MarketplaceAdapter = {
     supportedCapabilities: [
       {
         capability: "CONNECT_ACCOUNT",
-        support: "MANUAL_ONLY",
-        detail: "Operators currently attach a session reference manually."
+        support: "SUPPORTED",
+        detail: "Operators connect Poshmark through a helper-assisted secure sign-in flow."
       },
       {
         capability: "VALIDATE_AUTH",
-        support: "MANUAL_ONLY",
-        detail: "Account readiness is inferred from session state and connector health."
+        support: "SUPPORTED",
+        detail: "Poshmark sessions are validated after helper-assisted sign-in before the account is marked ready."
       },
       {
         capability: "REFRESH_AUTH",

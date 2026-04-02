@@ -1,4 +1,5 @@
 import type {
+  AutomationVendor,
   AutomationOperationalState,
   ConnectorCapability,
   ConnectorExecutionMode,
@@ -12,6 +13,11 @@ import type {
   MarketplaceAccountStatus,
   CredentialValidationStatus,
   MarketplaceCredentialType,
+  VendorConnectCaptureMode,
+  VendorConnectPrompt,
+  VendorConnectState,
+  VendorSessionArtifactMetadata,
+  VendorValidationResult,
   Platform,
   PublishResult
 } from "@reselleros/types";
@@ -67,6 +73,78 @@ export type ConnectorDescriptor = {
   supportedFeatureFamilies: ConnectorFeatureFamilySupport[];
 };
 
+export type AutomationVendorConnectAttemptContext = {
+  id: string;
+  workspaceId: string;
+  platform: AutomationVendor;
+  displayName: string;
+  state: VendorConnectState;
+  helperNonce: string;
+  metadata?: Record<string, unknown> | null;
+  prompts?: VendorConnectPrompt[] | null;
+  expiresAt: string;
+};
+
+export type VendorConnectStartResult = {
+  state: VendorConnectState;
+  prompts: VendorConnectPrompt[];
+  hint: OperatorHint;
+  helperPath: string;
+  expiresInSeconds: number;
+  metadata?: Record<string, unknown>;
+};
+
+export type VendorConnectSessionCaptureInput = {
+  attempt: AutomationVendorConnectAttemptContext;
+  accountHandle: string;
+  externalAccountId?: string | null;
+  sessionLabel?: string | null;
+  captureMode: VendorConnectCaptureMode;
+  challengeRequired: boolean;
+};
+
+export type VendorConnectSessionCaptureResult = {
+  state: VendorConnectState;
+  prompts: VendorConnectPrompt[];
+  hint: OperatorHint;
+  metadata?: Record<string, unknown>;
+};
+
+export type VendorConnectChallengeInput = {
+  attempt: AutomationVendorConnectAttemptContext;
+  code: string;
+  method: "SMS" | "EMAIL" | "APPROVAL";
+};
+
+export type VendorAccountSummary = {
+  accountHandle: string;
+  externalAccountId?: string | null;
+  detail: string;
+};
+
+export type AutomationVendorConnectAdapter = {
+  platform: AutomationVendor;
+  startConnect(input: { displayName: string }): VendorConnectStartResult;
+  captureSession(input: VendorConnectSessionCaptureInput): VendorConnectSessionCaptureResult;
+  acceptChallenge(input: VendorConnectChallengeInput): {
+    state: VendorConnectState;
+    prompts: VendorConnectPrompt[];
+    hint: OperatorHint;
+  };
+  validateSession(input: {
+    attempt: AutomationVendorConnectAttemptContext;
+    accountHandle: string;
+    externalAccountId?: string | null;
+    captureMode: VendorConnectCaptureMode;
+    sessionLabel?: string | null;
+  }): VendorValidationResult;
+  summarizeAccount(input: {
+    accountHandle: string;
+    externalAccountId?: string | null;
+    sessionLabel?: string | null;
+  }): VendorAccountSummary;
+};
+
 export type MarketplaceAdapter = {
   platform: Platform;
   descriptor: ConnectorDescriptor;
@@ -92,6 +170,231 @@ export type MarketplaceAdapter = {
   syncListing(input: { externalListingId: string; currentStatus: string }): Promise<{ status: string }>;
   testConnection(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
 };
+
+export function buildAutomationConnectHint(input: {
+  platformLabel: string;
+  platform: AutomationVendor;
+  title: string;
+  explanation: string;
+  severity: OperatorHint["severity"];
+  nextActions: string[];
+  canContinue: boolean;
+  helpText?: string;
+}) {
+  return buildAutomationHint({
+    platformLabel: input.platformLabel,
+    platform: input.platform,
+    title: input.title,
+    explanation: input.explanation,
+    severity: input.severity,
+    nextActions: input.nextActions,
+    canContinue: input.canContinue,
+    helpText: input.helpText
+  });
+}
+
+export function createAutomationVendorConnectAdapter(config: {
+  platform: AutomationVendor;
+  platformLabel: string;
+  loginUrl: string;
+  challengeLabel: string;
+  challengeDetail: string;
+  summaryLabel: string;
+}) {
+  const helperPath = `/marketplaces/connect-helper?vendor=${config.platform.toLowerCase()}`;
+  const summarizeAccount = (input: {
+    accountHandle: string;
+    externalAccountId?: string | null;
+    sessionLabel?: string | null;
+  }) => ({
+    accountHandle: input.sessionLabel?.trim() || input.accountHandle.trim(),
+    externalAccountId: input.externalAccountId?.trim() || null,
+    detail: `${config.summaryLabel} ${input.accountHandle.trim()}`
+  });
+
+  return {
+    platform: config.platform,
+    startConnect({ displayName }) {
+      return {
+        state: "AWAITING_LOGIN",
+        prompts: [
+          {
+            kind: "LOGIN",
+            label: `Sign in to ${config.platformLabel}`,
+            detail: `Open ${config.platformLabel}, finish sign-in, and return to the secure bridge to capture the session for ${displayName}.`,
+            required: true
+          }
+        ],
+        hint: buildAutomationConnectHint({
+          platform: config.platform,
+          platformLabel: config.platformLabel,
+          title: `${config.platformLabel} sign-in is ready to start.`,
+          explanation: `Open the secure ${config.platformLabel} sign-in bridge, finish login, and Mollie will validate the captured workspace session before marking the account ready.`,
+          severity: "INFO",
+          nextActions: [
+            `Open the ${config.platformLabel} sign-in bridge on desktop.`,
+            "Finish the vendor login flow, then return here to review the captured account."
+          ],
+          canContinue: true
+        }),
+        helperPath,
+        expiresInSeconds: 15 * 60,
+        metadata: {
+          loginUrl: config.loginUrl,
+          summaryLabel: config.summaryLabel
+        }
+      };
+    },
+    captureSession({ attempt, accountHandle, externalAccountId, sessionLabel, captureMode, challengeRequired }) {
+      const summary = summarizeAccount({
+        accountHandle,
+        externalAccountId,
+        sessionLabel
+      });
+
+      if (challengeRequired) {
+        return {
+          state: "AWAITING_2FA",
+          prompts: [
+            {
+              kind: "CODE",
+              label: config.challengeLabel,
+              detail: config.challengeDetail,
+              required: true,
+              codeLength: 6
+            }
+          ],
+          hint: buildAutomationConnectHint({
+            platform: config.platform,
+            platformLabel: config.platformLabel,
+            title: `${config.platformLabel} needs one more verification step.`,
+            explanation: `Mollie captured the ${config.platformLabel} sign-in context for ${summary.accountHandle}, but the vendor still needs a verification code before the session can be validated.`,
+            severity: "WARNING",
+            nextActions: ["Enter the verification code in Mollie.", "Wait for the account to switch to connected and ready."],
+            canContinue: true
+          }),
+          metadata: {
+            pendingSession: {
+              accountHandle: summary.accountHandle,
+              externalAccountId: summary.externalAccountId ?? null,
+              sessionLabel: sessionLabel ?? null,
+              captureMode,
+              connectAttemptId: attempt.id
+            } satisfies Partial<VendorSessionArtifactMetadata>
+          }
+        };
+      }
+
+      return {
+        state: "VALIDATING",
+        prompts: [],
+        hint: buildAutomationConnectHint({
+          platform: config.platform,
+          platformLabel: config.platformLabel,
+          title: `${config.platformLabel} sign-in was captured and is being validated.`,
+          explanation: `Mollie is checking that ${summary.accountHandle} can be used for automation safely before marking the account connected.`,
+          severity: "INFO",
+          nextActions: ["Wait for validation to finish.", "Keep this window open until Mollie confirms the account is ready."],
+          canContinue: true
+        }),
+        metadata: {
+          pendingSession: {
+            accountHandle: summary.accountHandle,
+            externalAccountId: summary.externalAccountId ?? null,
+            sessionLabel: sessionLabel ?? null,
+            captureMode,
+            connectAttemptId: attempt.id
+          } satisfies Partial<VendorSessionArtifactMetadata>
+        }
+      };
+    },
+    acceptChallenge({ code }) {
+      if (!/^\d{6}$/.test(code) || code === "000000") {
+        return {
+          state: "FAILED",
+          prompts: [
+            {
+              kind: "CODE",
+              label: config.challengeLabel,
+              detail: config.challengeDetail,
+              required: true,
+              codeLength: 6
+            }
+          ],
+          hint: buildAutomationConnectHint({
+            platform: config.platform,
+            platformLabel: config.platformLabel,
+            title: `${config.platformLabel} could not verify that code.`,
+            explanation: "The verification code looked invalid or expired, so the vendor session was not marked ready.",
+            severity: "ERROR",
+            nextActions: ["Request a new vendor verification code.", "Restart the connect flow if the challenge expired."],
+            canContinue: false
+          })
+        };
+      }
+
+      return {
+        state: "VALIDATING",
+        prompts: [],
+        hint: buildAutomationConnectHint({
+          platform: config.platform,
+          platformLabel: config.platformLabel,
+          title: `${config.platformLabel} verification was accepted.`,
+          explanation: "Mollie is validating the captured session now.",
+          severity: "INFO",
+          nextActions: ["Wait for the account to switch to connected and ready."],
+          canContinue: true
+        })
+      };
+    },
+    validateSession({ accountHandle, externalAccountId, captureMode, sessionLabel, attempt }) {
+      const normalizedHandle = accountHandle.trim();
+
+      if (!normalizedHandle || /fail|invalid|blocked/i.test(normalizedHandle)) {
+        return {
+          validationStatus: "INVALID",
+          accountHandle: normalizedHandle || config.platformLabel,
+          externalAccountId: externalAccountId ?? null,
+          summary: `${config.platformLabel} sign-in could not be validated.`,
+          detail: "The captured session did not look safe enough to reuse for automation.",
+          operatorHint: buildAutomationConnectHint({
+            platform: config.platform,
+            platformLabel: config.platformLabel,
+            title: `${config.platformLabel} needs another sign-in attempt.`,
+            explanation: "Mollie could not validate the captured session. Start the connect flow again and make sure the right account finishes sign-in.",
+            severity: "ERROR",
+            nextActions: ["Restart the secure sign-in flow.", "Confirm the vendor account in hand matches the account you intend to automate."],
+            canContinue: false
+          })
+        };
+      }
+
+      const summary = summarizeAccount({
+        accountHandle: normalizedHandle,
+        externalAccountId,
+        sessionLabel
+      });
+
+      return {
+        validationStatus: "VALID",
+        accountHandle: summary.accountHandle,
+        externalAccountId: summary.externalAccountId ?? `${config.platform.toLowerCase()}:${normalizedHandle.toLowerCase()}`,
+        summary: `${config.platformLabel} session validated for ${summary.accountHandle}.`,
+        detail: `${config.summaryLabel} is ready for workspace automation through the isolated connector runner.`,
+        operatorHint: buildAutomationConnectHint({
+          platform: config.platform,
+          platformLabel: config.platformLabel,
+          title: `${config.platformLabel} is connected and ready.`,
+          explanation: `Mollie validated ${summary.accountHandle} and stored the workspace session artifact captured through the secure sign-in bridge.`,
+          severity: "SUCCESS",
+          nextActions: ["Return to inventory to publish through this account.", "Reconnect the account later if the session expires or the vendor challenges sign-in again."],
+          canContinue: true
+        })
+      };
+    },
+    summarizeAccount
+  } satisfies AutomationVendorConnectAdapter;
+}
 
 export type AutomationMarketplaceReadiness = {
   state: AutomationOperationalState;
