@@ -2,7 +2,7 @@
 
 import { Camera, CheckCircle2, ExternalLink, ScanBarcode, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type FormEvent } from "react";
 
 import type { ProductLookupCandidate, ProductLookupResult } from "@reselleros/types";
 import { Button, Card } from "@reselleros/ui";
@@ -59,6 +59,7 @@ function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | nul
 export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const [pending, startTransition] = useTransition();
   const [lookupPending, startLookupTransition] = useTransition();
   const [lookupResult, setLookupResult] = useState<ProductLookupResult | null>(null);
@@ -66,6 +67,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerSupported, setScannerSupported] = useState(false);
+  const [liveScannerSupported, setLiveScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
@@ -86,16 +88,18 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [generateDrafts, setGenerateDrafts] = useState(false);
 
   useEffect(() => {
-    setScannerSupported(
+    const hasLiveScanner =
       typeof window !== "undefined" &&
-        typeof window.BarcodeDetector === "function" &&
-        typeof navigator !== "undefined" &&
-        Boolean(navigator.mediaDevices?.getUserMedia)
-    );
+      typeof window.BarcodeDetector === "function" &&
+      typeof navigator !== "undefined" &&
+      Boolean(navigator.mediaDevices?.getUserMedia);
+
+    setLiveScannerSupported(hasLiveScanner);
+    setScannerSupported(hasLiveScanner || typeof window !== "undefined");
   }, []);
 
   useEffect(() => {
-    if (!scannerOpen || !scannerSupported || !videoRef.current) {
+    if (!scannerOpen || !liveScannerSupported || !videoRef.current) {
       return;
     }
 
@@ -173,7 +177,74 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
         }
       }
     };
-  }, [scannerOpen, scannerSupported]);
+  }, [scannerOpen, liveScannerSupported]);
+
+  async function decodeCapturedBarcode(file: File) {
+    const BarcodeDetector = window.BarcodeDetector;
+
+    if (BarcodeDetector) {
+      const image = await createImageBitmap(file);
+      try {
+        const detector = new BarcodeDetector({
+          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+        });
+        const detected = await detector.detect(image);
+        const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+
+        if (code) {
+          return code;
+        }
+      } finally {
+        image.close();
+      }
+    }
+
+    const { BrowserMultiFormatReader } = await import("@zxing/browser");
+    const reader = new BrowserMultiFormatReader();
+    const objectUrl = URL.createObjectURL(file);
+
+    try {
+      const result = await reader.decodeFromImageUrl(objectUrl);
+      const code = result.getText().trim();
+
+      if (code) {
+        return code;
+      }
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+
+    throw new Error("We could not read a barcode from that photo. Try again with the barcode flatter and better lit.");
+  }
+
+  async function handleCameraCapture(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    try {
+      setScannerError(null);
+      const detectedCode = await decodeCapturedBarcode(file);
+      setBarcode(detectedCode);
+      setScannerOpen(false);
+    } catch (caughtError) {
+      setScannerError(caughtError instanceof Error ? caughtError.message : "Could not read that barcode photo.");
+    }
+  }
+
+  function openCamera() {
+    setScannerError(null);
+
+    if (liveScannerSupported) {
+      setScannerOpen(true);
+      return;
+    }
+
+    cameraInputRef.current?.click();
+  }
 
   function resetForm() {
     setBarcode("");
@@ -371,8 +442,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                   onChange={(event) => setBarcode(event.target.value)}
                 />
                 {scannerSupported ? (
-                  <Button kind="secondary" onClick={() => setScannerOpen(true)} type="button">
-                    <ScanBarcode size={16} /> Scan
+                  <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
+                    <ScanBarcode size={16} /> Open camera
                   </Button>
                 ) : null}
               </div>
@@ -646,6 +717,15 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
         </div>
       </Card>
 
+      <input
+        accept="image/*"
+        capture="environment"
+        hidden
+        onChange={handleCameraCapture}
+        ref={cameraInputRef}
+        type="file"
+      />
+
       {scannerOpen ? (
         <div className="handoff-modal-backdrop" role="presentation" onClick={() => setScannerOpen(false)}>
           <div
@@ -671,9 +751,14 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
             </div>
             {scannerError ? <div className="notice">{scannerError}</div> : null}
+            <div className="actions">
+              <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
+                <Camera size={16} /> Take barcode photo instead
+              </Button>
+            </div>
             <div className="scan-import-hint">
               <Camera size={16} />
-              <span>If camera scanning is unavailable here, you can still type the barcode or use a hardware scanner.</span>
+              <span>If live scanning struggles on this device, take a barcode photo instead, or type the barcode manually.</span>
             </div>
           </div>
         </div>
