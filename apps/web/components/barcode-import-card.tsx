@@ -69,6 +69,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [scannerSupported, setScannerSupported] = useState(false);
   const [liveScannerSupported, setLiveScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [scannerStatus, setScannerStatus] = useState("Point the barcode at the guide.");
   const [capturePending, setCapturePending] = useState(false);
   const [barcode, setBarcode] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
@@ -109,6 +110,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     async function beginScan() {
       try {
         setScannerError(null);
+        setScannerStatus("Point the barcode at the guide.");
         const previewElement = videoRef.current;
 
         if (!previewElement) {
@@ -147,8 +149,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
 
               if (code) {
-                setBarcode(code);
-                setScannerOpen(false);
+                handleBarcodeDetected(code);
                 return;
               }
             } catch {
@@ -184,8 +185,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
             if (result) {
               setScannerError(null);
-              setBarcode(result.getText().trim());
-              setScannerOpen(false);
+              handleBarcodeDetected(result.getText().trim());
               scannerControls?.stop();
               return;
             }
@@ -256,6 +256,55 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     throw new Error("We could not read a barcode from that photo. Try again with the barcode flatter and better lit.");
   }
 
+  function runLookup(barcodeValue: string) {
+    startLookupTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/product-lookup/barcode`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            barcode: barcodeValue
+          })
+        });
+        const payload = (await response.json().catch(() => ({ error: "Could not identify this barcode." }))) as {
+          error?: string;
+          result?: ProductLookupResult;
+        };
+
+        if (!response.ok || !payload.result) {
+          throw new Error(payload.error ?? "Could not identify this barcode.");
+        }
+
+        setLookupResult(payload.result);
+        setLookupError(null);
+        setSelectedCandidate(null);
+        setManualEntryEnabled(payload.result.candidates.length === 0);
+      } catch (caughtError) {
+        setLookupResult(null);
+        setSelectedCandidate(null);
+        setManualEntryEnabled(true);
+        setLookupError(caughtError instanceof Error ? caughtError.message : "Could not identify this barcode.");
+      }
+    });
+  }
+
+  function handleBarcodeDetected(detectedCode: string) {
+    const normalizedCode = detectedCode.trim();
+
+    if (!normalizedCode) {
+      return;
+    }
+
+    setBarcode(normalizedCode);
+    setScannerStatus(`Barcode found: ${normalizedCode}. Looking up product...`);
+    setScannerError(null);
+    setScannerOpen(false);
+    runLookup(normalizedCode);
+  }
+
   async function decodeBarcodeFromCanvas(canvas: HTMLCanvasElement) {
     const BarcodeDetector = window.BarcodeDetector;
 
@@ -293,6 +342,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
     setCapturePending(true);
     setScannerError(null);
+    setScannerStatus("Capturing frame and checking the barcode...");
 
     try {
       const canvas = document.createElement("canvas");
@@ -306,14 +356,14 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
       context.drawImage(previewElement, 0, 0, canvas.width, canvas.height);
       const detectedCode = await decodeBarcodeFromCanvas(canvas);
-      setBarcode(detectedCode);
-      setScannerOpen(false);
+      handleBarcodeDetected(detectedCode);
     } catch (caughtError) {
       setScannerError(
         caughtError instanceof Error
           ? caughtError.message
           : "Could not read the barcode from that camera frame."
       );
+      setScannerStatus("Point the barcode at the guide.");
     } finally {
       setCapturePending(false);
     }
@@ -329,16 +379,18 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
     try {
       setScannerError(null);
+      setScannerStatus("Processing barcode photo...");
       const detectedCode = await decodeCapturedBarcode(file);
-      setBarcode(detectedCode);
-      setScannerOpen(false);
+      handleBarcodeDetected(detectedCode);
     } catch (caughtError) {
       setScannerError(caughtError instanceof Error ? caughtError.message : "Could not read that barcode photo.");
+      setScannerStatus("Point the barcode at the guide.");
     }
   }
 
   function openCamera() {
     setScannerError(null);
+    setScannerStatus("Point the barcode at the guide.");
 
     if (liveScannerSupported) {
       setScannerOpen(true);
@@ -392,39 +444,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     }
   }
 
-  async function handleLookup() {
-    startLookupTransition(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/product-lookup/barcode`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            barcode
-          })
-        });
-        const payload = (await response.json().catch(() => ({ error: "Could not identify this barcode." }))) as {
-          error?: string;
-          result?: ProductLookupResult;
-        };
-
-        if (!response.ok || !payload.result) {
-          throw new Error(payload.error ?? "Could not identify this barcode.");
-        }
-
-        setLookupResult(payload.result);
-        setLookupError(null);
-        setSelectedCandidate(null);
-        setManualEntryEnabled(payload.result.candidates.length === 0);
-      } catch (caughtError) {
-        setLookupResult(null);
-        setSelectedCandidate(null);
-        setManualEntryEnabled(true);
-        setLookupError(caughtError instanceof Error ? caughtError.message : "Could not identify this barcode.");
-      }
-    });
+  function handleLookup() {
+    runLookup(barcode);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -848,11 +869,15 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </Button>
             </div>
             <p className="handoff-copy">
-              Hold the barcode inside the frame. Mollie will fill the field as soon as it detects a UPC, EAN, or ISBN.
+              Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, or ISBN.
             </p>
             <div className="barcode-scanner-video-shell">
               <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
+              <div className="barcode-scanner-overlay" aria-hidden="true">
+                <div className="barcode-scanner-guide" />
+              </div>
             </div>
+            <div className="barcode-scanner-status">{lookupPending ? "Barcode found. Looking up product..." : scannerStatus}</div>
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="actions">
               <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
