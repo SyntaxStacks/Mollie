@@ -815,11 +815,27 @@ body {
   background: #08110c;
 }
 
+.barcode-scanner-video-shell-static {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
 .barcode-scanner-video {
   display: block;
   width: 100%;
   min-height: 320px;
   object-fit: cover;
+}
+
+.barcode-scanner-static-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: rgba(244, 247, 245, 0.92);
+  text-align: center;
+  max-width: 28rem;
 }
 
 .barcode-scanner-overlay {

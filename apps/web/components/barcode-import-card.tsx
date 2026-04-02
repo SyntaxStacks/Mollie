@@ -391,13 +391,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   function openCamera() {
     setScannerError(null);
     setScannerStatus("Point the barcode at the guide.");
-
-    if (liveScannerSupported) {
-      setScannerOpen(true);
-      return;
-    }
-
-    cameraInputRef.current?.click();
+    setScannerOpen(true);
   }
 
   function resetForm() {
@@ -871,18 +865,35 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             <p className="handoff-copy">
               Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, or ISBN.
             </p>
-            <div className="barcode-scanner-video-shell">
-              <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
-              <div className="barcode-scanner-overlay" aria-hidden="true">
-                <div className="barcode-scanner-guide" />
+            {liveScannerSupported ? (
+              <div className="barcode-scanner-video-shell">
+                <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
+                <div className="barcode-scanner-overlay" aria-hidden="true">
+                  <div className="barcode-scanner-guide" />
+                </div>
               </div>
+            ) : (
+              <div className="barcode-scanner-video-shell barcode-scanner-video-shell-static">
+                <div className="barcode-scanner-static-copy">
+                  <Camera size={20} />
+                  <span>This browser is using the photo-based scanner fallback. Use the button below to capture a barcode photo.</span>
+                </div>
+              </div>
+            )}
+            <div className="barcode-scanner-status">
+              {lookupPending
+                ? "Barcode found. Looking up product..."
+                : liveScannerSupported
+                  ? scannerStatus
+                  : "Live camera preview is unavailable here. Use the photo capture fallback below."}
             </div>
-            <div className="barcode-scanner-status">{lookupPending ? "Barcode found. Looking up product..." : scannerStatus}</div>
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="actions">
-              <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
-                <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
-              </Button>
+              {liveScannerSupported ? (
+                <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
+                  <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
+                </Button>
+              ) : null}
               <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
                 <Camera size={16} /> Take barcode photo instead
               </Button>
