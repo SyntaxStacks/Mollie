@@ -69,6 +69,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [scannerSupported, setScannerSupported] = useState(false);
   const [liveScannerSupported, setLiveScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
+  const [capturePending, setCapturePending] = useState(false);
   const [barcode, setBarcode] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
   const [manualEntryEnabled, setManualEntryEnabled] = useState(false);
@@ -253,6 +254,69 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     }
 
     throw new Error("We could not read a barcode from that photo. Try again with the barcode flatter and better lit.");
+  }
+
+  async function decodeBarcodeFromCanvas(canvas: HTMLCanvasElement) {
+    const BarcodeDetector = window.BarcodeDetector;
+
+    if (BarcodeDetector) {
+      const detector = new BarcodeDetector({
+        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+      });
+      const detected = await detector.detect(canvas);
+      const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+
+      if (code) {
+        return code;
+      }
+    }
+
+    const { BrowserMultiFormatReader } = await import("@zxing/browser");
+    const reader = new BrowserMultiFormatReader();
+    const result = reader.decodeFromCanvas(canvas);
+    const code = result.getText().trim();
+
+    if (code) {
+      return code;
+    }
+
+    throw new Error("We could not read the barcode from that camera frame. Try again with the barcode larger in the frame.");
+  }
+
+  async function handleCaptureFrame() {
+    const previewElement = videoRef.current;
+
+    if (!previewElement || !previewElement.videoWidth || !previewElement.videoHeight) {
+      setScannerError("Camera preview is not ready yet. Give it a second, then try capture again.");
+      return;
+    }
+
+    setCapturePending(true);
+    setScannerError(null);
+
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = previewElement.videoWidth;
+      canvas.height = previewElement.videoHeight;
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new Error("Could not capture a frame from the camera.");
+      }
+
+      context.drawImage(previewElement, 0, 0, canvas.width, canvas.height);
+      const detectedCode = await decodeBarcodeFromCanvas(canvas);
+      setBarcode(detectedCode);
+      setScannerOpen(false);
+    } catch (caughtError) {
+      setScannerError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Could not read the barcode from that camera frame."
+      );
+    } finally {
+      setCapturePending(false);
+    }
   }
 
   async function handleCameraCapture(event: ChangeEvent<HTMLInputElement>) {
@@ -791,6 +855,9 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             </div>
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="actions">
+              <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
+                <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
+              </Button>
               <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
                 <Camera size={16} /> Take barcode photo instead
               </Button>
