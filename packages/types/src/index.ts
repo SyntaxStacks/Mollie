@@ -284,6 +284,12 @@ export const catalogTrustStatuses = [
 ] as const;
 export type CatalogTrustStatus = (typeof catalogTrustStatuses)[number];
 
+export const productLookupSources = ["INTERNAL_CATALOG", "AMAZON_ENRICHMENT", "SIMULATED"] as const;
+export type ProductLookupSource = (typeof productLookupSources)[number];
+
+export const productLookupConfidenceStates = ["HIGH", "MEDIUM", "LOW"] as const;
+export type ProductLookupConfidenceState = (typeof productLookupConfidenceStates)[number];
+
 export const marketObservationSchema = z.object({
   market: z.string().trim().min(2).max(40),
   label: z.string().trim().min(2).max(80),
@@ -308,6 +314,33 @@ export const catalogLookupRequestSchema = z
     message: "Provide a UPC, EAN, or ISBN"
   });
 
+export const productLookupBarcodeRequestSchema = z.object({
+  barcode: z.string().trim().min(8).max(64)
+});
+
+export const productLookupCandidateSchema = z.object({
+  id: z.string().min(1),
+  barcode: z.string().trim().min(8).max(64),
+  identifierType: z.enum(catalogIdentifierTypes),
+  title: z.string().trim().min(1),
+  brand: z.string().trim().max(120).nullable().optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  model: z.string().trim().max(120).nullable().optional(),
+  size: z.string().trim().max(80).nullable().optional(),
+  color: z.string().trim().max(80).nullable().optional(),
+  primaryImageUrl: z.string().url().nullable().optional(),
+  imageUrls: z.array(z.string().url()).max(12).default([]),
+  asin: z.string().trim().max(40).nullable().optional(),
+  productUrl: z.string().url().nullable().optional(),
+  provider: z.enum(productLookupSources),
+  confidenceScore: z.number().min(0).max(1),
+  confidenceState: z.enum(productLookupConfidenceStates),
+  matchRationale: z.array(z.string().trim().min(1).max(240)).default([]),
+  hint: z.custom<OperatorHint>(),
+  safeToPrefill: z.boolean(),
+  simulated: z.boolean().default(false)
+});
+
 export const inventoryBarcodeImportSchema = z.object({
   identifier: z.string().trim().min(8).max(64).optional(),
   barcode: z.string().trim().min(8).max(64).optional(),
@@ -327,7 +360,10 @@ export const inventoryBarcodeImportSchema = z.object({
   primarySourceUrl: z.string().url().optional().nullable(),
   referenceUrls: z.array(z.string().url()).max(8).default([]),
   imageUrls: z.array(z.string().url()).max(12).default([]),
-  observations: z.array(marketObservationSchema).min(1).max(8)
+  observations: z.array(marketObservationSchema).max(8).default([]),
+  acceptedCandidate: productLookupCandidateSchema.optional().nullable(),
+  generateDrafts: z.boolean().default(false),
+  draftPlatforms: z.array(z.enum(platforms)).default([...platforms])
 }).refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
   message: "Provide a UPC, EAN, or ISBN",
   path: ["identifier"]
@@ -374,6 +410,21 @@ export type CatalogLookupResult = {
   }>;
   researchLinks: Array<z.infer<typeof catalogResearchLinkSchema>>;
   hint?: OperatorHint | null;
+};
+
+export type ProductLookupCandidate = z.infer<typeof productLookupCandidateSchema>;
+
+export type ProductLookupResult = {
+  barcode: string;
+  identifierType: CatalogIdentifierType;
+  candidates: ProductLookupCandidate[];
+  hint: OperatorHint;
+  recommendedNextAction: string;
+  providerSummary: {
+    barcodeLookupProvider: string;
+    enrichmentProvider: string;
+    simulated: boolean;
+  };
 };
 
 export type DashboardMetric = {

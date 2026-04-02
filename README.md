@@ -97,7 +97,7 @@ The CI workflow validates:
 3. Connect eBay, Depop, Poshmark, and Whatnot on `/marketplaces`
 4. Import a Mac.bid lot on `/lots`
 5. Convert a lot into inventory on `/lots/[id]`
-6. Scan or type a barcode on `/inventory`, capture Amazon pricing context, and create an inventory item from the scan flow
+6. Use `Scan to identify` on `/inventory` to review candidate matches, confirm the right item, and create inventory or queue drafts from the accepted result
 7. Open `/inventory/[id]` on desktop or phone, continue on mobile when needed, and manage photos on the same canonical item route
 8. Add workspace operators on `/settings`, then have them sign in through `/onboarding` to join the same workspace
 9. Generate and approve drafts from `/inventory/[id]` and `/drafts`
@@ -113,7 +113,7 @@ Inventory detail now includes an eBay preflight view that surfaces whether a spe
 
 Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop/Poshmark/Whatnot publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
 
-Inventory creation now also includes an identifier research surface for UPC, EAN, and ISBN workflows. Operators can scan or type an identifier, open Google/Amazon/eBay research links, capture observed prices and reference images, and create an inventory item while strengthening Mollie’s internal catalog for future scans.
+Inventory creation now also includes a `Scan to identify` surface for UPC, EAN, and ISBN workflows. Operators can scan or type an identifier, review confidence-based matches, confirm or reject candidate results, use Google/Amazon/eBay research links when needed, and then create inventory or queue marketplace drafts while strengthening Mollie's internal catalog for future scans.
 
 Inventory detail now has explicit cross-device continuity for pilot operators. Desktop users can open a "Continue on mobile" handoff with a QR code and canonical item link, then use the same `/inventory/[id]` route on mobile for a photo-first layout with larger tap targets, compact metadata, and lightweight continuity refresh when the same item changes on another device.
 

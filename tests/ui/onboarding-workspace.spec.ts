@@ -106,7 +106,7 @@ test("desktop inventory detail exposes a continue-on-mobile handoff with the can
   await expect(page.getByTestId("continue-on-mobile-copy")).toBeVisible();
 });
 
-test("operators can research an identifier and create inventory with reference images", async ({ page }) => {
+test("operators can scan to identify, accept a candidate, and queue drafts", async ({ page }) => {
   const title = `Identifier Scan Item ${Date.now()}`;
 
   await onboardOperator(page, {
@@ -114,28 +114,25 @@ test("operators can research an identifier and create inventory with reference i
   });
 
   await page.goto("/inventory");
-  await page.getByTestId("barcode-import-barcode").fill("012345678905");
-  await page.getByTestId("barcode-import-lookup").click();
-  await expect(page.getByRole("link", { name: /search google for/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /search amazon for/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /search ebay for/i })).toBeVisible();
-  await page.getByTestId("barcode-import-title").fill(title);
-  await page.getByTestId("barcode-import-brand").fill("Nintendo");
-  await page.getByTestId("barcode-import-category").fill("Video Games");
-  await page.getByTestId("barcode-import-condition").fill("Good used condition");
-  await page.getByTestId("barcode-import-amazon-price").fill("39.99");
-  await page.getByLabel(/^amazon url$/i).fill("https://www.amazon.com/dp/B000IMWK2G");
-  await page.getByTestId("barcode-import-ebay-price").fill("34.99");
-  await page.getByLabel(/^ebay url$/i).fill("https://www.ebay.com/itm/1234567890");
-  await page.getByTestId("barcode-import-image-urls").fill(
+  await page.getByTestId("scan-identify-barcode").fill("012345678905");
+  await page.getByTestId("scan-identify-submit").click();
+  const firstCandidate = page.getByTestId("scan-identify-candidate-0");
+  await expect(firstCandidate).toBeVisible();
+  await expect(firstCandidate.getByText(/amazon enriched/i)).toBeVisible();
+  await page.getByTestId("scan-identify-accept-0").click();
+  await page.getByTestId("scan-identify-title").fill(title);
+  await page.getByTestId("scan-identify-condition").fill("Good used condition");
+  await page.getByTestId("scan-identify-amazon-price").fill("39.99");
+  await page.getByTestId("scan-identify-ebay-price").fill("34.99");
+  await page.getByTestId("scan-identify-ebay-url").fill("https://www.ebay.com/itm/1234567890");
+  await page.getByTestId("scan-identify-image-urls").fill(
     "https://m.media-amazon.com/images/I/example-one.jpg\nhttps://m.media-amazon.com/images/I/example-two.jpg"
   );
-  await page.getByTestId("barcode-import-submit").click();
+  await page.getByTestId("scan-identify-generate-drafts").check();
+  await page.getByTestId("scan-identify-create").click();
 
-  await expect(page).toHaveURL(/\/inventory\/.+/);
-  await expect(page.getByRole("heading", { name: new RegExp(title, "i") })).toBeVisible();
-  await expect(page.getByText(/example-one\.jpg/i)).toBeVisible();
-  await expect(page.getByText(/example-two\.jpg/i)).toBeVisible();
+  await expect(page).toHaveURL(/\/drafts\?fromScan=/);
+  await expect(page.getByRole("heading", { name: /draft review queue/i })).toBeVisible();
 });
 
 test.describe("inventory continuity on mobile", () => {

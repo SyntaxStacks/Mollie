@@ -555,44 +555,36 @@ export async function applyOperatorResearch(input: OperatorResearchInput) {
   const normalizedIdentifier = normalizeIdentifier(input.identifier);
   const identifierType = resolveIdentifierType(normalizedIdentifier, input.identifierType);
   const sourceReferences = input.sourceReferences;
-  const existing = await db.catalogIdentifier.findUnique({
-    where: { normalizedIdentifier }
+  const catalogIdentifier = await db.catalogIdentifier.upsert({
+    where: { normalizedIdentifier },
+    update: {
+      identifierType,
+      canonicalTitle: input.title,
+      brand: input.brand ?? null,
+      category: input.category,
+      canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
+      sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
+      trustStatus: "OPERATOR_CONFIRMED",
+      confidenceScore: OPERATOR_CONFIDENCE,
+      lastConfirmedAt: new Date(),
+      lastRefreshedAt: new Date(),
+      lastLookupAt: new Date()
+    },
+    create: {
+      normalizedIdentifier,
+      identifierType,
+      canonicalTitle: input.title,
+      brand: input.brand ?? null,
+      category: input.category,
+      canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
+      sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
+      trustStatus: "OPERATOR_CONFIRMED",
+      confidenceScore: OPERATOR_CONFIDENCE,
+      lastConfirmedAt: new Date(),
+      lastRefreshedAt: new Date(),
+      lastLookupAt: new Date()
+    }
   });
-
-  const catalogIdentifier = existing
-    ? await db.catalogIdentifier.update({
-        where: { id: existing.id },
-        data: {
-          normalizedIdentifier,
-          identifierType,
-          canonicalTitle: input.title,
-          brand: input.brand ?? null,
-          category: input.category,
-          canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
-          sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
-          trustStatus: "OPERATOR_CONFIRMED",
-          confidenceScore: OPERATOR_CONFIDENCE,
-          lastConfirmedAt: new Date(),
-          lastRefreshedAt: new Date(),
-          lastLookupAt: new Date()
-        }
-      })
-    : await db.catalogIdentifier.create({
-        data: {
-          normalizedIdentifier,
-          identifierType,
-          canonicalTitle: input.title,
-          brand: input.brand ?? null,
-          category: input.category,
-          canonicalImageUrlsJson: dedupeUrls(input.imageUrls) as Prisma.InputJsonValue,
-          sourceReferencesJson: sourceReferences as Prisma.InputJsonValue,
-          trustStatus: "OPERATOR_CONFIRMED",
-          confidenceScore: OPERATOR_CONFIDENCE,
-          lastConfirmedAt: new Date(),
-          lastRefreshedAt: new Date(),
-          lastLookupAt: new Date()
-        }
-      });
 
   await db.workspaceCatalogOverride.upsert({
     where: {
@@ -760,3 +752,5 @@ export function buildCatalogSourceReferences(input: {
     fallbackUrls
   );
 }
+
+export * from "./product-lookup.js";

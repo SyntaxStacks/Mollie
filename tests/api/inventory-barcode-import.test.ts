@@ -16,9 +16,12 @@ process.env.STORAGE_BACKEND ??= "local";
 
 type AppModule = typeof import("../../apps/api/src/index.js");
 type DbModule = typeof import("@reselleros/db");
+type QueueModule = typeof import("@reselleros/queue");
 
 let app: Awaited<ReturnType<AppModule["buildApiApp"]>>;
 let db: DbModule["db"];
+let setEnqueueHandler: QueueModule["setEnqueueHandler"];
+const queuedJobs: Array<{ name: string; payload: unknown }> = [];
 const createdEmails = new Set<string>();
 
 function buildHeaders(token: string, workspaceId?: string) {
@@ -82,15 +85,29 @@ async function createWorkspaceSession(label: string) {
 }
 
 before(async () => {
-  const [apiModule, dbModule] = await Promise.all([import("../../apps/api/src/index.js"), import("@reselleros/db")]);
+  const [apiModule, dbModule, queueModule] = await Promise.all([
+    import("../../apps/api/src/index.js"),
+    import("@reselleros/db"),
+    import("@reselleros/queue")
+  ]);
   app = apiModule.buildApiApp();
   db = dbModule.db;
+  setEnqueueHandler = queueModule.setEnqueueHandler;
+  setEnqueueHandler(async (name, payload) => {
+    queuedJobs.push({
+      name,
+      payload
+    });
+
+    return { id: `${name}-${queuedJobs.length}` };
+  });
   await app.ready();
   await db.$connect();
   await db.$queryRaw`SELECT 1`;
 });
 
 after(async () => {
+  setEnqueueHandler(null);
   await db.catalogIdentifier.deleteMany({
     where: {
       normalizedIdentifier: "012345678905"
@@ -113,6 +130,33 @@ after(async () => {
 });
 
 test("barcode import creates an inventory item with market observations and imported images", async () => {
+  queuedJobs.length = 0;
+  await db.catalogObservation.deleteMany({
+    where: {
+      catalogIdentifier: {
+        normalizedIdentifier: "012345678905"
+      }
+    }
+  });
+  await db.workspaceCatalogObservation.deleteMany({
+    where: {
+      catalogIdentifier: {
+        normalizedIdentifier: "012345678905"
+      }
+    }
+  });
+  await db.workspaceCatalogOverride.deleteMany({
+    where: {
+      catalogIdentifier: {
+        normalizedIdentifier: "012345678905"
+      }
+    }
+  });
+  await db.catalogIdentifier.deleteMany({
+    where: {
+      normalizedIdentifier: "012345678905"
+    }
+  });
   const session = await createWorkspaceSession("barcode-import");
 
   const importResponse = await app.inject({
@@ -136,6 +180,39 @@ test("barcode import creates an inventory item with market observations and impo
         "https://m.media-amazon.com/images/I/example-two.jpg",
         "https://m.media-amazon.com/images/I/example-one.jpg"
       ],
+      acceptedCandidate: {
+        id: "amazon-enriched-012345678905",
+        barcode: "012345678905",
+        identifierType: "UPC",
+        title: "Nintendo Wii Remote",
+        brand: "Nintendo",
+        category: "Video Games",
+        model: "RVL-003",
+        size: null,
+        color: "White",
+        primaryImageUrl: "https://m.media-amazon.com/images/I/example-one.jpg",
+        imageUrls: [
+          "https://m.media-amazon.com/images/I/example-one.jpg",
+          "https://m.media-amazon.com/images/I/example-two.jpg"
+        ],
+        asin: "B000IMWK2G",
+        productUrl: "https://www.amazon.com/dp/B000IMWK2G",
+        provider: "AMAZON_ENRICHMENT",
+        confidenceScore: 0.84,
+        confidenceState: "HIGH",
+        matchRationale: ["Matched barcode to a likely Wii Remote product."],
+        hint: {
+          title: "Likely match found",
+          explanation: "Double-check the product photo and title before applying it.",
+          severity: "SUCCESS",
+          nextActions: ["Compare the product photo to the item in hand."],
+          canContinue: true
+        },
+        safeToPrefill: true,
+        simulated: true
+      },
+      generateDrafts: true,
+      draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"],
       observations: [
         {
           market: "AMAZON",
@@ -149,6 +226,8 @@ test("barcode import creates an inventory item with market observations and impo
 
   assert.equal(importResponse.statusCode, 200);
   const importedItem = importResponse.json<{
+    draftsQueued: boolean;
+    draftPlatforms: string[];
     item: {
       id: string;
       title: string;
@@ -157,16 +236,21 @@ test("barcode import creates an inventory item with market observations and impo
       estimatedResaleMax: number;
       images: Array<{ url: string; position: number }>;
     };
-  }>().item;
+  }>();
+  assert.equal(importedItem.draftsQueued, true);
+  assert.deepEqual(importedItem.draftPlatforms, ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]);
+  assert.equal(queuedJobs.length, 1);
+  assert.equal(queuedJobs[0]?.name, "inventory.generateListingDraft");
+  const itemPayload = importedItem.item;
 
-  assert.ok(importedItem.id);
-  assert.equal(importedItem.title, "Nintendo Wii Remote");
-  assert.equal(importedItem.priceRecommendation, 39.99);
-  assert.equal(importedItem.estimatedResaleMin, 39.99);
-  assert.equal(importedItem.estimatedResaleMax, 39.99);
-  assert.equal(importedItem.images.length, 2);
+  assert.ok(itemPayload.id);
+  assert.equal(itemPayload.title, "Nintendo Wii Remote");
+  assert.equal(itemPayload.priceRecommendation, 39.99);
+  assert.equal(itemPayload.estimatedResaleMin, 39.99);
+  assert.equal(itemPayload.estimatedResaleMax, 39.99);
+  assert.equal(itemPayload.images.length, 2);
   assert.deepEqual(
-    importedItem.images.map((image) => ({ url: image.url, position: image.position })),
+    itemPayload.images.map((image) => ({ url: image.url, position: image.position })),
     [
       { url: "https://m.media-amazon.com/images/I/example-one.jpg", position: 0 },
       { url: "https://m.media-amazon.com/images/I/example-two.jpg", position: 1 }
@@ -174,7 +258,7 @@ test("barcode import creates an inventory item with market observations and impo
   );
 
   const persistedItem = await db.inventoryItem.findUnique({
-    where: { id: importedItem.id }
+    where: { id: itemPayload.id }
   });
 
   assert.ok(persistedItem);
@@ -183,12 +267,16 @@ test("barcode import creates an inventory item with market observations and impo
     identifierType: string;
     primarySourceMarket: string;
     catalogIdentifierId: string;
+    acceptedCandidate: { provider: string; confidenceState: string; asin: string | null };
     marketObservations: Array<{ market: string; price: number; observedAt: string }>;
   };
   assert.equal(attributes.identifier, "012345678905");
   assert.equal(attributes.identifierType, "UPC");
   assert.equal(attributes.primarySourceMarket, "AMAZON");
   assert.ok(attributes.catalogIdentifierId);
+  assert.equal(attributes.acceptedCandidate.provider, "AMAZON_ENRICHMENT");
+  assert.equal(attributes.acceptedCandidate.confidenceState, "HIGH");
+  assert.equal(attributes.acceptedCandidate.asin, "B000IMWK2G");
   assert.equal(attributes.marketObservations.length, 1);
   assert.equal(attributes.marketObservations[0]?.market, "AMAZON");
   assert.equal(attributes.marketObservations[0]?.price, 39.99);
@@ -218,7 +306,7 @@ test("barcode import creates an inventory item with market observations and impo
     where: {
       workspaceId: session.workspaceId,
       action: "inventory.imported_from_barcode",
-      targetId: importedItem.id
+      targetId: itemPayload.id
     }
   });
 

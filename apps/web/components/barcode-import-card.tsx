@@ -1,10 +1,10 @@
 "use client";
 
-import { Camera, ExternalLink, ScanBarcode, Search, Sparkles, X } from "lucide-react";
+import { Camera, CheckCircle2, ExternalLink, ScanBarcode, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 
-import type { CatalogLookupResult } from "@reselleros/types";
+import type { ProductLookupCandidate, ProductLookupResult } from "@reselleros/types";
 import { Button, Card } from "@reselleros/ui";
 
 import { OperatorHintCard } from "./operator-hint-card";
@@ -37,16 +37,23 @@ function normalizeImageUrls(value: string) {
   return [...new Set(value.split(/[\r\n,]+/).map((entry) => entry.trim()).filter(Boolean))];
 }
 
-function firstSourceUrl(result: CatalogLookupResult | null, market: "AMAZON" | "EBAY") {
-  return (
-    result?.record?.sourceReferences.find((reference) => reference.market === market)?.url ??
-    result?.record?.observations.find((observation) => observation.market === market)?.sourceUrl ??
-    null
-  );
+function providerLabel(provider: ProductLookupCandidate["provider"]) {
+  switch (provider) {
+    case "AMAZON_ENRICHMENT":
+      return "Amazon enriched";
+    case "INTERNAL_CATALOG":
+      return "Mollie catalog";
+    default:
+      return "Simulated";
+  }
 }
 
-function firstObservedPrice(result: CatalogLookupResult | null, market: "AMAZON" | "EBAY") {
-  return result?.record?.observations.find((observation) => observation.market === market)?.price ?? null;
+function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | null) {
+  if (!candidate) {
+    return "OTHER" as const;
+  }
+
+  return candidate.provider === "AMAZON_ENRICHMENT" ? "AMAZON" : "OTHER";
 }
 
 export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
@@ -54,25 +61,29 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [pending, startTransition] = useTransition();
   const [lookupPending, startLookupTransition] = useTransition();
+  const [lookupResult, setLookupResult] = useState<ProductLookupResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [lookupResult, setLookupResult] = useState<CatalogLookupResult | null>(null);
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerSupported, setScannerSupported] = useState(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
-  const [identifier, setIdentifier] = useState("");
+  const [barcode, setBarcode] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
+  const [manualEntryEnabled, setManualEntryEnabled] = useState(false);
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
-  const [category, setCategory] = useState("Media");
+  const [category, setCategory] = useState("General Merchandise");
   const [condition, setCondition] = useState("Good used condition");
+  const [size, setSize] = useState("");
+  const [color, setColor] = useState("");
   const [costBasis, setCostBasis] = useState("0");
-  const [amazonPrice, setAmazonPrice] = useState("");
-  const [ebayPrice, setEbayPrice] = useState("");
-  const [resaleMin, setResaleMin] = useState("");
-  const [resaleMax, setResaleMax] = useState("");
   const [priceRecommendation, setPriceRecommendation] = useState("");
+  const [amazonPrice, setAmazonPrice] = useState("");
   const [amazonUrl, setAmazonUrl] = useState("");
+  const [ebayPrice, setEbayPrice] = useState("");
   const [ebayUrl, setEbayUrl] = useState("");
   const [imageUrls, setImageUrls] = useState("");
+  const [generateDrafts, setGenerateDrafts] = useState(false);
 
   useEffect(() => {
     setScannerSupported(
@@ -118,7 +129,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           : null;
 
         if (!detector) {
-          setScannerError("Camera scanning is not supported on this browser. Type or paste the identifier instead.");
+          setScannerError("Camera scanning is not supported here. Type or paste the barcode instead.");
           return;
         }
 
@@ -132,12 +143,12 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
 
             if (code) {
-              setIdentifier(code);
+              setBarcode(code);
               setScannerOpen(false);
               return;
             }
           } catch {
-            setScannerError("Could not read the UPC, EAN, or ISBN yet. Hold the label flatter and closer.");
+            setScannerError("Could not read the barcode yet. Hold the label flatter and closer.");
           }
 
           animationFrame = window.requestAnimationFrame(scanFrame);
@@ -145,7 +156,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
         animationFrame = window.requestAnimationFrame(scanFrame);
       } catch {
-        setScannerError("Camera access was denied. You can still type the identifier or use a hardware scanner.");
+        setScannerError("Camera access was denied. You can still type the barcode or use a hardware scanner.");
       }
     }
 
@@ -165,89 +176,80 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   }, [scannerOpen, scannerSupported]);
 
   function resetForm() {
-    setIdentifier("");
+    setBarcode("");
+    setLookupResult(null);
+    setLookupError(null);
+    setSubmitError(null);
+    setSelectedCandidate(null);
+    setManualEntryEnabled(false);
     setTitle("");
     setBrand("");
-    setCategory("Media");
+    setCategory("General Merchandise");
     setCondition("Good used condition");
+    setSize("");
+    setColor("");
     setCostBasis("0");
-    setAmazonPrice("");
-    setEbayPrice("");
-    setResaleMin("");
-    setResaleMax("");
     setPriceRecommendation("");
+    setAmazonPrice("");
     setAmazonUrl("");
+    setEbayPrice("");
     setEbayUrl("");
     setImageUrls("");
-    setSubmitError(null);
-    setLookupResult(null);
+    setGenerateDrafts(false);
+  }
+
+  function applyCandidate(candidate: ProductLookupCandidate) {
+    setSelectedCandidate(candidate);
+    setManualEntryEnabled(true);
+    setLookupError(null);
+    setTitle(candidate.title);
+    setBrand(candidate.brand ?? "");
+    setCategory(candidate.category ?? "General Merchandise");
+    setSize(candidate.size ?? candidate.model ?? "");
+    setColor(candidate.color ?? "");
+    setAmazonUrl(candidate.productUrl ?? "");
+    setImageUrls(candidate.imageUrls.join("\n"));
+  }
+
+  function enableManualEntry() {
+    setSelectedCandidate(null);
+    setManualEntryEnabled(true);
+    if (!title) {
+      setTitle("");
+    }
   }
 
   async function handleLookup() {
     startLookupTransition(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/catalog/lookup`, {
+        const response = await fetch(`${API_BASE_URL}/api/product-lookup/barcode`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            identifier: identifier || undefined
+            barcode
           })
         });
-        const payload = (await response.json().catch(() => ({ error: "Identifier research failed" }))) as {
+        const payload = (await response.json().catch(() => ({ error: "Could not identify this barcode." }))) as {
           error?: string;
-          result?: CatalogLookupResult;
+          result?: ProductLookupResult;
         };
 
         if (!response.ok || !payload.result) {
-          throw new Error(payload.error ?? "Identifier research failed");
+          throw new Error(payload.error ?? "Could not identify this barcode.");
         }
 
         setLookupResult(payload.result);
-
-        if (payload.result.record) {
-          setTitle(payload.result.record.canonicalTitle ?? "");
-          setBrand(payload.result.record.brand ?? "");
-          setCategory(payload.result.record.category ?? "Media");
-          setImageUrls(payload.result.record.imageUrls.join("\n"));
-
-          const amazonObservedPrice = firstObservedPrice(payload.result, "AMAZON");
-          const ebayObservedPrice = firstObservedPrice(payload.result, "EBAY");
-          const firstObserved = amazonObservedPrice ?? ebayObservedPrice ?? null;
-
-          setAmazonPrice(amazonObservedPrice ? String(amazonObservedPrice) : "");
-          setEbayPrice(ebayObservedPrice ? String(ebayObservedPrice) : "");
-          setAmazonUrl(firstSourceUrl(payload.result, "AMAZON") ?? "");
-          setEbayUrl(firstSourceUrl(payload.result, "EBAY") ?? "");
-
-          if (firstObserved) {
-            setPriceRecommendation((current) => current || String(firstObserved));
-            setResaleMin((current) => current || String(firstObserved));
-            setResaleMax((current) => current || String(firstObserved));
-          }
-        }
+        setLookupError(null);
+        setSelectedCandidate(null);
+        setManualEntryEnabled(payload.result.candidates.length === 0);
       } catch (caughtError) {
-        setLookupResult({
-          mode: "INTERNAL",
-          normalizedIdentifier: identifier.trim(),
-          identifierType: "UNKNOWN",
-          cacheStatus: "MISS",
-          record: null,
-          workspaceObservations: [],
-          researchLinks: [],
-          hint: {
-            title: "Identifier research failed",
-            explanation: caughtError instanceof Error ? caughtError.message : "Identifier research failed.",
-            severity: "ERROR",
-            nextActions: [
-              "Retry after checking the UPC, EAN, or ISBN.",
-              "Use the research links and continue with manual entry if you still need to create the item."
-            ],
-            canContinue: true
-          }
-        });
+        setLookupResult(null);
+        setSelectedCandidate(null);
+        setManualEntryEnabled(true);
+        setLookupError(caughtError instanceof Error ? caughtError.message : "Could not identify this barcode.");
       }
     });
   }
@@ -258,35 +260,28 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     startTransition(async () => {
       try {
         const observations = [
-          Number.isFinite(Number(amazonPrice)) && Number(amazonPrice) >= 0
+          amazonPrice
             ? {
                 market: "AMAZON",
                 label: "Amazon",
                 price: Number(amazonPrice),
                 sourceUrl: amazonUrl || null,
-                note: "Captured by operator during identifier research."
+                note: "Captured during Scan to identify."
               }
             : null,
-          Number.isFinite(Number(ebayPrice)) && Number(ebayPrice) >= 0
+          ebayPrice
             ? {
                 market: "EBAY",
                 label: "eBay",
                 price: Number(ebayPrice),
                 sourceUrl: ebayUrl || null,
-                note: "Captured by operator during identifier research."
+                note: "Captured during Scan to identify."
               }
             : null
         ].filter((value): value is NonNullable<typeof value> => Boolean(value));
 
-        if (observations.length === 0) {
-          throw new Error("Add at least one observed market price from Amazon or eBay.");
-        }
-
-        const primarySourceMarket = amazonUrl ? "AMAZON" : ebayUrl ? "EBAY" : observations[0]?.market ?? "OTHER";
-        const primarySourceUrl = amazonUrl || ebayUrl || observations[0]?.sourceUrl || null;
-        const referenceUrls = [amazonUrl, ebayUrl].filter(Boolean);
-        const recommendationBase = Number(priceRecommendation || observations[0]?.price || 0);
-
+        const normalizedImageUrls = normalizeImageUrls(imageUrls);
+        const primarySourceUrl = amazonUrl || selectedCandidate?.productUrl || ebayUrl || null;
         const response = await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
           method: "POST",
           headers: {
@@ -294,301 +289,359 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            identifier,
-            identifierType: lookupResult?.identifierType ?? null,
+            identifier: barcode,
+            identifierType: lookupResult?.identifierType ?? selectedCandidate?.identifierType ?? null,
             title,
             brand: brand || null,
             category,
             condition,
+            size: size || null,
+            color: color || null,
             costBasis: Number(costBasis || 0),
-            estimatedResaleMin: resaleMin ? Number(resaleMin) : recommendationBase,
-            estimatedResaleMax: resaleMax ? Number(resaleMax) : recommendationBase,
-            priceRecommendation: recommendationBase,
-            primarySourceMarket,
+            priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
+            primarySourceMarket: primarySourceMarketForCandidate(selectedCandidate),
             primarySourceUrl,
-            referenceUrls,
-            imageUrls: normalizeImageUrls(imageUrls),
-            observations
+            referenceUrls: [amazonUrl, ebayUrl, selectedCandidate?.productUrl].filter(
+              (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+            ),
+            imageUrls: normalizedImageUrls,
+            observations,
+            acceptedCandidate: selectedCandidate,
+            generateDrafts,
+            draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
           })
         });
-        const payload = (await response.json().catch(() => ({ error: "Could not create item from identifier research" }))) as {
+        const payload = (await response.json().catch(() => ({ error: "Could not create inventory from this match." }))) as {
           error?: string;
           item?: { id: string };
+          draftsQueued?: boolean;
         };
 
         if (!response.ok || !payload.item?.id) {
-          throw new Error(payload.error ?? "Could not create item from identifier research");
+          throw new Error(payload.error ?? "Could not create inventory from this match.");
         }
 
+        const createdItemId = payload.item.id;
         resetForm();
-        router.push(`/inventory/${payload.item.id}`);
+        router.push(payload.draftsQueued ? `/drafts?fromScan=${createdItemId}` : `/inventory/${createdItemId}`);
       } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create item from identifier research");
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create inventory from this match.");
       }
     });
   }
 
-  const normalizedImageUrls = normalizeImageUrls(imageUrls);
-  const researchLinks = useMemo(() => lookupResult?.researchLinks ?? [], [lookupResult]);
+  const canSubmit = manualEntryEnabled && Boolean(barcode.trim()) && Boolean(title.trim()) && Boolean(category.trim()) && Boolean(condition.trim());
+  const topHint = lookupResult?.hint ?? (lookupError
+    ? {
+        title: "Could not identify this barcode",
+        explanation: lookupError,
+        severity: "ERROR" as const,
+        nextActions: [
+          "Retry after checking the barcode.",
+          "Continue with manual entry if you still need to create the item."
+        ],
+        canContinue: true
+      }
+    : null);
+  const productUrlLinks = useMemo(
+    () => lookupResult?.candidates.filter((candidate) => candidate.productUrl).slice(0, 3) ?? [],
+    [lookupResult]
+  );
 
   return (
     <>
-      <Card eyebrow="Identifier research" title="Scan, research, and create from UPC, EAN, or ISBN">
+      <Card eyebrow="Scan to identify" title="Scan a barcode, review the match, then create inventory">
         <div className="stack">
           <p className="muted">
-            Scan a UPC, EAN, or ISBN, use Google plus marketplace search links to research the item, and create an inventory
-            record that strengthens Mollie&apos;s internal identifier catalog for future scans.
+            Scan a UPC, EAN, or ISBN, review candidate matches, and confirm the one that best matches the item in your hand.
+            Mollie prefills inventory fields only after you accept the match or switch to manual entry.
           </p>
-          <form className="stack" onSubmit={handleSubmit}>
-            <div className="scan-import-grid">
-              <label className="label">
-                UPC / EAN / ISBN
-                <div className="scan-field-row">
-                  <input
-                    className="field"
-                    data-testid="barcode-import-barcode"
-                    inputMode="numeric"
-                    name="identifier"
-                    placeholder="Scan or type identifier"
-                    required
-                    value={identifier}
-                    onChange={(event) => setIdentifier(event.target.value)}
-                  />
-                  {scannerSupported ? (
-                    <Button kind="secondary" onClick={() => setScannerOpen(true)} type="button">
-                      <ScanBarcode size={16} /> Scan
-                    </Button>
-                  ) : null}
-                </div>
-              </label>
-              <div className="label">
-                Research
-                <div className="scan-field-row">
-                  <Button
-                    data-testid="barcode-import-lookup"
-                    disabled={lookupPending || !identifier.trim()}
-                    kind="secondary"
-                    onClick={handleLookup}
-                    type="button"
-                  >
-                    <Search size={16} /> {lookupPending ? "Loading..." : "Load saved research"}
+
+          <div className="scan-import-grid">
+            <label className="label">
+              Barcode
+              <div className="scan-field-row">
+                <input
+                  className="field"
+                  data-testid="scan-identify-barcode"
+                  inputMode="numeric"
+                  placeholder="Scan or type barcode"
+                  required
+                  value={barcode}
+                  onChange={(event) => setBarcode(event.target.value)}
+                />
+                {scannerSupported ? (
+                  <Button kind="secondary" onClick={() => setScannerOpen(true)} type="button">
+                    <ScanBarcode size={16} /> Scan
                   </Button>
-                </div>
+                ) : null}
               </div>
-              <label className="label">
-                Title
-                <input
-                  className="field"
-                  data-testid="barcode-import-title"
-                  name="title"
-                  placeholder="Product title"
-                  required
-                  value={title}
-                  onChange={(event) => setTitle(event.target.value)}
-                />
-              </label>
-              <label className="label">
-                Brand
-                <input
-                  className="field"
-                  data-testid="barcode-import-brand"
-                  name="brand"
-                  value={brand}
-                  onChange={(event) => setBrand(event.target.value)}
-                />
-              </label>
-              <label className="label">
-                Category
-                <input
-                  className="field"
-                  data-testid="barcode-import-category"
-                  name="category"
-                  required
-                  value={category}
-                  onChange={(event) => setCategory(event.target.value)}
-                />
-              </label>
-              <label className="label">
-                Condition
-                <input
-                  className="field"
-                  data-testid="barcode-import-condition"
-                  name="condition"
-                  required
-                  value={condition}
-                  onChange={(event) => setCondition(event.target.value)}
-                />
-              </label>
-              <label className="label">
-                Cost basis
-                <input
-                  className="field"
-                  min="0"
-                  name="costBasis"
-                  step="0.01"
-                  type="number"
-                  value={costBasis}
-                  onChange={(event) => setCostBasis(event.target.value)}
-                />
-              </label>
+            </label>
+            <div className="label">
+              Identify
+              <div className="scan-field-row">
+                <Button
+                  data-testid="scan-identify-submit"
+                  disabled={lookupPending || !barcode.trim()}
+                  kind="secondary"
+                  onClick={handleLookup}
+                  type="button"
+                >
+                  <Search size={16} /> {lookupPending ? "Identifying..." : "Find product match"}
+                </Button>
+              </div>
             </div>
+          </div>
 
-            <OperatorHintCard hint={lookupResult?.hint ?? null} />
+          <OperatorHintCard hint={topHint} />
 
-            {lookupResult ? (
+          {lookupResult ? (
+            <div className="stack">
               <div className="market-observation-card">
                 <div className="split">
                   <div>
-                    <p className="eyebrow">Research status</p>
-                    <strong>
-                      {lookupResult.identifierType} {lookupResult.cacheStatus.toLowerCase()}
-                    </strong>
+                    <p className="eyebrow">Lookup summary</p>
+                    <strong>{lookupResult.identifierType} scan</strong>
                   </div>
-                  <div className="market-observation-value">{lookupResult.normalizedIdentifier}</div>
+                  <div className="market-observation-value">{lookupResult.providerSummary.simulated ? "Simulated provider" : "Live provider"}</div>
                 </div>
-                {researchLinks.length > 0 ? (
+                <div className="market-observation-summary">
+                  <span>{lookupResult.candidates.length} candidate{lookupResult.candidates.length === 1 ? "" : "s"} found</span>
+                  <span>{lookupResult.recommendedNextAction}</span>
+                </div>
+                {productUrlLinks.length > 0 ? (
                   <div className="actions wrap-actions">
-                    {researchLinks.map((link) => (
-                      <a className="secondary-link-button" href={link.url} key={`${link.market}:${link.url}`} rel="noreferrer" target="_blank">
-                        <ExternalLink size={16} /> {link.label}
+                    {productUrlLinks.map((candidate) => (
+                      <a className="secondary-link-button" href={candidate.productUrl ?? "#"} key={candidate.id} rel="noreferrer" target="_blank">
+                        <ExternalLink size={16} /> Open {providerLabel(candidate.provider)}
                       </a>
                     ))}
                   </div>
                 ) : null}
-                <div className="market-observation-summary">
-                  <span>{lookupResult.record ? "Saved catalog match available" : "No saved product match yet"}</span>
-                  <span>{lookupResult.workspaceObservations.length} workspace observation{lookupResult.workspaceObservations.length === 1 ? "" : "s"}</span>
-                </div>
               </div>
-            ) : null}
 
-            <div className="market-observation-card" data-testid="research-observation-card">
-              <div className="split">
-                <div>
-                  <p className="eyebrow">Market observations</p>
-                  <strong>Compare Amazon and eBay</strong>
+              {lookupResult.candidates.length > 0 ? (
+                <div className="lookup-candidate-grid">
+                  {lookupResult.candidates.map((candidate, index) => (
+                    <section
+                      className={`lookup-candidate-card${selectedCandidate?.id === candidate.id ? " lookup-candidate-card-selected" : ""}`}
+                      data-testid={`scan-identify-candidate-${index}`}
+                      key={candidate.id}
+                    >
+                      {candidate.primaryImageUrl ? (
+                        <img alt={candidate.title} className="lookup-candidate-image" src={candidate.primaryImageUrl} />
+                      ) : (
+                        <div className="lookup-candidate-image lookup-candidate-image-empty">No image</div>
+                      )}
+                      <div className="stack" style={{ gap: "0.65rem" }}>
+                        <div className="split" style={{ alignItems: "flex-start" }}>
+                          <div>
+                            <strong>{candidate.title}</strong>
+                            <div className="muted">
+                              {candidate.brand ?? "Unknown brand"} · {candidate.category ?? "Unsorted"}
+                            </div>
+                          </div>
+                          <div className="stack" style={{ gap: "0.35rem", alignItems: "flex-end" }}>
+                            <span className="execution-inline-code">{providerLabel(candidate.provider)}</span>
+                            <span className={`lookup-confidence-pill lookup-confidence-${candidate.confidenceState.toLowerCase()}`}>
+                              {candidate.confidenceState} {Math.round(candidate.confidenceScore * 100)}%
+                            </span>
+                          </div>
+                        </div>
+
+                        <OperatorHintCard hint={candidate.hint} />
+
+                        {candidate.matchRationale.length > 0 ? (
+                          <ul className="marketplace-hint-list">
+                            {candidate.matchRationale.map((reason) => (
+                              <li key={reason}>{reason}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+
+                        <div className="muted">
+                          {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
+                        </div>
+
+                        <div className="actions wrap-actions">
+                          <Button
+                            data-testid={`scan-identify-accept-${index}`}
+                            onClick={() => applyCandidate(candidate)}
+                            type="button"
+                          >
+                            <CheckCircle2 size={16} /> Accept and edit
+                          </Button>
+                          {candidate.productUrl ? (
+                            <a className="secondary-link-button" href={candidate.productUrl} rel="noreferrer" target="_blank">
+                              <ExternalLink size={16} /> Review source
+                            </a>
+                          ) : null}
+                        </div>
+                      </div>
+                    </section>
+                  ))}
                 </div>
-                <div className="market-observation-value">
-                  {lookupResult?.record?.confidenceScore ? `${Math.round(lookupResult.record.confidenceScore * 100)}% confidence` : "Manual research"}
-                </div>
+              ) : null}
+
+              <div className="actions">
+                <Button kind="secondary" onClick={enableManualEntry} type="button">
+                  Continue with manual entry
+                </Button>
               </div>
+            </div>
+          ) : null}
+
+          {manualEntryEnabled ? (
+            <form className="stack" onSubmit={handleSubmit}>
+              {selectedCandidate ? (
+                <div className="market-observation-card">
+                  <div className="split">
+                    <div>
+                      <p className="eyebrow">Accepted match</p>
+                      <strong>{selectedCandidate.title}</strong>
+                    </div>
+                    <div className="market-observation-value">{selectedCandidate.confidenceState}</div>
+                  </div>
+                  <div className="scan-import-hint">
+                    <Sparkles size={16} />
+                    <span>
+                      Review the prefilled fields below. Mollie will not create the inventory item until you save.
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="market-observation-card">
+                  <div className="split">
+                    <div>
+                      <p className="eyebrow">Manual fallback</p>
+                      <strong>Enter the item details yourself</strong>
+                    </div>
+                    <div className="market-observation-value">Operator controlled</div>
+                  </div>
+                  <div className="scan-import-hint">
+                    <Sparkles size={16} />
+                    <span>No candidate will be applied automatically. Use manual entry if none of the matches look reliable.</span>
+                  </div>
+                </div>
+              )}
+
               <div className="scan-import-grid">
                 <label className="label">
-                  Amazon observed price
+                  Title
                   <input
                     className="field"
-                    data-testid="barcode-import-amazon-price"
-                    min="0"
-                    name="amazonPrice"
-                    step="0.01"
-                    type="number"
-                    value={amazonPrice}
-                    onChange={(event) => setAmazonPrice(event.target.value)}
+                    data-testid="scan-identify-title"
+                    required
+                    value={title}
+                    onChange={(event) => setTitle(event.target.value)}
                   />
                 </label>
                 <label className="label">
-                  Amazon URL
-                  <input
-                    className="field"
-                    name="amazonUrl"
-                    placeholder="https://www.amazon.com/..."
-                    value={amazonUrl}
-                    onChange={(event) => setAmazonUrl(event.target.value)}
-                  />
+                  Brand
+                  <input className="field" value={brand} onChange={(event) => setBrand(event.target.value)} />
                 </label>
                 <label className="label">
-                  eBay observed price
-                  <input
-                    className="field"
-                    data-testid="barcode-import-ebay-price"
-                    min="0"
-                    name="ebayPrice"
-                    step="0.01"
-                    type="number"
-                    value={ebayPrice}
-                    onChange={(event) => setEbayPrice(event.target.value)}
-                  />
+                  Category
+                  <input className="field" required value={category} onChange={(event) => setCategory(event.target.value)} />
+                </label>
+                  <label className="label">
+                    Condition
+                    <input
+                      className="field"
+                      data-testid="scan-identify-condition"
+                      required
+                      value={condition}
+                      onChange={(event) => setCondition(event.target.value)}
+                    />
+                  </label>
+                <label className="label">
+                  Model or size
+                  <input className="field" value={size} onChange={(event) => setSize(event.target.value)} />
                 </label>
                 <label className="label">
-                  eBay URL
-                  <input
-                    className="field"
-                    name="ebayUrl"
-                    placeholder="https://www.ebay.com/..."
-                    value={ebayUrl}
-                    onChange={(event) => setEbayUrl(event.target.value)}
-                  />
+                  Color
+                  <input className="field" value={color} onChange={(event) => setColor(event.target.value)} />
+                </label>
+                <label className="label">
+                  Cost basis
+                  <input className="field" min="0" step="0.01" type="number" value={costBasis} onChange={(event) => setCostBasis(event.target.value)} />
                 </label>
                 <label className="label">
                   Price recommendation
-                  <input
-                    className="field"
-                    min="0"
-                    name="priceRecommendation"
-                    step="0.01"
-                    type="number"
-                    value={priceRecommendation}
-                    onChange={(event) => setPriceRecommendation(event.target.value)}
-                  />
+                  <input className="field" min="0" step="0.01" type="number" value={priceRecommendation} onChange={(event) => setPriceRecommendation(event.target.value)} />
                 </label>
+                  <label className="label">
+                    Amazon price
+                    <input
+                      className="field"
+                      data-testid="scan-identify-amazon-price"
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={amazonPrice}
+                      onChange={(event) => setAmazonPrice(event.target.value)}
+                    />
+                  </label>
                 <label className="label">
-                  Resale min
-                  <input
-                    className="field"
-                    min="0"
-                    name="resaleMin"
-                    step="0.01"
-                    type="number"
-                    value={resaleMin}
-                    onChange={(event) => setResaleMin(event.target.value)}
-                  />
+                  Amazon product URL
+                  <input className="field" value={amazonUrl} onChange={(event) => setAmazonUrl(event.target.value)} />
                 </label>
-                <label className="label">
-                  Resale max
-                  <input
-                    className="field"
-                    min="0"
-                    name="resaleMax"
-                    step="0.01"
-                    type="number"
-                    value={resaleMax}
-                    onChange={(event) => setResaleMax(event.target.value)}
-                  />
-                </label>
+                  <label className="label">
+                    eBay price
+                    <input
+                      className="field"
+                      data-testid="scan-identify-ebay-price"
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={ebayPrice}
+                      onChange={(event) => setEbayPrice(event.target.value)}
+                    />
+                  </label>
+                  <label className="label">
+                    eBay URL
+                    <input
+                      className="field"
+                      data-testid="scan-identify-ebay-url"
+                      value={ebayUrl}
+                      onChange={(event) => setEbayUrl(event.target.value)}
+                    />
+                  </label>
               </div>
+
               <label className="label">
-                Reference image URLs
+                Image URLs
                 <textarea
                   className="field textarea-field"
-                  data-testid="barcode-import-image-urls"
-                  name="imageUrls"
-                  placeholder={"Paste one image URL per line.\nThese URLs become the initial item gallery in v1 and can be replaced later with operator photos."}
+                  data-testid="scan-identify-image-urls"
+                  placeholder={"Paste one image URL per line.\nSource images are okay for the first pass and can be replaced later with operator photos."}
                   rows={4}
                   value={imageUrls}
                   onChange={(event) => setImageUrls(event.target.value)}
                 />
               </label>
-              <div className="scan-import-hint">
-                <Sparkles size={16} />
-                <span>
-                  Save what you confirm here and Mollie will reuse that identifier knowledge the next time someone scans the same item.
-                </span>
-              </div>
-              <div className="market-observation-summary">
-                <span>{normalizedImageUrls.length} image URL{normalizedImageUrls.length === 1 ? "" : "s"} ready to attach</span>
-                <span>{amazonPrice || ebayPrice ? "Observed pricing captured" : "Add at least one market price"}</span>
-              </div>
-            </div>
 
-            <div className="actions">
-              <Button data-testid="barcode-import-submit" disabled={pending} type="submit">
-                <Sparkles size={16} /> {pending ? "Creating from research..." : "Create item from research"}
-              </Button>
-              <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
-                Reset
-              </Button>
-            </div>
-          </form>
+              <label className="checkbox-row">
+                <input
+                  checked={generateDrafts}
+                  data-testid="scan-identify-generate-drafts"
+                  onChange={(event) => setGenerateDrafts(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Also queue marketplace drafts after creating the item</span>
+              </label>
+
+              <div className="actions">
+                <Button data-testid="scan-identify-create" disabled={pending || !canSubmit} type="submit">
+                  <Sparkles size={16} /> {pending ? "Saving..." : generateDrafts ? "Create item and queue drafts" : "Create item"}
+                </Button>
+                <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
+                  Reset
+                </Button>
+              </div>
+            </form>
+          ) : null}
+
           {submitError ? <div className="notice">{submitError}</div> : null}
         </div>
       </Card>
@@ -604,7 +657,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           >
             <div className="handoff-modal-header">
               <div>
-                <p className="eyebrow">Identifier scan</p>
+                <p className="eyebrow">Scan to identify</p>
                 <h3 id="barcode-scanner-title">Scan with camera</h3>
               </div>
               <Button kind="ghost" onClick={() => setScannerOpen(false)}>
@@ -612,7 +665,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </Button>
             </div>
             <p className="handoff-copy">
-              Hold the UPC, EAN, or ISBN inside the frame. Mollie will fill the identifier field as soon as it detects a match.
+              Hold the barcode inside the frame. Mollie will fill the field as soon as it detects a UPC, EAN, or ISBN.
             </p>
             <div className="barcode-scanner-video-shell">
               <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
@@ -620,7 +673,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="scan-import-hint">
               <Camera size={16} />
-              <span>If camera scanning is unavailable here, you can still type the identifier or use a hardware scanner.</span>
+              <span>If camera scanning is unavailable here, you can still type the barcode or use a hardware scanner.</span>
             </div>
           </div>
         </div>

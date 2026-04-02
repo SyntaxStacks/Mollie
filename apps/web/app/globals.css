@@ -701,7 +701,7 @@ body {
 .market-observation-value {
   font-size: 1.45rem;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--text);
 }
 
 .scan-import-hint,
@@ -730,9 +730,77 @@ body {
   border-radius: 999px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.88);
-  color: var(--ink);
+  color: var(--text);
   text-decoration: none;
   font-weight: 600;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+}
+
+.lookup-candidate-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.lookup-candidate-card {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  gap: 1rem;
+  padding: 1rem;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.lookup-candidate-card-selected {
+  border-color: rgba(15, 118, 110, 0.35);
+  box-shadow: 0 16px 40px rgba(15, 118, 110, 0.08);
+}
+
+.lookup-candidate-image {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.lookup-candidate-image-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lookup-confidence-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.lookup-confidence-high {
+  background: rgba(15, 118, 110, 0.12);
+  color: #115e59;
+}
+
+.lookup-confidence-medium {
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+}
+
+.lookup-confidence-low {
+  background: rgba(14, 116, 144, 0.08);
+  color: #155e75;
 }
 
 .barcode-scanner-modal {
@@ -849,6 +917,10 @@ body {
   }
 
   .scan-field-row {
+    grid-template-columns: 1fr;
+  }
+
+  .lookup-candidate-card {
     grid-template-columns: 1fr;
   }
 

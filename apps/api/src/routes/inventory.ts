@@ -232,6 +232,17 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
         primarySourceUrl: body.primarySourceUrl ?? primaryObservation?.sourceUrl ?? null,
         referenceUrls: body.referenceUrls,
         catalogIdentifierId: catalogRecord.id,
+        acceptedCandidate: body.acceptedCandidate,
+        productLookup: body.acceptedCandidate
+          ? {
+              provider: body.acceptedCandidate.provider,
+              confidenceScore: body.acceptedCandidate.confidenceScore,
+              confidenceState: body.acceptedCandidate.confidenceState,
+              safeToPrefill: body.acceptedCandidate.safeToPrefill,
+              productUrl: body.acceptedCandidate.productUrl ?? null,
+              asin: body.acceptedCandidate.asin ?? null
+            }
+          : null,
         marketObservations: body.observations.map((observation) => ({
           ...observation,
           observedAt: new Date().toISOString()
@@ -260,15 +271,34 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
         identifierType,
         primarySourceMarket: body.primarySourceMarket,
         catalogIdentifierId: catalogRecord.id,
+        generateDrafts: body.generateDrafts,
+        draftPlatforms: body.generateDrafts ? body.draftPlatforms : [],
         imageCount: uniqueImageUrls.length,
         observationCount: body.observations.length
       }
     });
 
+    if (body.generateDrafts && body.draftPlatforms.length > 0) {
+      await enqueueJob(
+        "inventory.generateListingDraft",
+        {
+          inventoryItemId: item.id,
+          workspaceId: workspace.id,
+          platforms: body.draftPlatforms,
+          correlationId: crypto.randomUUID()
+        },
+        {
+          jobId: buildIdempotencyKey("inventory.generateListingDraft", `${item.id}:${body.draftPlatforms.join(",")}`)
+        }
+      );
+    }
+
     const detail = await findInventoryItemDetailForWorkspace(workspace.id, item.id);
 
     return {
-      item: detail ?? item
+      item: detail ?? item,
+      draftsQueued: body.generateDrafts && body.draftPlatforms.length > 0,
+      draftPlatforms: body.generateDrafts ? body.draftPlatforms : []
     };
   });
 
