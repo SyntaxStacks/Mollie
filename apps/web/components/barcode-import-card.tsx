@@ -88,14 +88,11 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [generateDrafts, setGenerateDrafts] = useState(false);
 
   useEffect(() => {
-    const hasLiveScanner =
-      typeof window !== "undefined" &&
-      typeof window.BarcodeDetector === "function" &&
-      typeof navigator !== "undefined" &&
-      Boolean(navigator.mediaDevices?.getUserMedia);
+    const hasWindow = typeof window !== "undefined";
+    const hasCameraAccess = hasWindow && typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
 
-    setLiveScannerSupported(hasLiveScanner);
-    setScannerSupported(hasLiveScanner || typeof window !== "undefined");
+    setLiveScannerSupported(hasCameraAccess);
+    setScannerSupported(hasCameraAccess || hasWindow);
   }, []);
 
   useEffect(() => {
@@ -104,61 +101,99 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     }
 
     let active = true;
-    let stream: MediaStream | null = null;
     let animationFrame = 0;
+    let scannerControls: { stop: () => void } | null = null;
+    let stream: MediaStream | null = null;
 
     async function beginScan() {
       try {
         setScannerError(null);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: {
-              ideal: "environment"
-            }
-          }
-        });
+        const previewElement = videoRef.current;
 
-        if (!active || !videoRef.current) {
+        if (!previewElement) {
           return;
         }
-
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
 
         const BarcodeDetector = window.BarcodeDetector;
-        const detector = BarcodeDetector
-          ? new BarcodeDetector({
-              formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
-            })
-          : null;
 
-        if (!detector) {
-          setScannerError("Camera scanning is not supported here. Type or paste the barcode instead.");
-          return;
-        }
+        if (BarcodeDetector) {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: {
+                ideal: "environment"
+              }
+            }
+          });
 
-        const scanFrame = async () => {
-          if (!active || !videoRef.current) {
+          if (!active) {
             return;
           }
 
-          try {
-            const detected = await detector.detect(videoRef.current);
-            const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+          previewElement.srcObject = stream;
+          await previewElement.play();
 
-            if (code) {
-              setBarcode(code);
-              setScannerOpen(false);
+          const detector = new BarcodeDetector({
+            formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+          });
+
+          const scanFrame = async () => {
+            if (!active) {
               return;
             }
-          } catch {
-            setScannerError("Could not read the barcode yet. Hold the label flatter and closer.");
-          }
+
+            try {
+              const detected = await detector.detect(previewElement);
+              const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+
+              if (code) {
+                setBarcode(code);
+                setScannerOpen(false);
+                return;
+              }
+            } catch {
+              setScannerError("Could not read the barcode yet. Hold the label flatter and closer.");
+            }
+
+            animationFrame = window.requestAnimationFrame(scanFrame);
+          };
 
           animationFrame = window.requestAnimationFrame(scanFrame);
-        };
+          return;
+        }
 
-        animationFrame = window.requestAnimationFrame(scanFrame);
+        const [{ BrowserMultiFormatReader }, { NotFoundException, ChecksumException, FormatException }] = await Promise.all([
+          import("@zxing/browser"),
+          import("@zxing/library")
+        ]);
+        const reader = new BrowserMultiFormatReader();
+
+        scannerControls = await reader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: {
+                ideal: "environment"
+              }
+            }
+          },
+          previewElement,
+          (result, error) => {
+            if (!active) {
+              return;
+            }
+
+            if (result) {
+              setScannerError(null);
+              setBarcode(result.getText().trim());
+              setScannerOpen(false);
+              scannerControls?.stop();
+              return;
+            }
+
+            if (error && !(error instanceof NotFoundException) && !(error instanceof ChecksumException) && !(error instanceof FormatException)) {
+              setScannerError("Camera opened, but the barcode still could not be read. Try better light or use the photo fallback.");
+            }
+          }
+        );
       } catch {
         setScannerError("Camera access was denied. You can still type the barcode or use a hardware scanner.");
       }
@@ -170,6 +205,9 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       active = false;
       if (animationFrame) {
         window.cancelAnimationFrame(animationFrame);
+      }
+      if (scannerControls) {
+        scannerControls.stop();
       }
       if (stream) {
         for (const track of stream.getTracks()) {
@@ -465,6 +503,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           </div>
 
           <OperatorHintCard hint={topHint} />
+          {scannerError && !scannerOpen ? <div className="notice">{scannerError}</div> : null}
 
           {lookupResult ? (
             <div className="stack">

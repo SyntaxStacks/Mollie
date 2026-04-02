@@ -12,6 +12,7 @@
     "@reselleros/types": "workspace:*",
     "@reselleros/ui": "workspace:*",
     "@zxing/browser": "^0.1.5",
+    "@zxing/library": "^0.21.3",
     "clsx": "^2.1.1",
     "lucide-react": "^0.511.0",
     "next": "^15.2.0",
