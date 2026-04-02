@@ -60,6 +60,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const acceptedMatchRef = useRef<HTMLDivElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [pending, startTransition] = useTransition();
   const [lookupPending, startLookupTransition] = useTransition();
   const [lookupResult, setLookupResult] = useState<ProductLookupResult | null>(null);
@@ -216,6 +218,19 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       }
     };
   }, [scannerOpen, liveScannerReady]);
+
+  useEffect(() => {
+    if (!manualEntryEnabled) {
+      return;
+    }
+
+    const target = selectedCandidate ? acceptedMatchRef.current : titleInputRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    if (selectedCandidate) {
+      window.setTimeout(() => titleInputRef.current?.focus(), 150);
+    }
+  }, [manualEntryEnabled, selectedCandidate]);
 
   async function decodeCapturedBarcode(file: File) {
     const BarcodeDetector = window.BarcodeDetector;
@@ -598,6 +613,15 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                   <span>{lookupResult.candidates.length} candidate{lookupResult.candidates.length === 1 ? "" : "s"} found</span>
                   <span>{lookupResult.recommendedNextAction}</span>
                 </div>
+                {selectedCandidate ? (
+                  <div className="scan-import-hint">
+                    <CheckCircle2 size={16} />
+                    <span>
+                      {providerLabel(selectedCandidate.provider)} is selected as the accepted source for this item. Review the prefilled
+                      inventory fields below, then save when they match the item in your hand.
+                    </span>
+                  </div>
+                ) : null}
                 {productUrlLinks.length > 0 ? (
                   <div className="actions wrap-actions">
                     {productUrlLinks.map((candidate) => (
@@ -658,7 +682,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                             onClick={() => applyCandidate(candidate)}
                             type="button"
                           >
-                            <CheckCircle2 size={16} /> Accept and edit
+                            <CheckCircle2 size={16} /> Use this source
                           </Button>
                           {candidate.productUrl ? (
                             <a className="secondary-link-button" href={candidate.productUrl} rel="noreferrer" target="_blank">
@@ -683,19 +707,24 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           {manualEntryEnabled ? (
             <form className="stack" onSubmit={handleSubmit}>
               {selectedCandidate ? (
-                <div className="market-observation-card">
+                <div className="market-observation-card" ref={acceptedMatchRef}>
                   <div className="split">
                     <div>
-                      <p className="eyebrow">Accepted match</p>
+                      <p className="eyebrow">Accepted source</p>
                       <strong>{selectedCandidate.title}</strong>
                     </div>
-                    <div className="market-observation-value">{selectedCandidate.confidenceState}</div>
+                    <div className="market-observation-value">{providerLabel(selectedCandidate.provider)}</div>
                   </div>
                   <div className="scan-import-hint">
                     <Sparkles size={16} />
                     <span>
-                      Review the prefilled fields below. Mollie will not create the inventory item until you save.
+                      This source is now marked as the valid starting point for this item. Mollie prefilled the inventory fields below, but
+                      it will not create the item until you save.
                     </span>
+                  </div>
+                  <div className="muted">
+                    Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% · {selectedCandidate.confidenceState}
+                    {selectedCandidate.productUrl ? " · Source link saved with this item" : ""}
                   </div>
                 </div>
               ) : (
@@ -720,6 +749,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                   <input
                     className="field"
                     data-testid="scan-identify-title"
+                    ref={titleInputRef}
                     required
                     value={title}
                     onChange={(event) => setTitle(event.target.value)}

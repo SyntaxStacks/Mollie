@@ -120,6 +120,8 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
   await expect(firstCandidate).toBeVisible();
   await expect(firstCandidate.getByText(/amazon enriched/i)).toBeVisible();
   await page.getByTestId("scan-identify-accept-0").click();
+  await expect(page.getByText(/accepted source/i)).toBeVisible();
+  await expect(page.getByText(/valid starting point for this item/i)).toBeVisible();
   await page.getByTestId("scan-identify-title").fill(title);
   await page.getByTestId("scan-identify-condition").fill("Good used condition");
   await page.getByTestId("scan-identify-amazon-price").fill("39.99");
