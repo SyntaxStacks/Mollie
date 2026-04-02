@@ -9,6 +9,14 @@ import type {
 
 import { classifyIdentifier, lookupCatalogIdentifier, normalizeIdentifier } from "./index.js";
 
+type SourceResearchCandidate = {
+  market: "GOOGLE" | "AMAZON" | "EBAY";
+  title: string | null;
+  url: string | null;
+  price?: number | null;
+  imageUrl?: string | null;
+};
+
 export type BarcodeLookupProvider = {
   id: string;
   simulated: boolean;
@@ -74,6 +82,190 @@ const knownSimulatedMatches: Record<
     ]
   }
 };
+
+const SOURCE_FETCH_TIMEOUT_MS = 4500;
+const SOURCE_FETCH_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+
+function stripHtml(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseGoogleSearchHtml(html: string): SourceResearchCandidate | null {
+  const titleMatch = html.match(/<h3[^>]*>(.*?)<\/h3>/is);
+  const hrefMatch = html.match(/<a[^>]+href="(https?:\/\/[^"]+)"/i);
+
+  if (!titleMatch && !hrefMatch) {
+    return null;
+  }
+
+  return {
+    market: "GOOGLE",
+    title: stripHtml(titleMatch?.[1]) ?? null,
+    url: hrefMatch?.[1] ?? null
+  };
+}
+
+function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
+  const titleMatch =
+    html.match(/data-cy="title-recipe"[^>]*>.*?<h2[^>]*>(.*?)<\/h2>/is) ??
+    html.match(/<span class="a-size-base-plus[^"]*"[^>]*>(.*?)<\/span>/is);
+  const hrefMatch = html.match(/href="(\/[^"]*\/dp\/[A-Z0-9]{10}[^"]*)"/i);
+  const priceWhole = html.match(/a-price-whole[^>]*>([\d,]+)/i)?.[1] ?? null;
+  const priceFraction = html.match(/a-price-fraction[^>]*>(\d{2})/i)?.[1] ?? "00";
+  const imageMatch = html.match(/<img[^>]+src="([^"]+)"/i);
+
+  if (!titleMatch && !hrefMatch) {
+    return null;
+  }
+
+  return {
+    market: "AMAZON",
+    title: stripHtml(titleMatch?.[1]) ?? null,
+    url: hrefMatch?.[1] ? `https://www.amazon.com${hrefMatch[1]}` : null,
+    price: priceWhole ? Number(`${priceWhole.replace(/,/g, "")}.${priceFraction}`) : null,
+    imageUrl: imageMatch?.[1] ?? null
+  };
+}
+
+function parseEbaySearchHtml(html: string): SourceResearchCandidate | null {
+  const titleMatch = html.match(/s-item__title[^>]*>(.*?)<\/span>/is);
+  const hrefMatch = html.match(/s-item__link[^>]+href="([^"]+)"/i);
+  const priceMatch = html.match(/s-item__price[^>]*>\$([\d,.]+)/i);
+  const imageMatch = html.match(/s-item__image-img[^>]+src="([^"]+)"/i);
+
+  if (!titleMatch && !hrefMatch) {
+    return null;
+  }
+
+  return {
+    market: "EBAY",
+    title: stripHtml(titleMatch?.[1]) ?? null,
+    url: hrefMatch?.[1] ?? null,
+    price: priceMatch?.[1] ? Number(priceMatch[1].replace(/,/g, "")) : null,
+    imageUrl: imageMatch?.[1] ?? null
+  };
+}
+
+async function fetchSourceHtml(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), SOURCE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "user-agent": SOURCE_FETCH_USER_AGENT,
+        "accept-language": "en-US,en;q=0.9"
+      },
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.text();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function buildSourceResearchCandidates(input: {
+  barcode: string;
+  identifierType: CatalogIdentifierType;
+  sources: SourceResearchCandidate[];
+}) {
+  return input.sources
+    .filter((source) => source.title || source.url)
+    .map((source, index) => {
+      const hasTitle = Boolean(source.title);
+      const hasImage = Boolean(source.imageUrl);
+      const hasPrice = typeof source.price === "number" && Number.isFinite(source.price);
+      const confidenceScore =
+        source.market === "AMAZON"
+          ? hasTitle && hasImage
+            ? 0.76
+            : hasTitle
+              ? 0.63
+              : 0.48
+          : source.market === "EBAY"
+            ? hasTitle && hasImage
+              ? 0.67
+              : hasTitle
+                ? 0.58
+                : 0.44
+            : hasTitle
+              ? 0.52
+              : 0.38;
+
+      const title =
+        source.title ??
+        `${source.market === "AMAZON" ? "Amazon" : source.market === "EBAY" ? "eBay" : "Google"} result for ${input.barcode}`;
+      const category =
+        source.market === "AMAZON"
+          ? "Amazon catalog result"
+          : source.market === "EBAY"
+            ? "eBay listing result"
+            : "Web research result";
+      const imageUrls = source.imageUrl ? [source.imageUrl] : [];
+      const confidenceState = confidenceStateFromScore(confidenceScore);
+
+      return {
+        id: `source:${source.market.toLowerCase()}:${input.barcode}:${index}`,
+        barcode: input.barcode,
+        identifierType: input.identifierType,
+        title,
+        brand: null,
+        category,
+        model: null,
+        size: null,
+        color: null,
+        primaryImageUrl: source.imageUrl ?? null,
+        imageUrls,
+        asin: source.market === "AMAZON" ? inferAsinFromUrl(source.url) : null,
+        productUrl: source.url ?? null,
+        provider: source.market === "AMAZON" ? "AMAZON_ENRICHMENT" : "SOURCE_RESEARCH",
+        confidenceScore,
+        confidenceState,
+        matchRationale: [
+          `${source.market} returned a barcode search result for this code.`,
+          ...(hasTitle ? ["The source returned a specific item title instead of a generic barcode query."] : []),
+          ...(hasImage ? ["The source also returned an item image for review."] : []),
+          ...(hasPrice ? ["A price was visible in the source result."] : [])
+        ],
+        hint: buildOperatorHint({
+          title: source.market === "AMAZON" ? "Source result found" : "Research result found",
+          explanation:
+            source.market === "AMAZON"
+              ? "We pulled a source result from Amazon. Compare the title and image to the item in your hand before applying it."
+              : `We pulled a ${source.market.toLowerCase()} result for this barcode. Use it as a research source, then confirm it matches the item in your hand.`,
+          severity: confidenceState === "HIGH" ? "SUCCESS" : "WARNING",
+          nextActions: [
+            "Compare the result title to the item or packaging in your hand.",
+            "Open the source page if you need more details before accepting it.",
+            "Use manual entry if the source result is still too generic."
+          ],
+          canContinue: true
+        }),
+        safeToPrefill: confidenceScore >= 0.55,
+        simulated: false
+      } satisfies ProductLookupCandidate;
+    });
+}
 
 function buildOperatorHint(input: {
   title: string;
@@ -251,6 +443,36 @@ const internalCatalogLookupProvider: BarcodeLookupProvider = {
   }
 };
 
+const webSourceLookupProvider: BarcodeLookupProvider = {
+  id: "web-source-research",
+  simulated: false,
+  async lookupBarcode(input) {
+    const encodedIdentifier = encodeURIComponent(input.barcode);
+    const queryPrefix = input.identifierType === "UNKNOWN" ? "product" : input.identifierType;
+    const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(`${queryPrefix} ${input.barcode}`)}`;
+    const amazonUrl = `https://www.amazon.com/s?k=${encodedIdentifier}`;
+    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodedIdentifier}`;
+
+    const [googleHtml, amazonHtml, ebayHtml] = await Promise.all([
+      fetchSourceHtml(googleUrl),
+      fetchSourceHtml(amazonUrl),
+      fetchSourceHtml(ebayUrl)
+    ]);
+
+    const sourceCandidates = [
+      googleHtml ? parseGoogleSearchHtml(googleHtml) : null,
+      amazonHtml ? parseAmazonSearchHtml(amazonHtml) : null,
+      ebayHtml ? parseEbaySearchHtml(ebayHtml) : null
+    ].filter((candidate): candidate is SourceResearchCandidate => Boolean(candidate));
+
+    return buildSourceResearchCandidates({
+      barcode: input.barcode,
+      identifierType: input.identifierType,
+      sources: sourceCandidates
+    });
+  }
+};
+
 const simulatedBarcodeLookupProvider: BarcodeLookupProvider = {
   id: "simulated-barcode",
   simulated: true,
@@ -336,7 +558,7 @@ const simulatedAmazonEnrichmentProvider: ProductEnrichmentProvider = {
 };
 
 export function createProductLookupService(): ProductLookupService {
-  const barcodeProviders: BarcodeLookupProvider[] = [internalCatalogLookupProvider, simulatedBarcodeLookupProvider];
+  const barcodeProviders: BarcodeLookupProvider[] = [internalCatalogLookupProvider, webSourceLookupProvider, simulatedBarcodeLookupProvider];
   const enrichmentProviders: ProductEnrichmentProvider[] = [simulatedAmazonEnrichmentProvider];
 
   return {
@@ -369,7 +591,12 @@ export function createProductLookupService(): ProductLookupService {
       if (candidates.length > 0) {
         for (const enrichmentProvider of enrichmentProviders) {
           const highestCandidate = rankCandidates(candidates)[0];
-          if (!highestCandidate || highestCandidate.confidenceScore < 0.55) {
+          if (
+            !highestCandidate ||
+            highestCandidate.confidenceScore < 0.55 ||
+            highestCandidate.provider === "AMAZON_ENRICHMENT" ||
+            highestCandidate.provider === "SOURCE_RESEARCH"
+          ) {
             break;
           }
 

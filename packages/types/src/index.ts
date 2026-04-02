@@ -284,7 +284,7 @@ export const catalogTrustStatuses = [
 ] as const;
 export type CatalogTrustStatus = (typeof catalogTrustStatuses)[number];
 
-export const productLookupSources = ["INTERNAL_CATALOG", "AMAZON_ENRICHMENT", "SIMULATED"] as const;
+export const productLookupSources = ["INTERNAL_CATALOG", "AMAZON_ENRICHMENT", "SOURCE_RESEARCH", "SIMULATED"] as const;
 export type ProductLookupSource = (typeof productLookupSources)[number];
 
 export const productLookupConfidenceStates = ["HIGH", "MEDIUM", "LOW"] as const;

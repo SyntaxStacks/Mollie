@@ -43,6 +43,8 @@ function providerLabel(provider: ProductLookupCandidate["provider"]) {
       return "Amazon enriched";
     case "INTERNAL_CATALOG":
       return "Mollie catalog";
+    case "SOURCE_RESEARCH":
+      return "Source research";
     default:
       return "Simulated";
   }

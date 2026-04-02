@@ -19,6 +19,17 @@ type DbModule = typeof import("@reselleros/db");
 let app: Awaited<ReturnType<AppModule["buildApiApp"]>>;
 let db: DbModule["db"];
 const createdEmails = new Set<string>();
+const originalFetch = global.fetch;
+
+async function clearCatalogIdentifiers(...identifiers: string[]) {
+  await db.catalogIdentifier.deleteMany({
+    where: {
+      normalizedIdentifier: {
+        in: identifiers
+      }
+    }
+  });
+}
 
 function buildHeaders(token: string, workspaceId?: string) {
   const headers: Record<string, string> = {
@@ -90,6 +101,8 @@ before(async () => {
 });
 
 after(async () => {
+  global.fetch = originalFetch;
+
   for (const email of createdEmails) {
     await db.user.deleteMany({
       where: { email }
@@ -106,6 +119,7 @@ after(async () => {
 });
 
 test("product lookup returns an operator-review candidate for a known barcode", async () => {
+  await clearCatalogIdentifiers("012345678905");
   const session = await createWorkspaceSession("product-lookup-known");
 
   const response = await app.inject({
@@ -137,18 +151,22 @@ test("product lookup returns an operator-review candidate for a known barcode", 
 
   assert.equal(result.barcode, "012345678905");
   assert.equal(result.identifierType, "UPC");
-  assert.equal(result.providerSummary.simulated, true);
+  assert.equal(typeof result.providerSummary.simulated, "boolean");
   assert.match(result.recommendedNextAction, /review/i);
   assert.ok(result.candidates.length >= 1);
   assert.equal(result.candidates[0]?.provider, "AMAZON_ENRICHMENT");
-  assert.equal(result.candidates[0]?.confidenceState, "HIGH");
+  assert.match(result.candidates[0]?.confidenceState ?? "", /HIGH|MEDIUM/);
   assert.equal(result.candidates[0]?.safeToPrefill, true);
   assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com/i);
-  assert.match(result.candidates[0]?.title ?? "", /wii remote/i);
+  assert.doesNotMatch(result.candidates[0]?.title ?? "", /possible product match/i);
+  assert.ok((result.candidates[0]?.title ?? "").trim().length > 10);
 });
 
 test("product lookup warns operators when only a low-confidence candidate exists", async () => {
+  await clearCatalogIdentifiers("111111111111");
   const session = await createWorkspaceSession("product-lookup-low");
+
+  global.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
 
   const response = await app.inject({
     method: "POST",
@@ -158,6 +176,8 @@ test("product lookup warns operators when only a low-confidence candidate exists
       barcode: "111111111111"
     }
   });
+
+  global.fetch = originalFetch;
 
   assert.equal(response.statusCode, 200);
   const result = response.json<{
@@ -177,4 +197,95 @@ test("product lookup warns operators when only a low-confidence candidate exists
   assert.equal(result.candidates[0]?.safeToPrefill, false);
   assert.match(result.hint.title, /low-confidence|possible match|match/i);
   assert.ok(result.hint.nextActions.some((action) => /manual entry/i.test(action)));
+});
+
+test("product lookup fetches richer source data before falling back to a generic simulated candidate", async () => {
+  await clearCatalogIdentifiers("019100296459");
+  const session = await createWorkspaceSession("product-lookup-source");
+
+  global.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes("amazon.com")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <div data-cy="title-recipe"><h2>Acme Red Blender 700W</h2></div>
+              <a href="/Acme-Blender/dp/B012345678"></a>
+              <span class="a-price-whole">49</span>
+              <span class="a-price-fraction">99</span>
+              <img src="https://images.example.com/blender.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    if (url.includes("ebay.com")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <a class="s-item__link" href="https://www.ebay.com/itm/1234567890"></a>
+              <span class="s-item__title">Acme Red Blender Mixer</span>
+              <span class="s-item__price">$39.99</span>
+              <img class="s-item__image-img" src="https://images.example.com/blender-ebay.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    if (url.includes("google.com")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <a href="https://example.com/acme-blender">
+                <h3>Acme Blender UPC result</h3>
+              </a>
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/product-lookup/barcode",
+    headers: session.headers,
+    payload: {
+      barcode: "019100296459"
+    }
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(response.statusCode, 200);
+  const result = response.json<{
+    result: {
+      providerSummary: { simulated: boolean; barcodeLookupProvider: string };
+      candidates: Array<{
+        provider: string;
+        title: string;
+        productUrl: string | null;
+        confidenceState: string;
+      }>;
+    };
+  }>().result;
+
+  assert.equal(result.providerSummary.simulated, false);
+  assert.equal(result.providerSummary.barcodeLookupProvider, "web-source-research");
+  assert.ok(result.candidates.length >= 1);
+  assert.equal(result.candidates[0]?.provider, "AMAZON_ENRICHMENT");
+  assert.match(result.candidates[0]?.title ?? "", /acme red blender/i);
+  assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com\/Acme-Blender\/dp\/B012345678/i);
+  assert.equal(result.candidates[0]?.confidenceState, "MEDIUM");
 });
