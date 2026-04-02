@@ -99,23 +99,73 @@ function stripHtml(value: string | null | undefined) {
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function parseGoogleSearchHtml(html: string): SourceResearchCandidate | null {
-  const titleMatch = html.match(/<h3[^>]*>(.*?)<\/h3>/is);
-  const hrefMatch = html.match(/<a[^>]+href="(https?:\/\/[^"]+)"/i);
+function isGoogleOwnedUrl(url: string | null | undefined) {
+  if (!url) {
+    return false;
+  }
 
-  if (!titleMatch && !hrefMatch) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    return hostname === "google.com" || hostname.endsWith(".google.com");
+  } catch {
+    return false;
+  }
+}
+
+function isBlockedOrGenericGoogleHtml(html: string) {
+  return (
+    /support\.google\.com\/websearch/i.test(html) ||
+    /Our systems have detected unusual traffic/i.test(html) ||
+    /To continue, please type the characters below/i.test(html)
+  );
+}
+
+function isRejectedGoogleResult(input: { title: string | null; url: string | null }) {
+  const title = input.title?.toLowerCase() ?? "";
+  const url = input.url ?? "";
+
+  if (isGoogleOwnedUrl(url)) {
+    return true;
+  }
+
+  return /google search|web search|search help|support/i.test(title);
+}
+
+function parseGoogleSearchHtml(html: string): SourceResearchCandidate | null {
+  if (isBlockedOrGenericGoogleHtml(html)) {
     return null;
   }
 
-  return {
-    market: "GOOGLE",
+  for (const match of html.matchAll(/<a[^>]+href="(https?:\/\/[^"]+)"[^>]*>[\s\S]*?<h3[^>]*>(.*?)<\/h3>/gi)) {
+    const candidate = {
+      market: "GOOGLE" as const,
+      title: stripHtml(match[2]) ?? null,
+      url: match[1] ?? null
+    };
+
+    if (!isRejectedGoogleResult(candidate)) {
+      return candidate;
+    }
+  }
+
+  const titleMatch = html.match(/<h3[^>]*>(.*?)<\/h3>/is);
+  const hrefMatch = html.match(/<a[^>]+href="(https?:\/\/[^"]+)"/i);
+  const fallbackCandidate = {
+    market: "GOOGLE" as const,
     title: stripHtml(titleMatch?.[1]) ?? null,
     url: hrefMatch?.[1] ?? null
   };
+
+  if (!fallbackCandidate.title && !fallbackCandidate.url) {
+    return null;
+  }
+
+  return isRejectedGoogleResult(fallbackCandidate) ? null : fallbackCandidate;
 }
 
 function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {

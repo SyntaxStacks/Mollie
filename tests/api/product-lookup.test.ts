@@ -290,6 +290,57 @@ test("product lookup fetches richer source data before falling back to a generic
   assert.equal(result.candidates[0]?.confidenceState, "MEDIUM");
 });
 
+test("product lookup ignores blocked or generic Google support results", async () => {
+  await clearCatalogIdentifiers("019100296460");
+  const session = await createWorkspaceSession("product-lookup-google-support");
+
+  global.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes("google.com")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <a href="https://support.google.com/websearch#topic=3378866">
+                <h3>Google Search Help</h3>
+              </a>
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/product-lookup/barcode",
+    headers: session.headers,
+    payload: {
+      barcode: "019100296460"
+    }
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(response.statusCode, 200);
+  const result = response.json<{
+    result: {
+      providerSummary: { barcodeLookupProvider: string; simulated: boolean };
+      candidates: Array<{
+        provider: string;
+      }>;
+    };
+  }>().result;
+
+  assert.equal(result.providerSummary.barcodeLookupProvider, "simulated-barcode");
+  assert.equal(result.providerSummary.simulated, true);
+  assert.equal(result.candidates[0]?.provider, "SIMULATED");
+});
+
 test("product lookup rejects QR code links with an operator-friendly validation message", async () => {
   const session = await createWorkspaceSession("product-lookup-qr");
 

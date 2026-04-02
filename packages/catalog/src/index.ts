@@ -219,8 +219,8 @@ function buildResearchLinks(normalizedIdentifier: string, identifierType: Catalo
   return [
     {
       market: "GOOGLE" as const,
-      label: `Search Google for ${queryPrefix} ${normalizedIdentifier}`,
-      url: `https://www.google.com/search?q=${googleQuery}`
+      label: `Search Google Shopping for ${queryPrefix} ${normalizedIdentifier}`,
+      url: `https://www.google.com/search?tbm=shop&q=${googleQuery}`
     },
     {
       market: "AMAZON" as const,
