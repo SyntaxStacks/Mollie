@@ -67,7 +67,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerSupported, setScannerSupported] = useState(false);
-  const [liveScannerSupported, setLiveScannerSupported] = useState(false);
+  const [liveScannerReady, setLiveScannerReady] = useState(true);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerStatus, setScannerStatus] = useState("Point the barcode at the guide.");
   const [capturePending, setCapturePending] = useState(false);
@@ -91,14 +91,11 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
   useEffect(() => {
     const hasWindow = typeof window !== "undefined";
-    const hasCameraAccess = hasWindow && typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
-
-    setLiveScannerSupported(hasCameraAccess);
-    setScannerSupported(hasCameraAccess || hasWindow);
+    setScannerSupported(hasWindow);
   }, []);
 
   useEffect(() => {
-    if (!scannerOpen || !liveScannerSupported || !videoRef.current) {
+    if (!scannerOpen || !liveScannerReady || !videoRef.current) {
       return;
     }
 
@@ -111,6 +108,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       try {
         setScannerError(null);
         setScannerStatus("Point the barcode at the guide.");
+        setLiveScannerReady(true);
         const previewElement = videoRef.current;
 
         if (!previewElement) {
@@ -196,7 +194,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           }
         );
       } catch {
-        setScannerError("Camera access was denied. You can still type the barcode or use a hardware scanner.");
+        setLiveScannerReady(false);
+        setScannerError("We couldn't start the live camera preview here. Use the photo fallback below or type the barcode manually.");
       }
     }
 
@@ -216,7 +215,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
         }
       }
     };
-  }, [scannerOpen, liveScannerSupported]);
+  }, [scannerOpen, liveScannerReady]);
 
   async function decodeCapturedBarcode(file: File) {
     const BarcodeDetector = window.BarcodeDetector;
@@ -391,6 +390,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   function openCamera() {
     setScannerError(null);
     setScannerStatus("Point the barcode at the guide.");
+    setLiveScannerReady(true);
     setScannerOpen(true);
   }
 
@@ -865,7 +865,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             <p className="handoff-copy">
               Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, or ISBN.
             </p>
-            {liveScannerSupported ? (
+            {liveScannerReady ? (
               <div className="barcode-scanner-video-shell">
                 <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
                 <div className="barcode-scanner-overlay" aria-hidden="true">
@@ -883,13 +883,13 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             <div className="barcode-scanner-status">
               {lookupPending
                 ? "Barcode found. Looking up product..."
-                : liveScannerSupported
+                : liveScannerReady
                   ? scannerStatus
                   : "Live camera preview is unavailable here. Use the photo capture fallback below."}
             </div>
             {scannerError ? <div className="notice">{scannerError}</div> : null}
             <div className="actions">
-              {liveScannerSupported ? (
+              {liveScannerReady ? (
                 <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
                   <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
                 </Button>
