@@ -14,6 +14,8 @@ import { useAuth } from "../../components/auth-provider";
 import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+const simulatedMarketplacePathsAllowed =
+  process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ALLOW_SIMULATED_MARKETPLACE_PATHS === "true";
 
 const automationVendorLabels: Record<AutomationVendor, string> = {
   DEPOP: "Depop",
@@ -555,9 +557,7 @@ function MarketplacesPageContent() {
             </div>
             {account.readiness ? (
               <div className="stack" style={{ marginTop: "0.75rem" }}>
-                <div className="muted">
-                  State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
-                </div>
+                <div className="muted">State: {account.readiness.state}</div>
                 <div>{account.readiness.summary}</div>
                 <div className="muted">{account.readiness.detail}</div>
                 {renderOperatorHint(account)}
@@ -631,10 +631,7 @@ function MarketplacesPageContent() {
               </Button>
             </form>
 
-            <div className="notice">
-              OAuth now validates a real eBay account and stores encrypted tokens. Live eBay publish is still gated, so the
-              manual secret-ref connector remains available for simulated pilot publish jobs.
-            </div>
+            <div className="notice">OAuth validates the eBay account and stores the credentials Mollie needs to publish.</div>
 
             <div className="stack" style={{ marginTop: "1rem" }}>
               {accounts
@@ -654,9 +651,7 @@ function MarketplacesPageContent() {
                     </div>
                     {account.readiness ? (
                       <div className="stack" style={{ marginTop: "0.75rem" }}>
-                        <div className="muted">
-                          State: {account.readiness.state} | Active mode: {account.readiness.publishMode}
-                        </div>
+                        <div className="muted">State: {account.readiness.state}</div>
                         <div>{account.readiness.summary}</div>
                         <div className="muted">{account.readiness.detail}</div>
                         {renderOperatorHint(account)}
@@ -729,11 +724,11 @@ function MarketplacesPageContent() {
                                 />
                               </label>
                               <div className="muted">
-                                These defaults are stored on the eBay account and used for live publish before env fallbacks.
+                                These defaults are stored on the eBay account and used when Mollie publishes listings.
                               </div>
                               <div className="actions">
                                 <Button disabled={pending} kind="secondary" type="submit">
-                                  Save live defaults
+                                  Save eBay defaults
                                 </Button>
                               </div>
                             </form>
@@ -745,19 +740,21 @@ function MarketplacesPageContent() {
                 ))}
             </div>
 
-            <form className="stack" onSubmit={connectSimulatedEbay}>
-              <label className="label">
-                Manual display name
-                <input className="field" name="ebayDisplayName" placeholder="Simulated eBay account" required />
-              </label>
-              <label className="label">
-                Manual secret reference
-                <input className="field" name="ebaySecretRef" placeholder="secret://ebay/main" required />
-              </label>
-              <Button type="submit" disabled={pending}>
-                Connect simulated eBay
-              </Button>
-            </form>
+            {simulatedMarketplacePathsAllowed ? (
+              <form className="stack" onSubmit={connectSimulatedEbay}>
+                <label className="label">
+                  Manual display name
+                  <input className="field" name="ebayDisplayName" placeholder="Legacy eBay account" required />
+                </label>
+                <label className="label">
+                  Manual secret reference
+                  <input className="field" name="ebaySecretRef" placeholder="secret://ebay/main" required />
+                </label>
+                <Button type="submit" disabled={pending}>
+                  Connect manual eBay account
+                </Button>
+              </form>
+            ) : null}
           </Card>
 
           {renderAutomationCard("DEPOP")}
@@ -792,9 +789,7 @@ function MarketplacesPageContent() {
                     {account.readiness ? (
                       <div>
                         <StatusPill status={account.readiness.state} />
-                        <div className="muted" style={{ marginTop: "0.35rem" }}>
-                          {account.readiness.summary} ({account.readiness.publishMode})
-                        </div>
+                        <div className="muted" style={{ marginTop: "0.35rem" }}>{account.readiness.summary}</div>
                       </div>
                     ) : (
                       <span className="muted">n/a</span>
