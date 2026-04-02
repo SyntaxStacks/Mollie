@@ -289,3 +289,21 @@ test("product lookup fetches richer source data before falling back to a generic
   assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com\/Acme-Blender\/dp\/B012345678/i);
   assert.equal(result.candidates[0]?.confidenceState, "MEDIUM");
 });
+
+test("product lookup rejects QR code links with an operator-friendly validation message", async () => {
+  const session = await createWorkspaceSession("product-lookup-qr");
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/product-lookup/barcode",
+    headers: session.headers,
+    payload: {
+      barcode: "https://www.amazon.com/stores/page/78D0E811-FDDF-4"
+    }
+  });
+
+  assert.equal(response.statusCode, 400);
+  const body = response.json<{ error: string }>();
+  assert.match(body.error, /UPC, EAN, or ISBN/i);
+  assert.match(body.error, /QR code links are not supported/i);
+});

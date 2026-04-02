@@ -1,4 +1,4 @@
-import { createProductLookupService, lookupCatalogIdentifier } from "@reselleros/catalog";
+import { classifyIdentifier, createProductLookupService, lookupCatalogIdentifier, normalizeIdentifier } from "@reselleros/catalog";
 import { catalogLookupRequestSchema, productLookupBarcodeRequestSchema } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
@@ -22,6 +22,10 @@ function wrapCatalogError(app: ApiApp, error: unknown): never {
   }
 
   throw error;
+}
+
+function invalidIdentifierMessage() {
+  return "Scan or enter a UPC, EAN, or ISBN barcode. QR code links are not supported in this step.";
 }
 
 export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
@@ -56,13 +60,24 @@ export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
   app.post("/api/product-lookup/barcode", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
-    const body = productLookupBarcodeRequestSchema.parse(request.body);
+    const parsedBody = productLookupBarcodeRequestSchema.safeParse(request.body);
+
+    if (!parsedBody.success) {
+      throw app.httpErrors.badRequest(invalidIdentifierMessage());
+    }
+
+    const normalizedBarcode = normalizeIdentifier(parsedBody.data.barcode);
+
+    if (!normalizedBarcode || classifyIdentifier(normalizedBarcode) === "UNKNOWN") {
+      throw app.httpErrors.badRequest(invalidIdentifierMessage());
+    }
+
     let result;
 
     try {
       result = await productLookupService.lookupBarcode({
         workspaceId: workspace.id,
-        barcode: body.barcode
+        barcode: normalizedBarcode
       });
     } catch (error) {
       wrapCatalogError(app, error);

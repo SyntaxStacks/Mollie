@@ -37,6 +37,52 @@ function normalizeImageUrls(value: string) {
   return [...new Set(value.split(/[\r\n,]+/).map((entry) => entry.trim()).filter(Boolean))];
 }
 
+function normalizeIdentifierInput(value: string) {
+  return value.trim().toUpperCase().replace(/[^0-9X]/g, "");
+}
+
+function classifyIdentifierInput(value: string) {
+  const normalized = normalizeIdentifierInput(value);
+
+  if (/^\d{12}$/.test(normalized)) {
+    return "UPC";
+  }
+
+  if (/^(97[89])\d{10}$/.test(normalized)) {
+    return "ISBN";
+  }
+
+  if (/^\d{13}$/.test(normalized)) {
+    return "EAN";
+  }
+
+  if (/^\d{9}[\dX]$/.test(normalized)) {
+    return "ISBN";
+  }
+
+  return "UNKNOWN";
+}
+
+function barcodeInputError(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "Scan or enter a UPC, EAN, or ISBN barcode.";
+  }
+
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("www.") || trimmed.includes("/")) {
+    return "That looked like a QR code link, not a UPC, EAN, or ISBN barcode. Point the camera at the printed barcode instead.";
+  }
+
+  const normalized = normalizeIdentifierInput(trimmed);
+
+  if (!normalized || classifyIdentifierInput(normalized) === "UNKNOWN") {
+    return "Scan or enter a UPC, EAN, or ISBN barcode. QR code links are not supported in this step.";
+  }
+
+  return null;
+}
+
 function providerLabel(provider: ProductLookupCandidate["provider"]) {
   switch (provider) {
     case "AMAZON_ENRICHMENT":
@@ -273,6 +319,18 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
   }
 
   function runLookup(barcodeValue: string) {
+    const inputError = barcodeInputError(barcodeValue);
+
+    if (inputError) {
+      setLookupResult(null);
+      setSelectedCandidate(null);
+      setManualEntryEnabled(true);
+      setLookupError(inputError);
+      return;
+    }
+
+    const normalizedBarcode = normalizeIdentifierInput(barcodeValue);
+
     startLookupTransition(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/product-lookup/barcode`, {
@@ -282,7 +340,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            barcode: barcodeValue
+            barcode: normalizedBarcode
           })
         });
         const payload = (await response.json().catch(() => ({ error: "Could not identify this barcode." }))) as {
@@ -314,11 +372,21 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       return;
     }
 
-    setBarcode(normalizedCode);
-    setScannerStatus(`Barcode found: ${normalizedCode}. Looking up product...`);
+    const inputError = barcodeInputError(normalizedCode);
+
+    if (inputError) {
+      setScannerError(inputError);
+      setScannerStatus("Point the printed barcode at the guide.");
+      return;
+    }
+
+    const cleanedCode = normalizeIdentifierInput(normalizedCode);
+
+    setBarcode(cleanedCode);
+    setScannerStatus(`Barcode found: ${cleanedCode}. Looking up product...`);
     setScannerError(null);
     setScannerOpen(false);
-    runLookup(normalizedCode);
+    runLookup(cleanedCode);
   }
 
   async function decodeBarcodeFromCanvas(canvas: HTMLCanvasElement) {
