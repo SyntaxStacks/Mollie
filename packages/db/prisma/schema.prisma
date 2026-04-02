@@ -92,6 +92,7 @@ enum CatalogIdentifierType {
   UPC
   EAN
   ISBN
+  CODE128
   UNKNOWN
 }
 

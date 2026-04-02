@@ -355,6 +355,38 @@ test("product lookup rejects QR code links with an operator-friendly validation 
 
   assert.equal(response.statusCode, 400);
   const body = response.json<{ error: string }>();
-  assert.match(body.error, /UPC, EAN, or ISBN/i);
+  assert.match(body.error, /UPC, EAN, ISBN, or Code 128/i);
   assert.match(body.error, /QR code links are not supported/i);
+});
+
+test("product lookup accepts Code 128 values and keeps the identifier type", async () => {
+  await clearCatalogIdentifiers("AB-12345");
+  const session = await createWorkspaceSession("product-lookup-code128");
+
+  global.fetch = (async () => new Response("", { status: 404 })) as typeof fetch;
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/product-lookup/barcode",
+    headers: session.headers,
+    payload: {
+      barcode: "AB-12345",
+      identifierType: "CODE128"
+    }
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(response.statusCode, 200);
+  const result = response.json<{
+    result: {
+      barcode: string;
+      identifierType: string;
+      candidates: Array<{ provider: string }>;
+    };
+  }>().result;
+
+  assert.equal(result.barcode, "AB-12345");
+  assert.equal(result.identifierType, "CODE128");
+  assert.equal(result.candidates[0]?.provider, "SIMULATED");
 });

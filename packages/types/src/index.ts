@@ -267,7 +267,7 @@ export const imageInputSchema = z.object({
 export const catalogImportSources = ["GOOGLE", "AMAZON", "EBAY", "OTHER"] as const;
 export type CatalogImportSource = (typeof catalogImportSources)[number];
 
-export const catalogIdentifierTypes = ["UPC", "EAN", "ISBN", "UNKNOWN"] as const;
+export const catalogIdentifierTypes = ["UPC", "EAN", "ISBN", "CODE128", "UNKNOWN"] as const;
 export type CatalogIdentifierType = (typeof catalogIdentifierTypes)[number];
 
 export const catalogLookupModes = ["INTERNAL", "FIXTURE"] as const;
@@ -311,11 +311,12 @@ export const catalogLookupRequestSchema = z
     identifierType: z.enum(catalogIdentifierTypes).optional().nullable()
   })
   .refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
-    message: "Provide a UPC, EAN, or ISBN"
+    message: "Provide a UPC, EAN, ISBN, or Code 128 barcode"
   });
 
 export const productLookupBarcodeRequestSchema = z.object({
-  barcode: z.string().trim().min(8).max(64)
+  barcode: z.string().trim().min(4).max(96),
+  identifierType: z.enum(catalogIdentifierTypes).optional().nullable()
 });
 
 export const productLookupCandidateSchema = z.object({
@@ -365,7 +366,7 @@ export const inventoryBarcodeImportSchema = z.object({
   generateDrafts: z.boolean().default(false),
   draftPlatforms: z.array(z.enum(platforms)).default([...platforms])
 }).refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
-  message: "Provide a UPC, EAN, or ISBN",
+  message: "Provide a UPC, EAN, ISBN, or Code 128 barcode",
   path: ["identifier"]
 });
 

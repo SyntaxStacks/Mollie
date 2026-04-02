@@ -17,6 +17,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 
 type BarcodeDetectorResultLike = {
   rawValue?: string;
+  format?: string;
 };
 
 type BarcodeDetectorLike = {
@@ -38,7 +39,19 @@ function normalizeImageUrls(value: string) {
 }
 
 function normalizeIdentifierInput(value: string) {
-  return value.trim().toUpperCase().replace(/[^0-9X]/g, "");
+  const trimmed = value.trim().toUpperCase();
+
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("WWW.")) {
+    return trimmed;
+  }
+
+  if (/^[0-9X\s-]+$/.test(trimmed)) {
+    return trimmed.replace(/[^0-9X]/g, "");
+  }
+
+  return trimmed
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9\-_.+/]/g, "");
 }
 
 function classifyIdentifierInput(value: string) {
@@ -60,24 +73,50 @@ function classifyIdentifierInput(value: string) {
     return "ISBN";
   }
 
+  if (/^[A-Z0-9][A-Z0-9\-_.+/]{3,95}$/.test(normalized)) {
+    return "CODE128";
+  }
+
   return "UNKNOWN";
+}
+
+function identifierTypeLabel(value: "UPC" | "EAN" | "ISBN" | "CODE128" | "UNKNOWN") {
+  return value === "CODE128" ? "Code 128" : value;
+}
+
+function barcodeFormatToIdentifierType(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+
+  if (normalized === "code_128" || normalized === "code-128" || normalized === "code128") {
+    return "CODE128" as const;
+  }
+
+  if (normalized === "ean_13" || normalized === "ean13" || normalized === "ean_8" || normalized === "ean8") {
+    return "EAN" as const;
+  }
+
+  if (normalized === "upc_a" || normalized === "upc-a" || normalized === "upc_e" || normalized === "upc-e") {
+    return "UPC" as const;
+  }
+
+  return null;
 }
 
 function barcodeInputError(value: string) {
   const trimmed = value.trim();
 
   if (!trimmed) {
-    return "Scan or enter a UPC, EAN, or ISBN barcode.";
+    return "Scan or enter a UPC, EAN, ISBN, or Code 128 barcode.";
   }
 
   if (/^https?:\/\//i.test(trimmed) || trimmed.includes("www.") || trimmed.includes("/")) {
-    return "That looked like a QR code link, not a UPC, EAN, or ISBN barcode. Point the camera at the printed barcode instead.";
+    return "That looked like a QR code link, not a UPC, EAN, ISBN, or Code 128 barcode. Point the camera at the printed barcode instead.";
   }
 
   const normalized = normalizeIdentifierInput(trimmed);
 
   if (!normalized || classifyIdentifierInput(normalized) === "UNKNOWN") {
-    return "Scan or enter a UPC, EAN, or ISBN barcode. QR code links are not supported in this step.";
+    return "Scan or enter a UPC, EAN, ISBN, or Code 128 barcode. QR code links are not supported in this step.";
   }
 
   return null;
@@ -194,10 +233,11 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
             try {
               const detected = await detector.detect(previewElement);
-              const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+              const match = detected.find((candidate) => candidate.rawValue?.trim());
+              const code = match?.rawValue?.trim();
 
               if (code) {
-                handleBarcodeDetected(code);
+                handleBarcodeDetected(code, barcodeFormatToIdentifierType(match?.format));
                 return;
               }
             } catch {
@@ -233,7 +273,10 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
 
             if (result) {
               setScannerError(null);
-              handleBarcodeDetected(result.getText().trim());
+              handleBarcodeDetected(
+                result.getText().trim(),
+                barcodeFormatToIdentifierType(result.getBarcodeFormat().toString())
+              );
               scannerControls?.stop();
               return;
             }
@@ -290,11 +333,15 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
           formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
         });
         const detected = await detector.detect(image);
-        const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+          const match = detected.find((candidate) => candidate.rawValue?.trim());
+          const code = match?.rawValue?.trim();
 
-        if (code) {
-          return code;
-        }
+          if (code) {
+            return {
+              code,
+              identifierType: barcodeFormatToIdentifierType(match?.format)
+            };
+          }
       } finally {
         image.close();
       }
@@ -309,7 +356,10 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       const code = result.getText().trim();
 
       if (code) {
-        return code;
+        return {
+          code,
+          identifierType: barcodeFormatToIdentifierType(result.getBarcodeFormat().toString())
+        };
       }
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -318,7 +368,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     throw new Error("We could not read a barcode from that photo. Try again with the barcode flatter and better lit.");
   }
 
-  function runLookup(barcodeValue: string) {
+  function runLookup(barcodeValue: string, detectedIdentifierType?: "UPC" | "EAN" | "ISBN" | "CODE128" | "UNKNOWN" | null) {
     const inputError = barcodeInputError(barcodeValue);
 
     if (inputError) {
@@ -340,7 +390,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            barcode: normalizedBarcode
+            barcode: normalizedBarcode,
+            identifierType: detectedIdentifierType ?? classifyIdentifierInput(normalizedBarcode)
           })
         });
         const payload = (await response.json().catch(() => ({ error: "Could not identify this barcode." }))) as {
@@ -365,7 +416,10 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     });
   }
 
-  function handleBarcodeDetected(detectedCode: string) {
+  function handleBarcodeDetected(
+    detectedCode: string,
+    detectedIdentifierType?: "UPC" | "EAN" | "ISBN" | "CODE128" | "UNKNOWN" | null
+  ) {
     const normalizedCode = detectedCode.trim();
 
     if (!normalizedCode) {
@@ -386,7 +440,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     setScannerStatus(`Barcode found: ${cleanedCode}. Looking up product...`);
     setScannerError(null);
     setScannerOpen(false);
-    runLookup(cleanedCode);
+    runLookup(cleanedCode, detectedIdentifierType ?? classifyIdentifierInput(cleanedCode));
   }
 
   async function decodeBarcodeFromCanvas(canvas: HTMLCanvasElement) {
@@ -397,10 +451,14 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
         formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
       });
       const detected = await detector.detect(canvas);
-      const code = detected.find((candidate) => candidate.rawValue?.trim())?.rawValue?.trim();
+      const match = detected.find((candidate) => candidate.rawValue?.trim());
+      const code = match?.rawValue?.trim();
 
       if (code) {
-        return code;
+        return {
+          code,
+          identifierType: barcodeFormatToIdentifierType(match?.format)
+        };
       }
     }
 
@@ -410,7 +468,10 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     const code = result.getText().trim();
 
     if (code) {
-      return code;
+      return {
+        code,
+        identifierType: barcodeFormatToIdentifierType(result.getBarcodeFormat().toString())
+      };
     }
 
     throw new Error("We could not read the barcode from that camera frame. Try again with the barcode larger in the frame.");
@@ -439,8 +500,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       }
 
       context.drawImage(previewElement, 0, 0, canvas.width, canvas.height);
-      const detectedCode = await decodeBarcodeFromCanvas(canvas);
-      handleBarcodeDetected(detectedCode);
+      const detected = await decodeBarcodeFromCanvas(canvas);
+      handleBarcodeDetected(detected.code, detected.identifierType);
     } catch (caughtError) {
       setScannerError(
         caughtError instanceof Error
@@ -464,8 +525,8 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     try {
       setScannerError(null);
       setScannerStatus("Processing barcode photo...");
-      const detectedCode = await decodeCapturedBarcode(file);
-      handleBarcodeDetected(detectedCode);
+      const detected = await decodeCapturedBarcode(file);
+      handleBarcodeDetected(detected.code, detected.identifierType);
     } catch (caughtError) {
       setScannerError(caughtError instanceof Error ? caughtError.message : "Could not read that barcode photo.");
       setScannerStatus("Point the barcode at the guide.");
@@ -626,7 +687,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
       <Card eyebrow="Scan to identify" title="Scan a barcode, review the match, then create inventory">
         <div className="stack">
           <p className="muted">
-            Scan a UPC, EAN, or ISBN, review candidate matches, and confirm the one that best matches the item in your hand.
+            Scan a UPC, EAN, ISBN, or Code 128 barcode, review candidate matches, and confirm the one that best matches the item in your hand.
             Mollie prefills inventory fields only after you accept the match or switch to manual entry.
           </p>
 
@@ -675,7 +736,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 <div className="split">
                   <div>
                     <p className="eyebrow">Lookup summary</p>
-                    <strong>{lookupResult.identifierType} scan</strong>
+                    <strong>{identifierTypeLabel(lookupResult.identifierType)} scan</strong>
                   </div>
                   <div className="market-observation-value">{lookupResult.providerSummary.simulated ? "Simulated provider" : "Live provider"}</div>
                 </div>
@@ -963,7 +1024,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
               </Button>
             </div>
             <p className="handoff-copy">
-              Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, or ISBN.
+              Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, ISBN, or Code 128 barcode.
             </p>
             {liveScannerReady ? (
               <div className="barcode-scanner-video-shell">

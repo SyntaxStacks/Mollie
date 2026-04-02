@@ -81,12 +81,28 @@ function createHint(input: {
   } satisfies OperatorHint;
 }
 
+function identifierTypeLabel(identifierType: CatalogIdentifierType) {
+  return identifierType === "CODE128" ? "Code 128" : identifierType;
+}
+
 function getLookupMode(): CatalogLookupMode {
   return process.env.CATALOG_LOOKUP_MODE?.trim().toLowerCase() === "fixture" ? "FIXTURE" : "INTERNAL";
 }
 
 export function normalizeIdentifier(identifier: string) {
-  return identifier.trim().toUpperCase().replace(/[^0-9X]/g, "");
+  const trimmed = identifier.trim().toUpperCase();
+
+  if (/^https?:\/\//i.test(trimmed) || trimmed.includes("WWW.")) {
+    return trimmed;
+  }
+
+  if (/^[0-9X\s-]+$/.test(trimmed)) {
+    return trimmed.replace(/[^0-9X]/g, "");
+  }
+
+  return trimmed
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9\-_.+/]/g, "");
 }
 
 export function classifyIdentifier(identifier: string): CatalogIdentifierType {
@@ -106,6 +122,10 @@ export function classifyIdentifier(identifier: string): CatalogIdentifierType {
 
   if (/^\d{9}[\dX]$/.test(normalized)) {
     return "ISBN";
+  }
+
+  if (/^[A-Z0-9][A-Z0-9\-_.+/]{3,95}$/.test(normalized)) {
+    return "CODE128";
   }
 
   return "UNKNOWN";
@@ -137,7 +157,7 @@ function mapTrustStatus(input: unknown): CatalogTrustStatus {
 }
 
 function mapIdentifierType(input: unknown): CatalogIdentifierType {
-  if (input === "UPC" || input === "EAN" || input === "ISBN" || input === "UNKNOWN") {
+  if (input === "UPC" || input === "EAN" || input === "ISBN" || input === "CODE128" || input === "UNKNOWN") {
     return input;
   }
 
@@ -212,7 +232,12 @@ function hasMeaningfulRecord(record: {
 }
 
 function buildResearchLinks(normalizedIdentifier: string, identifierType: CatalogIdentifierType) {
-  const queryPrefix = identifierType === "UNKNOWN" ? "product" : identifierType;
+  const queryPrefix =
+    identifierType === "UNKNOWN"
+      ? "product"
+      : identifierType === "CODE128"
+        ? "product code"
+        : identifierType;
   const googleQuery = encodeURIComponent(`${queryPrefix} ${normalizedIdentifier}`);
   const encodedIdentifier = encodeURIComponent(normalizedIdentifier);
 
@@ -299,7 +324,7 @@ function buildLookupHint(input: {
   if (input.cacheStatus === "MISS") {
     return createHint({
       title: "No saved catalog match yet",
-      explanation: `Mollie has not built a reusable ${input.identifierType} record for ${input.normalizedIdentifier} yet. Use the research links to gather a title, price, and images, then save the item to strengthen the catalog.`,
+      explanation: `Mollie has not built a reusable ${identifierTypeLabel(input.identifierType)} record for ${input.normalizedIdentifier} yet. Use the research links to gather a title, price, and images, then save the item to strengthen the catalog.`,
       severity: "INFO",
       nextActions: [
         "Open Google, Amazon, or eBay from the research links.",

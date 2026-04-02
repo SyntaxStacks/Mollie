@@ -63,7 +63,7 @@ after(async () => {
   await db.catalogIdentifier.deleteMany({
     where: {
       normalizedIdentifier: {
-        in: ["012345678905", "9780316769488", "4006381333931"]
+        in: ["012345678905", "9780316769488", "4006381333931", "AB-12345"]
       }
     }
   });
@@ -97,11 +97,13 @@ async function createWorkspace(label: string) {
   return workspace;
 }
 
-test("identifier normalization and classification cover UPC, EAN, and ISBN", () => {
+test("identifier normalization and classification cover UPC, EAN, ISBN, and Code 128", () => {
   assert.equal(normalizeIdentifier("01234-56789-05"), "012345678905");
   assert.equal(classifyIdentifier("012345678905"), "UPC");
   assert.equal(classifyIdentifier("4006381333931"), "EAN");
   assert.equal(classifyIdentifier("9780316769488"), "ISBN");
+  assert.equal(normalizeIdentifier("ab-123 45"), "AB-12345");
+  assert.equal(classifyIdentifier("AB-12345"), "CODE128");
 });
 
 test("seed records stay tentative and do not overwrite operator-confirmed canonical data", async () => {

@@ -1,0 +1,1 @@
+ALTER TYPE "CatalogIdentifierType" ADD VALUE IF NOT EXISTS 'CODE128';

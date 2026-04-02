@@ -35,7 +35,11 @@ export type ProductEnrichmentProvider = {
 };
 
 export type ProductLookupService = {
-  lookupBarcode(input: { workspaceId: string; barcode: string }): Promise<ProductLookupResult>;
+  lookupBarcode(input: {
+    workspaceId: string;
+    barcode: string;
+    identifierType?: CatalogIdentifierType | null;
+  }): Promise<ProductLookupResult>;
 };
 
 const knownSimulatedMatches: Record<
@@ -406,9 +410,11 @@ function defaultHintForConfidence(source: ProductLookupSource, score: number): O
 }
 
 function noMatchHint(barcode: string, identifierType: CatalogIdentifierType): OperatorHint {
+  const identifierLabel = identifierType === "CODE128" ? "Code 128" : identifierType;
+
   return buildOperatorHint({
     title: "No reliable product match yet",
-    explanation: `We could not find a reliable ${identifierType} match for ${barcode}. You can still continue with manual entry and save the item yourself.`,
+    explanation: `We could not find a reliable ${identifierLabel} match for ${barcode}. You can still continue with manual entry and save the item yourself.`,
     severity: "INFO",
     nextActions: [
       "Compare the code to the label and try scanning again if needed.",
@@ -498,7 +504,12 @@ const webSourceLookupProvider: BarcodeLookupProvider = {
   simulated: false,
   async lookupBarcode(input) {
     const encodedIdentifier = encodeURIComponent(input.barcode);
-    const queryPrefix = input.identifierType === "UNKNOWN" ? "product" : input.identifierType;
+    const queryPrefix =
+      input.identifierType === "UNKNOWN"
+        ? "product"
+        : input.identifierType === "CODE128"
+          ? "product code"
+          : input.identifierType;
     const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(`${queryPrefix} ${input.barcode}`)}`;
     const amazonUrl = `https://www.amazon.com/s?k=${encodedIdentifier}`;
     const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodedIdentifier}`;
@@ -614,7 +625,9 @@ export function createProductLookupService(): ProductLookupService {
   return {
     async lookupBarcode(input) {
       const barcode = normalizeIdentifier(input.barcode);
-      const identifierType = classifyIdentifier(barcode);
+      const identifierType = input.identifierType && input.identifierType !== "UNKNOWN"
+        ? input.identifierType
+        : classifyIdentifier(barcode);
 
       let candidates: ProductLookupCandidate[] = [];
       const providerSummary = {
