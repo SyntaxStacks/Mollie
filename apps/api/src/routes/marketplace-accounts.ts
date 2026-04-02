@@ -69,6 +69,10 @@ const automationVendorLabels: Record<AutomationVendor, string> = {
 
 const finalAttemptStates = new Set<VendorConnectState>(["CONNECTED", "FAILED", "EXPIRED"]);
 
+function simulatedMarketplacePathsAllowed() {
+  return process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS === "true";
+}
+
 function buildAttemptHint(input: {
   vendor: AutomationVendor;
   title: string;
@@ -373,6 +377,12 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
   });
 
   app.post("/api/marketplace-accounts/ebay/connect", async (request) => {
+    if (!simulatedMarketplacePathsAllowed()) {
+      throw app.httpErrors.serviceUnavailable(
+        "Manual simulated eBay accounts are disabled in production. Use eBay OAuth or wait for the live marketplace path."
+      );
+    }
+
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const body = marketplaceAccountSchema.extend({ platform: z.literal("EBAY") }).parse({
@@ -520,6 +530,12 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.parse(request.params);
+    if (!simulatedMarketplacePathsAllowed()) {
+      throw app.httpErrors.serviceUnavailable(
+        `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet. Mollie blocks this simulated marketplace path until the real automation runtime is ready.`
+      );
+    }
+
     const body = automationVendorConnectStartSchema.parse(request.body);
     const adapter = automationConnectAdapters[params.vendor];
     const start = adapter.startConnect({
@@ -580,6 +596,12 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.extend({ attemptId: z.string().min(1) }).parse(request.params);
+    if (!simulatedMarketplacePathsAllowed()) {
+      throw app.httpErrors.serviceUnavailable(
+        `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet.`
+      );
+    }
+
     const body = automationVendorConnectChallengeSchema.parse(request.body);
     const adapter = automationConnectAdapters[params.vendor];
     const existing = await findMarketplaceConnectAttemptForWorkspace(workspace.id, params.attemptId, params.vendor);
@@ -656,6 +678,12 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.extend({ attemptId: z.string().min(1) }).parse(request.params);
+    if (!simulatedMarketplacePathsAllowed()) {
+      throw app.httpErrors.serviceUnavailable(
+        `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet.`
+      );
+    }
+
     const body = automationVendorConnectSessionSchema.parse(request.body);
     const adapter = automationConnectAdapters[params.vendor];
     const existing = await findMarketplaceConnectAttemptByHelperNonce(params.attemptId, body.helperNonce);

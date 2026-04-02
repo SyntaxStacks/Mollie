@@ -27,6 +27,7 @@ const baseEnvSchema = z.object({
   EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
   EBAY_SCOPES: z.string().optional(),
   EBAY_LIVE_PUBLISH_ENABLED: z.coerce.boolean().default(false),
+  ALLOW_SIMULATED_MARKETPLACE_PATHS: z.coerce.boolean().default(false),
   EBAY_MARKETPLACE_ID: z.string().default("EBAY_US"),
   EBAY_CURRENCY: z.string().default("USD"),
   EBAY_MERCHANT_LOCATION_KEY: z.string().optional(),

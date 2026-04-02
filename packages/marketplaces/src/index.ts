@@ -171,6 +171,10 @@ export type MarketplaceAdapter = {
   testConnection(input: { marketplaceAccount: MarketplaceAccountContext }): Promise<{ ok: boolean; detail: string }>;
 };
 
+function simulatedMarketplacePathsAllowed() {
+  return process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS === "true";
+}
+
 export function buildAutomationConnectHint(input: {
   platformLabel: string;
   platform: AutomationVendor;
@@ -512,6 +516,29 @@ export function getAutomationAccountReadiness(input: {
         : input.account.platform === "WHATNOT"
           ? "Whatnot"
           : input.account.platform;
+
+  if (!simulatedMarketplacePathsAllowed()) {
+    return {
+      state: "AUTOMATION_BLOCKED",
+      status: "BLOCKED",
+      publishMode: "automation" as const,
+      summary: `${platformLabel} automation sign-in exists, but live marketplace automation is not enabled in production yet.`,
+      detail: "This connector still relies on simulated publish behavior, so Mollie blocks it in production until the live runtime is shipped.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} is not live for production publishing yet.`,
+        explanation:
+          "Mollie can store the account metadata, but this marketplace still depends on simulated automation behavior. Production blocks it instead of implying the account is ready.",
+        severity: "ERROR",
+        nextActions: [
+          "Do not rely on this connector for production publish yet.",
+          "Use manual handling or another live connector until the real automation runtime is available."
+        ],
+        canContinue: false
+      })
+    };
+  }
 
   if (input.workspaceAutomationEnabled === false) {
     return {

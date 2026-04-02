@@ -328,3 +328,79 @@ test("workspace connector automation disable blocks automation market readiness"
   assert.match(depop.readiness.hint?.title ?? "", /turned back on/i);
   assert.ok(depop.readiness.hint?.nextActions.some((action) => /workspace settings/i.test(action)));
 });
+
+test("production blocks automation marketplace readiness when the connector is still simulated", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllow = process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+  const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = "false";
+  process.env.AUTH_EXPOSE_DEV_CODE = "true";
+
+  try {
+    const session = await createWorkspaceSession("automation-production-blocked");
+
+    await db.marketplaceAccount.create({
+      data: {
+        workspaceId: session.workspaceId,
+        platform: "DEPOP",
+        displayName: "Main Depop shop",
+        secretRef: "db-session://depop/test/attempt",
+        credentialType: "SECRET_REF",
+        validationStatus: "VALID",
+        status: "CONNECTED",
+        credentialMetadataJson: {
+          mode: "helper-session-artifact",
+          publishMode: "automation",
+          accountHandle: "main-depop-shop"
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/marketplace-accounts",
+      headers: session.headers
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as {
+      accounts: Array<{
+        platform: string;
+        readiness: {
+          state: string;
+          status: string;
+          summary: string;
+          detail: string;
+          hint?: {
+            title: string;
+            explanation: string;
+            severity: string;
+            canContinue?: boolean;
+          } | null;
+        } | null;
+      }>;
+    };
+
+    const depop = body.accounts.find((account) => account.platform === "DEPOP");
+    assert.ok(depop?.readiness);
+    assert.equal(depop.readiness.state, "AUTOMATION_BLOCKED");
+    assert.equal(depop.readiness.status, "BLOCKED");
+    assert.match(depop.readiness.summary, /not enabled in production yet/i);
+    assert.match(depop.readiness.detail, /simulated publish behavior/i);
+    assert.equal(depop.readiness.hint?.severity, "ERROR");
+    assert.equal(depop.readiness.hint?.canContinue, false);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+    } else {
+      process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = originalAllow;
+    }
+    if (originalExpose === undefined) {
+      delete process.env.AUTH_EXPOSE_DEV_CODE;
+    } else {
+      process.env.AUTH_EXPOSE_DEV_CODE = originalExpose;
+    }
+  }
+});

@@ -113,6 +113,44 @@ after(async () => {
   }
 });
 
+test("production blocks simulated automation vendor sign-in", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllow = process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+  const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = "false";
+  process.env.AUTH_EXPOSE_DEV_CODE = "true";
+
+  try {
+    const session = await createWorkspaceSession("vendor-connect-production-blocked");
+
+    const startResponse = await app.inject({
+      method: "POST",
+      url: "/api/marketplace-accounts/DEPOP/connect/start",
+      headers: session.headers,
+      payload: {
+        displayName: "Main Depop shop"
+      }
+    });
+
+    assert.equal(startResponse.statusCode, 503);
+    const body = startResponse.json() as { error: string };
+    assert.match(body.error, /not live in production yet/i);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+    } else {
+      process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = originalAllow;
+    }
+    if (originalExpose === undefined) {
+      delete process.env.AUTH_EXPOSE_DEV_CODE;
+    } else {
+      process.env.AUTH_EXPOSE_DEV_CODE = originalExpose;
+    }
+  }
+});
+
 test("automation vendor connect flow starts and completes after session validation", async () => {
   const session = await createWorkspaceSession("vendor-connect-success");
 
