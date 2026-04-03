@@ -471,6 +471,7 @@ export const inventoryBarcodeImportSchema = z.object({
   identifier: z.string().trim().min(8).max(64).optional(),
   barcode: z.string().trim().min(8).max(64).optional(),
   identifierType: z.enum(catalogIdentifierTypes).optional().nullable(),
+  intakeDecision: z.enum(["ADD", "HOLD", "LIST_LATER", "POST_NOW"]).default("ADD"),
   title: z.string().trim().min(2).max(180),
   brand: z.string().trim().max(120).optional().nullable(),
   category: z.string().trim().min(2).max(120),

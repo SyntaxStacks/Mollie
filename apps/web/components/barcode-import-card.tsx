@@ -15,6 +15,8 @@ type BarcodeImportCardProps = {
   presentation?: "embedded" | "scan";
 };
 
+type IntakeDecision = "ADD" | "HOLD" | "LIST_LATER" | "POST_NOW";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 type BarcodeDetectorResultLike = {
@@ -178,6 +180,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const [ebayPrice, setEbayPrice] = useState("");
   const [ebayUrl, setEbayUrl] = useState("");
   const [imageUrls, setImageUrls] = useState("");
+  const [intakeDecision, setIntakeDecision] = useState<IntakeDecision>("ADD");
   const [generateDrafts, setGenerateDrafts] = useState(false);
 
   useEffect(() => {
@@ -562,6 +565,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     setEbayPrice("");
     setEbayUrl("");
     setImageUrls("");
+    setIntakeDecision("ADD");
     setGenerateDrafts(false);
   }
 
@@ -590,80 +594,146 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     runLookup(barcode);
   }
 
+  function shouldQueueDraftsForDecision(decision: IntakeDecision) {
+    return decision === "POST_NOW";
+  }
+
+  function decisionActionLabel(decision: IntakeDecision) {
+    switch (decision) {
+      case "HOLD":
+        return "Hold";
+      case "LIST_LATER":
+        return "List Later";
+      case "POST_NOW":
+        return "Post Now";
+      default:
+        return "Add";
+    }
+  }
+
+  function submitButtonLabel(decision: IntakeDecision, draftsEnabled: boolean) {
+    if (draftsEnabled || decision === "POST_NOW") {
+      return "Create item and queue drafts";
+    }
+
+    switch (decision) {
+      case "HOLD":
+        return "Save as hold";
+      case "LIST_LATER":
+        return "Save for later";
+      default:
+        return "Add to inventory";
+    }
+  }
+
+  async function submitImport(
+    decisionOverride: IntakeDecision = intakeDecision,
+    generateDraftsOverride: boolean = generateDrafts
+  ) {
+    try {
+      const observations = [
+        amazonPrice
+          ? {
+              market: "AMAZON",
+              label: "Amazon",
+              price: Number(amazonPrice),
+              sourceUrl: amazonUrl || null,
+              note: "Captured during Scan to identify."
+            }
+          : null,
+        ebayPrice
+          ? {
+              market: "EBAY",
+              label: "eBay",
+              price: Number(ebayPrice),
+              sourceUrl: ebayUrl || null,
+              note: "Captured during Scan to identify."
+            }
+          : null
+      ].filter((value): value is NonNullable<typeof value> => Boolean(value));
+
+      const normalizedImageUrls = normalizeImageUrls(imageUrls);
+      const primarySourceUrl = amazonUrl || selectedCandidate?.productUrl || ebayUrl || null;
+      const response = await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          identifier: barcode,
+          identifierType: lookupResult?.identifierType ?? selectedCandidate?.identifierType ?? null,
+          intakeDecision: decisionOverride,
+          title,
+          brand: brand || null,
+          category,
+          condition,
+          size: size || null,
+          color: color || null,
+          costBasis: Number(costBasis || 0),
+          priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
+          primarySourceMarket: primarySourceMarketForCandidate(selectedCandidate),
+          primarySourceUrl,
+          referenceUrls: [amazonUrl, ebayUrl, selectedCandidate?.productUrl].filter(
+            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
+          ),
+          imageUrls: normalizedImageUrls,
+          observations,
+          acceptedCandidate: selectedCandidate,
+          generateDrafts: generateDraftsOverride,
+          draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
+        })
+      });
+      const payload = (await response.json().catch(() => ({ error: "Could not create inventory from this match." }))) as {
+        error?: string;
+        item?: { id: string };
+        draftsQueued?: boolean;
+      };
+
+      if (!response.ok || !payload.item?.id) {
+        throw new Error(payload.error ?? "Could not create inventory from this match.");
+      }
+
+      const createdItemId = payload.item.id;
+      resetForm();
+      router.push(payload.draftsQueued ? `/drafts?fromScan=${createdItemId}` : `/inventory/${createdItemId}`);
+    } catch (caughtError) {
+      setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create inventory from this match.");
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     startTransition(async () => {
-      try {
-        const observations = [
-          amazonPrice
-            ? {
-                market: "AMAZON",
-                label: "Amazon",
-                price: Number(amazonPrice),
-                sourceUrl: amazonUrl || null,
-                note: "Captured during Scan to identify."
-              }
-            : null,
-          ebayPrice
-            ? {
-                market: "EBAY",
-                label: "eBay",
-                price: Number(ebayPrice),
-                sourceUrl: ebayUrl || null,
-                note: "Captured during Scan to identify."
-              }
-            : null
-        ].filter((value): value is NonNullable<typeof value> => Boolean(value));
-
-        const normalizedImageUrls = normalizeImageUrls(imageUrls);
-        const primarySourceUrl = amazonUrl || selectedCandidate?.productUrl || ebayUrl || null;
-        const response = await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            identifier: barcode,
-            identifierType: lookupResult?.identifierType ?? selectedCandidate?.identifierType ?? null,
-            title,
-            brand: brand || null,
-            category,
-            condition,
-            size: size || null,
-            color: color || null,
-            costBasis: Number(costBasis || 0),
-            priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
-            primarySourceMarket: primarySourceMarketForCandidate(selectedCandidate),
-            primarySourceUrl,
-            referenceUrls: [amazonUrl, ebayUrl, selectedCandidate?.productUrl].filter(
-              (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
-            ),
-            imageUrls: normalizedImageUrls,
-            observations,
-            acceptedCandidate: selectedCandidate,
-            generateDrafts,
-            draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
-          })
-        });
-        const payload = (await response.json().catch(() => ({ error: "Could not create inventory from this match." }))) as {
-          error?: string;
-          item?: { id: string };
-          draftsQueued?: boolean;
-        };
-
-        if (!response.ok || !payload.item?.id) {
-          throw new Error(payload.error ?? "Could not create inventory from this match.");
-        }
-
-        const createdItemId = payload.item.id;
-        resetForm();
-        router.push(payload.draftsQueued ? `/drafts?fromScan=${createdItemId}` : `/inventory/${createdItemId}`);
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create inventory from this match.");
-      }
+      await submitImport();
     });
+  }
+
+  function handleDecisionAction(decision: IntakeDecision) {
+    const draftsEnabled = shouldQueueDraftsForDecision(decision);
+    setIntakeDecision(decision);
+    setGenerateDrafts(draftsEnabled);
+    setSubmitError(null);
+
+    if (!manualEntryEnabled) {
+      enableManualEntry();
+    }
+
+    if (!canSubmit) {
+      return;
+    }
+
+    startTransition(async () => {
+      await submitImport(decision, draftsEnabled);
+    });
+  }
+
+  function handleSkipAction() {
+    resetForm();
+    if (scanMode) {
+      openCamera();
+    }
   }
 
   const canSubmit = manualEntryEnabled && Boolean(barcode.trim()) && Boolean(title.trim()) && Boolean(category.trim()) && Boolean(condition.trim());
@@ -943,13 +1013,77 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
           <div className="actions">
             <Button data-testid="scan-identify-create" disabled={pending || !canSubmit} type="submit">
-              <Sparkles size={16} /> {pending ? "Saving..." : generateDrafts ? "Create item and queue drafts" : "Create item"}
+              <Sparkles size={16} /> {pending ? "Saving..." : submitButtonLabel(intakeDecision, generateDrafts)}
             </Button>
             <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
               Reset
             </Button>
           </div>
         </form>
+      ) : null}
+
+      {scanMode ? (
+        <div className="scan-result-actions">
+          <div className="scan-result-actions-grid">
+            <Button
+              className="scan-result-action-button"
+              data-testid="scan-identify-action-add"
+              disabled={pending || lookupPending}
+              kind={intakeDecision === "ADD" ? "primary" : "secondary"}
+              onClick={() => handleDecisionAction("ADD")}
+              type="button"
+            >
+              Add
+            </Button>
+            <Button
+              className="scan-result-action-button"
+              data-testid="scan-identify-action-hold"
+              disabled={pending || lookupPending}
+              kind={intakeDecision === "HOLD" ? "primary" : "secondary"}
+              onClick={() => handleDecisionAction("HOLD")}
+              type="button"
+            >
+              Hold
+            </Button>
+            <Button
+              className="scan-result-action-button"
+              data-testid="scan-identify-action-list-later"
+              disabled={pending || lookupPending}
+              kind={intakeDecision === "LIST_LATER" ? "primary" : "secondary"}
+              onClick={() => handleDecisionAction("LIST_LATER")}
+              type="button"
+            >
+              List Later
+            </Button>
+            <Button
+              className="scan-result-action-button"
+              data-testid="scan-identify-action-post-now"
+              disabled={pending || lookupPending}
+              kind={intakeDecision === "POST_NOW" ? "primary" : "secondary"}
+              onClick={() => handleDecisionAction("POST_NOW")}
+              type="button"
+            >
+              Post Now
+            </Button>
+          </div>
+          <div className="scan-result-actions-footer">
+            <div className="muted">
+              {canSubmit
+                ? `${decisionActionLabel(intakeDecision)} is ready. Save now or keep editing the details below.`
+                : "Choose a source or finish the item details below before saving this scan."}
+            </div>
+            <Button
+              className="scan-result-action-skip"
+              data-testid="scan-identify-action-skip"
+              disabled={pending}
+              kind="ghost"
+              onClick={handleSkipAction}
+              type="button"
+            >
+              Skip
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {submitError ? <div className="notice">{submitError}</div> : null}
@@ -1264,7 +1398,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
               <div className="actions">
                 <Button data-testid="scan-identify-create" disabled={pending || !canSubmit} type="submit">
-                  <Sparkles size={16} /> {pending ? "Saving..." : generateDrafts ? "Create item and queue drafts" : "Create item"}
+                  <Sparkles size={16} /> {pending ? "Saving..." : submitButtonLabel(intakeDecision, generateDrafts)}
                 </Button>
                 <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
                   Reset

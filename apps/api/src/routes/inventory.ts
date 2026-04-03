@@ -321,6 +321,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       priceRecommendation: body.priceRecommendation ?? body.observations[0]?.price ?? null,
       attributes: {
         importSource: "IDENTIFIER_RESEARCH",
+        intakeDecision: body.intakeDecision,
         identifier: normalizedIdentifier,
         identifierType,
         primarySourceMarket: body.primarySourceMarket,
