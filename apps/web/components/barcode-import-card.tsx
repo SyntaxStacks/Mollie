@@ -22,6 +22,15 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 type BarcodeDetectorResultLike = {
   rawValue?: string;
   format?: string;
+  cornerPoints?: Array<{ x: number; y: number }>;
+  boundingBox?: {
+    x?: number;
+    y?: number;
+    top?: number;
+    left?: number;
+    width?: number;
+    height?: number;
+  };
 };
 
 type BarcodeDetectorLike = {
@@ -36,6 +45,126 @@ declare global {
   interface Window {
     BarcodeDetector?: BarcodeDetectorConstructorLike;
   }
+}
+
+type ScannerOverlayPoint = {
+  x: number;
+  y: number;
+};
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function pointsToOverlayString(points: ScannerOverlayPoint[]) {
+  return points.map((point) => `${point.x},${point.y}`).join(" ");
+}
+
+function buildOverlayPolygonFromBounds(input: {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  frameWidth: number;
+  frameHeight: number;
+}) {
+  const width = Math.max(1, input.right - input.left);
+  const height = Math.max(1, input.bottom - input.top);
+  const padX = Math.max(4, width * 0.08);
+  const padY = Math.max(4, height * 0.22);
+  const left = clamp(((input.left - padX) / input.frameWidth) * 100, 0, 100);
+  const right = clamp(((input.right + padX) / input.frameWidth) * 100, 0, 100);
+  const top = clamp(((input.top - padY) / input.frameHeight) * 100, 0, 100);
+  const bottom = clamp(((input.bottom + padY) / input.frameHeight) * 100, 0, 100);
+
+  return [
+    { x: left, y: top },
+    { x: right, y: top },
+    { x: right, y: bottom },
+    { x: left, y: bottom }
+  ];
+}
+
+function buildOverlayPolygonFromDetectorMatch(
+  match: BarcodeDetectorResultLike,
+  input: { frameWidth: number; frameHeight: number; offsetX?: number; offsetY?: number }
+) {
+  const offsetX = input.offsetX ?? 0;
+  const offsetY = input.offsetY ?? 0;
+  const cornerPoints = match.cornerPoints?.filter(
+    (point): point is { x: number; y: number } => Number.isFinite(point.x) && Number.isFinite(point.y)
+  );
+
+  if (cornerPoints && cornerPoints.length >= 3) {
+    return cornerPoints.map((point) => ({
+      x: clamp(((point.x + offsetX) / input.frameWidth) * 100, 0, 100),
+      y: clamp(((point.y + offsetY) / input.frameHeight) * 100, 0, 100)
+    }));
+  }
+
+  const boundingBox = match.boundingBox;
+
+  if (!boundingBox) {
+    return null;
+  }
+
+  const left = Number.isFinite(boundingBox.left) ? Number(boundingBox.left) : Number(boundingBox.x ?? 0);
+  const top = Number.isFinite(boundingBox.top) ? Number(boundingBox.top) : Number(boundingBox.y ?? 0);
+  const width = Number(boundingBox.width ?? 0);
+  const height = Number(boundingBox.height ?? 0);
+
+  if (!Number.isFinite(left) || !Number.isFinite(top) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return buildOverlayPolygonFromBounds({
+    left: left + offsetX,
+    top: top + offsetY,
+    right: left + offsetX + width,
+    bottom: top + offsetY + height,
+    frameWidth: input.frameWidth,
+    frameHeight: input.frameHeight
+  });
+}
+
+function buildOverlayPolygonFromResultPoints(
+  resultPoints: Array<{ getX(): number; getY(): number }>,
+  input: { frameWidth: number; frameHeight: number }
+) {
+  if (resultPoints.length === 0) {
+    return null;
+  }
+
+  const xs = resultPoints.map((point) => point.getX()).filter((value) => Number.isFinite(value));
+  const ys = resultPoints.map((point) => point.getY()).filter((value) => Number.isFinite(value));
+
+  if (xs.length === 0 || ys.length === 0) {
+    return null;
+  }
+
+  return buildOverlayPolygonFromBounds({
+    left: Math.min(...xs),
+    top: Math.min(...ys),
+    right: Math.max(...xs),
+    bottom: Math.max(...ys),
+    frameWidth: input.frameWidth,
+    frameHeight: input.frameHeight
+  });
+}
+
+function choosePrefillValue(currentValue: string, nextValue: string | null | undefined, replaceableValues: string[] = []) {
+  const current = currentValue.trim();
+  const next = nextValue?.trim() ?? "";
+
+  if (!next) {
+    return currentValue;
+  }
+
+  if (!current) {
+    return next;
+  }
+
+  return replaceableValues.some((value) => value.trim() === current) ? next : currentValue;
 }
 
 function normalizeImageUrls(value: string) {
@@ -153,6 +282,9 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const acceptedMatchRef = useRef<HTMLDivElement | null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
+  const scannerCropCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scanResolvedRef = useRef(false);
+  const scannerOutlineResetRef = useRef<number | null>(null);
   const [pending, startTransition] = useTransition();
   const [lookupPending, startLookupTransition] = useTransition();
   const [lookupResult, setLookupResult] = useState<ProductLookupResult | null>(null);
@@ -164,6 +296,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const [scannerError, setScannerError] = useState<string | null>(null);
   const [scannerStatus, setScannerStatus] = useState("Point the barcode at the guide.");
   const [capturePending, setCapturePending] = useState(false);
+  const [scannerOutlinePoints, setScannerOutlinePoints] = useState<ScannerOverlayPoint[] | null>(null);
   const [barcode, setBarcode] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
   const [manualEntryEnabled, setManualEntryEnabled] = useState(false);
@@ -183,6 +316,51 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const [intakeDecision, setIntakeDecision] = useState<IntakeDecision>("ADD");
   const [generateDrafts, setGenerateDrafts] = useState(false);
 
+  function revealScannerOutline(points: ScannerOverlayPoint[] | null) {
+    setScannerOutlinePoints(points);
+
+    if (scannerOutlineResetRef.current) {
+      window.clearTimeout(scannerOutlineResetRef.current);
+      scannerOutlineResetRef.current = null;
+    }
+
+    if (points) {
+      scannerOutlineResetRef.current = window.setTimeout(() => {
+        setScannerOutlinePoints(null);
+        scannerOutlineResetRef.current = null;
+      }, 900);
+    }
+  }
+
+  function getScannerCropFrame(previewElement: HTMLVideoElement) {
+    const frameWidth = previewElement.videoWidth;
+    const frameHeight = previewElement.videoHeight;
+    const cropWidth = Math.max(220, Math.floor(frameWidth * 0.78));
+    const cropHeight = Math.max(120, Math.floor(frameHeight * 0.34));
+    const offsetX = Math.max(0, Math.floor((frameWidth - cropWidth) / 2));
+    const offsetY = Math.max(0, Math.floor((frameHeight - cropHeight) / 2));
+    const canvas = scannerCropCanvasRef.current ?? document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    scannerCropCanvasRef.current = canvas;
+
+    if (!context) {
+      return null;
+    }
+
+    canvas.width = cropWidth;
+    canvas.height = cropHeight;
+    context.drawImage(previewElement, offsetX, offsetY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+
+    return {
+      canvas,
+      frameWidth,
+      frameHeight,
+      offsetX,
+      offsetY
+    };
+  }
+
   useEffect(() => {
     const hasWindow = typeof window !== "undefined";
     setScannerSupported(hasWindow);
@@ -197,9 +375,13 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     let animationFrame = 0;
     let scannerControls: { stop: () => void } | null = null;
     let stream: MediaStream | null = null;
+    let detectionInFlight = false;
+    let scanIteration = 0;
 
     async function beginScan() {
       try {
+        scanResolvedRef.current = false;
+        revealScannerOutline(null);
         setScannerError(null);
         setScannerStatus("Point the barcode at the guide.");
         setLiveScannerReady(true);
@@ -232,21 +414,39 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           });
 
           const scanFrame = async () => {
-            if (!active) {
+            if (!active || detectionInFlight || scanResolvedRef.current) {
+              animationFrame = window.requestAnimationFrame(scanFrame);
               return;
             }
 
+            detectionInFlight = true;
+
             try {
-              const detected = await detector.detect(previewElement);
+              const cropFrame = getScannerCropFrame(previewElement);
+              const useFullFrame = scanIteration % 5 === 0 || !cropFrame;
+              const detected = await detector.detect(useFullFrame ? previewElement : cropFrame.canvas);
               const match = detected.find((candidate) => candidate.rawValue?.trim());
               const code = match?.rawValue?.trim();
 
               if (code) {
+                const overlayPoints = match
+                  ? buildOverlayPolygonFromDetectorMatch(match, {
+                      frameWidth: previewElement.videoWidth,
+                      frameHeight: previewElement.videoHeight,
+                      offsetX: useFullFrame ? 0 : cropFrame?.offsetX,
+                      offsetY: useFullFrame ? 0 : cropFrame?.offsetY
+                    })
+                  : null;
+                revealScannerOutline(overlayPoints);
+                setScannerStatus("Barcode spotted. Hold steady...");
                 handleBarcodeDetected(code, barcodeFormatToIdentifierType(match?.format));
                 return;
               }
             } catch {
               setScannerError("Could not read the barcode yet. Hold the label flatter and closer.");
+            } finally {
+              detectionInFlight = false;
+              scanIteration += 1;
             }
 
             animationFrame = window.requestAnimationFrame(scanFrame);
@@ -256,11 +456,26 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           return;
         }
 
-        const [{ BrowserMultiFormatReader }, { NotFoundException, ChecksumException, FormatException }] = await Promise.all([
+        const [
+          { BrowserMultiFormatReader },
+          { BarcodeFormat, ChecksumException, DecodeHintType, FormatException, NotFoundException }
+        ] = await Promise.all([
           import("@zxing/browser"),
           import("@zxing/library")
         ]);
-        const reader = new BrowserMultiFormatReader();
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          BarcodeFormat.EAN_13,
+          BarcodeFormat.EAN_8,
+          BarcodeFormat.UPC_A,
+          BarcodeFormat.UPC_E,
+          BarcodeFormat.CODE_128
+        ]);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        const reader = new BrowserMultiFormatReader(hints, {
+          delayBetweenScanAttempts: 120,
+          delayBetweenScanSuccess: 400
+        });
 
         scannerControls = await reader.decodeFromConstraints(
           {
@@ -278,6 +493,12 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
             if (result) {
               setScannerError(null);
+              const overlayPoints = buildOverlayPolygonFromResultPoints(result.getResultPoints() ?? [], {
+                frameWidth: previewElement.videoWidth || 1,
+                frameHeight: previewElement.videoHeight || 1
+              });
+              revealScannerOutline(overlayPoints);
+              setScannerStatus("Barcode spotted. Hold steady...");
               handleBarcodeDetected(
                 result.getText().trim(),
                 barcodeFormatToIdentifierType(result.getBarcodeFormat().toString())
@@ -301,8 +522,13 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
     return () => {
       active = false;
+      scanResolvedRef.current = false;
       if (animationFrame) {
         window.cancelAnimationFrame(animationFrame);
+      }
+      if (scannerOutlineResetRef.current) {
+        window.clearTimeout(scannerOutlineResetRef.current);
+        scannerOutlineResetRef.current = null;
       }
       if (scannerControls) {
         scannerControls.stop();
@@ -312,6 +538,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           track.stop();
         }
       }
+      setScannerOutlinePoints(null);
     };
   }, [scannerOpen, liveScannerReady]);
 
@@ -425,6 +652,10 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     detectedCode: string,
     detectedIdentifierType?: "UPC" | "EAN" | "ISBN" | "CODE128" | "UNKNOWN" | null
   ) {
+    if (scanResolvedRef.current) {
+      return;
+    }
+
     const normalizedCode = detectedCode.trim();
 
     if (!normalizedCode) {
@@ -440,12 +671,17 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     }
 
     const cleanedCode = normalizeIdentifierInput(normalizedCode);
+    scanResolvedRef.current = true;
 
     setBarcode(cleanedCode);
-    setScannerStatus(`Barcode found: ${cleanedCode}. Looking up product...`);
+    setScannerStatus(`Barcode locked: ${cleanedCode}. Looking up product...`);
     setScannerError(null);
-    setScannerOpen(false);
-    runLookup(cleanedCode, detectedIdentifierType ?? classifyIdentifierInput(cleanedCode));
+
+    window.setTimeout(() => {
+      setScannerOpen(false);
+      revealScannerOutline(null);
+      runLookup(cleanedCode, detectedIdentifierType ?? classifyIdentifierInput(cleanedCode));
+    }, 180);
   }
 
   async function decodeBarcodeFromCanvas(canvas: HTMLCanvasElement) {
@@ -539,6 +775,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   }
 
   function openCamera() {
+    scanResolvedRef.current = false;
+    revealScannerOutline(null);
     setScannerError(null);
     setScannerStatus("Point the barcode at the guide.");
     setLiveScannerReady(true);
@@ -546,6 +784,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   }
 
   function resetForm() {
+    scanResolvedRef.current = false;
+    revealScannerOutline(null);
     setBarcode("");
     setLookupResult(null);
     setLookupError(null);
@@ -570,16 +810,27 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   }
 
   function applyCandidate(candidate: ProductLookupCandidate) {
+    const previousCandidate = selectedCandidate;
+
     setSelectedCandidate(candidate);
     setManualEntryEnabled(true);
     setLookupError(null);
-    setTitle(candidate.title);
-    setBrand(candidate.brand ?? "");
-    setCategory(candidate.category ?? "General Merchandise");
-    setSize(candidate.size ?? candidate.model ?? "");
-    setColor(candidate.color ?? "");
-    setAmazonUrl(candidate.productUrl ?? "");
-    setImageUrls(candidate.imageUrls.join("\n"));
+    setTitle((current) => choosePrefillValue(current, candidate.title, [previousCandidate?.title ?? ""]));
+    setBrand((current) => choosePrefillValue(current, candidate.brand ?? "", [previousCandidate?.brand ?? ""]));
+    setCategory((current) =>
+      choosePrefillValue(current, candidate.category ?? "", [previousCandidate?.category ?? "", "General Merchandise"])
+    );
+    setSize((current) =>
+      choosePrefillValue(current, candidate.size ?? candidate.model ?? "", [
+        previousCandidate?.size ?? "",
+        previousCandidate?.model ?? ""
+      ])
+    );
+    setColor((current) => choosePrefillValue(current, candidate.color ?? "", [previousCandidate?.color ?? ""]));
+    setAmazonUrl((current) => choosePrefillValue(current, candidate.productUrl ?? "", [previousCandidate?.productUrl ?? ""]));
+    setImageUrls((current) =>
+      choosePrefillValue(current, candidate.imageUrls.join("\n"), [previousCandidate?.imageUrls.join("\n") ?? ""])
+    );
   }
 
   function enableManualEntry() {
@@ -778,8 +1029,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
               <div className="scan-import-hint">
                 <CheckCircle2 size={16} />
                 <span>
-                  {providerLabel(selectedCandidate.provider)} is selected as the accepted source for this item. Review the prefilled
-                  inventory fields below, then save when they match the item in your hand.
+                  {providerLabel(selectedCandidate.provider)} is being used as a source reference for this item. Mollie filled the
+                  fields it could from the search result, but you should still review and adjust them before saving.
                 </span>
               </div>
             ) : null}
@@ -812,7 +1063,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                       <div>
                         <strong>{candidate.title}</strong>
                         <div className="muted">
-                          {candidate.brand ?? "Unknown brand"} · {candidate.category ?? "Unsorted"}
+                          {candidate.brand ?? "Unknown brand"} | {candidate.category ?? "Unsorted"}
                         </div>
                       </div>
                       <div className="stack" style={{ gap: "0.35rem", alignItems: "flex-end" }}>
@@ -834,7 +1085,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                     ) : null}
 
                     <div className="muted">
-                      {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
+                      {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` | Model ${candidate.model}` : ""}
                     </div>
 
                     <div className="lookup-candidate-meta-grid">
@@ -875,7 +1126,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                         onClick={() => applyCandidate(candidate)}
                         type="button"
                       >
-                        <CheckCircle2 size={16} /> Use this source
+                        <CheckCircle2 size={16} /> Prefill from source
                       </Button>
                       {candidate.productUrl ? (
                         <a className="secondary-link-button" href={candidate.productUrl} rel="noreferrer" target="_blank">
@@ -903,7 +1154,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
             <div className="market-observation-card" ref={acceptedMatchRef}>
               <div className="split">
                 <div>
-                  <p className="eyebrow">Accepted source</p>
+                  <p className="eyebrow">Source reference</p>
                   <strong>{selectedCandidate.title}</strong>
                 </div>
                 <div className="market-observation-value">{providerLabel(selectedCandidate.provider)}</div>
@@ -911,13 +1162,13 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
               <div className="scan-import-hint">
                 <Sparkles size={16} />
                 <span>
-                  This source is now marked as the valid starting point for this item. Mollie prefilled the inventory fields below, but
-                  it will not create the item until you save.
+                  Mollie used this source to prefill the fields below where the search result looked useful. Review everything and keep
+                  editing before you save the item.
                 </span>
               </div>
               <div className="muted">
-                Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% · {selectedCandidate.confidenceState}
-                {selectedCandidate.productUrl ? " · Source link saved with this item" : ""}
+                Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% | {selectedCandidate.confidenceState}
+                {selectedCandidate.productUrl ? " | Source link saved with this item" : ""}
               </div>
             </div>
           ) : (
@@ -1195,8 +1446,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                   <div className="scan-import-hint">
                     <CheckCircle2 size={16} />
                     <span>
-                      {providerLabel(selectedCandidate.provider)} is selected as the accepted source for this item. Review the prefilled
-                      inventory fields below, then save when they match the item in your hand.
+                  {providerLabel(selectedCandidate.provider)} is being used as a source reference for this item. Mollie filled the
+                  fields it could from the search result, but you should still review and adjust them before saving.
                     </span>
                   </div>
                 ) : null}
@@ -1229,7 +1480,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                           <div>
                             <strong>{candidate.title}</strong>
                             <div className="muted">
-                              {candidate.brand ?? "Unknown brand"} · {candidate.category ?? "Unsorted"}
+                              {candidate.brand ?? "Unknown brand"} | {candidate.category ?? "Unsorted"}
                             </div>
                           </div>
                           <div className="stack" style={{ gap: "0.35rem", alignItems: "flex-end" }}>
@@ -1251,7 +1502,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                         ) : null}
 
                         <div className="muted">
-                          {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
+                          {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` | Model ${candidate.model}` : ""}
                         </div>
 
                         <div className="lookup-candidate-meta-grid">
@@ -1292,7 +1543,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                             onClick={() => applyCandidate(candidate)}
                             type="button"
                           >
-                            <CheckCircle2 size={16} /> Use this source
+                            <CheckCircle2 size={16} /> Prefill from source
                           </Button>
                           {candidate.productUrl ? (
                             <a className="secondary-link-button" href={candidate.productUrl} rel="noreferrer" target="_blank">
@@ -1320,7 +1571,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                 <div className="market-observation-card" ref={acceptedMatchRef}>
                   <div className="split">
                     <div>
-                      <p className="eyebrow">Accepted source</p>
+                      <p className="eyebrow">Source reference</p>
                       <strong>{selectedCandidate.title}</strong>
                     </div>
                     <div className="market-observation-value">{providerLabel(selectedCandidate.provider)}</div>
@@ -1328,13 +1579,13 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                   <div className="scan-import-hint">
                     <Sparkles size={16} />
                     <span>
-                      This source is now marked as the valid starting point for this item. Mollie prefilled the inventory fields below, but
-                      it will not create the item until you save.
+                      Mollie used this source to prefill the fields below where the search result looked useful. Review everything and keep
+                      editing before you save the item.
                     </span>
                   </div>
                   <div className="muted">
-                    Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% · {selectedCandidate.confidenceState}
-                    {selectedCandidate.productUrl ? " · Source link saved with this item" : ""}
+                    Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% | {selectedCandidate.confidenceState}
+                    {selectedCandidate.productUrl ? " | Source link saved with this item" : ""}
                   </div>
                 </div>
               ) : (
@@ -1521,6 +1772,16 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
               <div className="barcode-scanner-video-shell">
                 <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
                 <div className="barcode-scanner-overlay" aria-hidden="true">
+                  {scannerOutlinePoints ? (
+                    <svg
+                      aria-hidden="true"
+                      className="barcode-scanner-detected-outline"
+                      preserveAspectRatio="none"
+                      viewBox="0 0 100 100"
+                    >
+                      <polygon points={pointsToOverlayString(scannerOutlinePoints)} />
+                    </svg>
+                  ) : null}
                   <div className="barcode-scanner-guide" />
                 </div>
               </div>
@@ -1552,7 +1813,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
             </div>
             <div className="scan-import-hint">
               <Camera size={16} />
-              <span>If live scanning struggles on this device, take a barcode photo instead, or type the barcode manually.</span>
+              <span>If Mollie locks onto the barcode, it will draw a box around it before searching. If live scanning still struggles, take a barcode photo instead, or type the code manually.</span>
             </div>
           </div>
         </div>
