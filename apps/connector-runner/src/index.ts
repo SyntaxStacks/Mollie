@@ -5,21 +5,26 @@ import { loadConnectorEnv } from "@reselleros/config";
 import { createLogger } from "@reselleros/observability";
 import { getAppQueue, getConnectorQueueName, getQueueConnection, type JobName, type JobPayload } from "@reselleros/queue";
 
-import { processConnectorJob } from "./jobs.js";
+import { processConnectorImportJob, processConnectorJob } from "./jobs.js";
 
 const env = loadConnectorEnv();
 const logger = createLogger("connector-runner");
 
 const queueWorker = new Worker(
   getConnectorQueueName(),
-  async (job: Job) =>
-    processConnectorJob(
+  async (job: Job) => {
+    if (job.name === "inventory.importAccountBrowser") {
+      return processConnectorImportJob(job.data as JobPayload<"inventory.importAccountBrowser">);
+    }
+
+    return processConnectorJob(
       job.name as Extract<JobName, "listing.publishDepop" | "listing.publishPoshmark" | "listing.publishWhatnot">,
       job.data as
         | JobPayload<"listing.publishDepop">
         | JobPayload<"listing.publishPoshmark">
         | JobPayload<"listing.publishWhatnot">
-    ),
+    );
+  },
   {
     connection: getQueueConnection(),
     concurrency: env.CONNECTOR_CONCURRENCY

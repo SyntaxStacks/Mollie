@@ -535,6 +535,10 @@ function MarketplacesPageContent() {
     };
   }
 
+  function openImports() {
+    window.location.assign("/imports");
+  }
+
   function renderAutomationAccounts(platform: AutomationVendor) {
     const platformAccounts = activeAutomationAccounts[platform];
 
@@ -566,6 +570,9 @@ function MarketplacesPageContent() {
                   <Button disabled={pending} kind="secondary" onClick={() => openAutomationConnect(platform, account.displayName)}>
                     Reconnect {automationVendorLabels[platform]}
                   </Button>
+                  <Button disabled={pending} kind="secondary" onClick={openImports}>
+                    Import inventory
+                  </Button>
                 </div>
                 {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
               </div>
@@ -590,6 +597,9 @@ function MarketplacesPageContent() {
           <div className="actions">
             <Button disabled={pending} onClick={() => openAutomationConnect(platform, platformAccounts[0]?.displayName)}>
               {platformAccounts.length > 0 ? `Reconnect ${label}` : `Connect ${label}`}
+            </Button>
+            <Button disabled={pending} kind="secondary" onClick={openImports}>
+              Import inventory
             </Button>
           </div>
           {!desktopSupported ? (
@@ -666,6 +676,9 @@ function MarketplacesPageContent() {
                                 onClick={() => launchEbayOAuth(account.displayName)}
                               >
                                 {account.readiness.status === "BLOCKED" ? "Reconnect eBay OAuth" : "Refresh eBay OAuth"}
+                              </Button>
+                              <Button disabled={pending} kind="secondary" onClick={openImports}>
+                                Import inventory
                               </Button>
                             </div>
                             <form className="stack" onSubmit={saveEbayLiveDefaults(account.id)}>

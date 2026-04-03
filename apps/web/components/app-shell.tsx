@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Boxes, Tags, Receipt, ShoppingBag, ScrollText, Settings, Store, Factory } from "lucide-react";
+import { LayoutDashboard, Boxes, Tags, Receipt, ShoppingBag, ScrollText, Settings, Store, Factory, Download } from "lucide-react";
 
 import { Button } from "@reselleros/ui";
 
@@ -14,6 +14,7 @@ const navItems = [
   { href: "/marketplaces", label: "Accounts", icon: Store },
   { href: "/lots", label: "Source Lots", icon: Boxes },
   { href: "/inventory", label: "Inventory", icon: ShoppingBag },
+  { href: "/imports", label: "Imports", icon: Download },
   { href: "/drafts", label: "Drafts", icon: Tags },
   { href: "/executions", label: "Executions", icon: ScrollText },
   { href: "/sales", label: "Sales", icon: Receipt },

@@ -16,7 +16,8 @@ import {
   reorderInventoryImagesForWorkspace,
   updateInventoryItemForWorkspace
 } from "@reselleros/db";
-import { getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
+import { getAutomationAccountReadiness } from "@reselleros/marketplaces";
+import { getEbayAccountReadiness, getEbayPublishPreflight, selectEbayMarketplaceAccount } from "@reselleros/marketplaces-ebay";
 import { buildIdempotencyKey, enqueueJob, getPublishJobName } from "@reselleros/queue";
 import {
   acceptedImageContentTypes,
@@ -27,7 +28,7 @@ import {
   openManagedUploadStream,
   uploadInventoryImage
 } from "@reselleros/storage";
-import { imageInputSchema, inventoryBarcodeImportSchema, inventoryInputSchema, platforms, type Platform } from "@reselleros/types";
+import { imageInputSchema, inventoryBarcodeImportSchema, inventoryInputSchema, platforms, type LinkedPublishPlatformResult, type Platform } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 
@@ -149,6 +150,100 @@ async function queuePublish(
     executionLog,
     draft
   };
+}
+
+async function getLinkedPublishTargets(workspaceId: string): Promise<Array<{
+  platform: Platform;
+  marketplaceAccountId?: string | null;
+  displayName?: string | null;
+  ready: boolean;
+  hint?: LinkedPublishPlatformResult["hint"];
+  summary: string;
+}>> {
+  const accounts = await db.marketplaceAccount.findMany({
+    where: {
+      workspaceId,
+      status: {
+        in: ["CONNECTED", "ERROR", "DISABLED"]
+      }
+    },
+    orderBy: { createdAt: "asc" }
+  });
+
+  const ebayAccounts = accounts
+    .filter((account) => account.platform === "EBAY")
+    .map((account) => ({
+      id: account.id,
+      platform: "EBAY" as const,
+      displayName: account.displayName,
+      secretRef: account.secretRef,
+      status: account.status,
+      credentialType: account.credentialType,
+      validationStatus: account.validationStatus,
+      externalAccountId: account.externalAccountId,
+      credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null
+    }));
+  const ebaySelection = selectEbayMarketplaceAccount(ebayAccounts);
+  const ebayReadiness = ebaySelection?.evaluation
+    ? ebaySelection.evaluation
+    : ebaySelection?.account
+      ? getEbayAccountReadiness({
+          account: ebaySelection.account,
+          accountStatus: ebaySelection.account.status,
+          lastErrorMessage: null
+        })
+      : null;
+
+  const automationPlatforms: Platform[] = ["DEPOP", "POSHMARK", "WHATNOT"];
+  const automationTargets = automationPlatforms.map((platform) => {
+    const account = accounts.find((candidate) => candidate.platform === platform) ?? null;
+
+    if (!account) {
+      return {
+        platform,
+        ready: false,
+        summary: `Connect a ${platform === "DEPOP" ? "Depop" : platform === "POSHMARK" ? "Poshmark" : "Whatnot"} account first.`,
+        hint: null
+      };
+    }
+
+    const readiness = getAutomationAccountReadiness({
+      account: {
+        id: account.id,
+        platform,
+        displayName: account.displayName,
+        secretRef: account.secretRef,
+        status: account.status,
+        credentialType: account.credentialType,
+        validationStatus: account.validationStatus,
+        externalAccountId: account.externalAccountId,
+        credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null
+      },
+      accountStatus: account.status,
+      lastErrorMessage: account.lastErrorMessage
+    });
+
+    return {
+      platform,
+      marketplaceAccountId: account.id,
+      displayName: account.displayName,
+      ready: readiness.status === "READY",
+      summary: readiness.summary,
+      hint: readiness.hint
+    };
+  });
+
+  return [
+    {
+      platform: "EBAY",
+      marketplaceAccountId: ebaySelection?.account?.id ?? null,
+      displayName: ebaySelection?.account?.displayName ?? null,
+      ready: ebayReadiness?.status === "READY",
+      summary: ebayReadiness?.summary ?? "Connect an eBay account first.",
+      hint: ebayReadiness?.hint ?? null
+    },
+    ...automationTargets
+  ];
 }
 
 export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
@@ -577,6 +672,48 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     return { ok: true };
   });
 
+  app.post("/api/inventory/:id/drafts/generate-linked", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const item = await findInventoryItemForWorkspace(workspace.id, params.id);
+
+    if (!item) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    const targets = await getLinkedPublishTargets(workspace.id);
+    const readyPlatforms = targets.filter((target) => target.ready).map((target) => target.platform);
+
+    if (readyPlatforms.length > 0) {
+      await enqueueJob(
+        "inventory.generateListingDraft",
+        {
+          inventoryItemId: item.id,
+          workspaceId: workspace.id,
+          platforms: readyPlatforms,
+          correlationId: crypto.randomUUID()
+        },
+        {
+          jobId: buildIdempotencyKey("inventory.generateListingDraft", `${item.id}:${readyPlatforms.join(",")}`)
+        }
+      );
+    }
+
+    return {
+      inventoryItemId: item.id,
+      results: targets.map((target) => ({
+        platform: target.platform,
+        marketplaceAccountId: target.marketplaceAccountId ?? null,
+        displayName: target.displayName ?? null,
+        state: target.ready ? "QUEUED" : "BLOCKED",
+        summary: target.ready ? `Queued draft generation for ${target.platform}.` : target.summary,
+        hint: target.hint ?? null,
+        executionLogId: null
+      }))
+    };
+  });
+
   app.get("/api/inventory/:id/drafts", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
@@ -592,6 +729,63 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     });
 
     return { drafts };
+  });
+
+  app.post("/api/inventory/:id/publish-linked", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const item = await findInventoryItemForWorkspace(workspace.id, params.id);
+
+    if (!item) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    const targets = await getLinkedPublishTargets(workspace.id);
+    const results: LinkedPublishPlatformResult[] = [];
+
+    for (const target of targets) {
+      if (!target.ready) {
+        results.push({
+          platform: target.platform,
+          marketplaceAccountId: target.marketplaceAccountId ?? null,
+          displayName: target.displayName ?? null,
+          state: "BLOCKED",
+          summary: target.summary,
+          hint: target.hint ?? null,
+          executionLogId: null
+        });
+        continue;
+      }
+
+      try {
+        const queued = await queuePublish(app, target.platform, item.id, workspace.id);
+        results.push({
+          platform: target.platform,
+          marketplaceAccountId: target.marketplaceAccountId ?? null,
+          displayName: target.displayName ?? null,
+          state: "QUEUED",
+          summary: `Queued ${target.platform} publish.`,
+          hint: target.hint ?? null,
+          executionLogId: queued.executionLog.id
+        });
+      } catch (error) {
+        results.push({
+          platform: target.platform,
+          marketplaceAccountId: target.marketplaceAccountId ?? null,
+          displayName: target.displayName ?? null,
+          state: "FAILED_TO_QUEUE",
+          summary: error instanceof Error ? error.message : `Could not queue ${target.platform} publish.`,
+          hint: target.hint ?? null,
+          executionLogId: null
+        });
+      }
+    }
+
+    return {
+      inventoryItemId: item.id,
+      results
+    };
   });
 
   app.get("/api/inventory/:id/preflight/ebay", async (request) => {

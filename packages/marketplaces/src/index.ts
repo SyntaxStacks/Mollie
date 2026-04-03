@@ -101,6 +101,9 @@ export type VendorConnectSessionCaptureInput = {
   sessionLabel?: string | null;
   captureMode: VendorConnectCaptureMode;
   challengeRequired: boolean;
+  cookieCount?: number | null;
+  origin?: string | null;
+  storageStateJson?: Record<string, unknown> | null;
 };
 
 export type VendorConnectSessionCaptureResult = {
@@ -249,7 +252,17 @@ export function createAutomationVendorConnectAdapter(config: {
         }
       };
     },
-    captureSession({ attempt, accountHandle, externalAccountId, sessionLabel, captureMode, challengeRequired }) {
+    captureSession({
+      attempt,
+      accountHandle,
+      externalAccountId,
+      sessionLabel,
+      captureMode,
+      challengeRequired,
+      cookieCount,
+      origin,
+      storageStateJson
+    }) {
       const summary = summarizeAccount({
         accountHandle,
         externalAccountId,
@@ -283,7 +296,10 @@ export function createAutomationVendorConnectAdapter(config: {
               externalAccountId: summary.externalAccountId ?? null,
               sessionLabel: sessionLabel ?? null,
               captureMode,
-              connectAttemptId: attempt.id
+              connectAttemptId: attempt.id,
+              cookieCount: cookieCount ?? null,
+              origin: origin ?? null,
+              storageStateJson: storageStateJson ?? null
             } satisfies Partial<VendorSessionArtifactMetadata>
           }
         };
@@ -302,15 +318,18 @@ export function createAutomationVendorConnectAdapter(config: {
           canContinue: true
         }),
         metadata: {
-          pendingSession: {
-            accountHandle: summary.accountHandle,
-            externalAccountId: summary.externalAccountId ?? null,
-            sessionLabel: sessionLabel ?? null,
-            captureMode,
-            connectAttemptId: attempt.id
-          } satisfies Partial<VendorSessionArtifactMetadata>
-        }
-      };
+            pendingSession: {
+              accountHandle: summary.accountHandle,
+              externalAccountId: summary.externalAccountId ?? null,
+              sessionLabel: sessionLabel ?? null,
+              captureMode,
+              connectAttemptId: attempt.id,
+              cookieCount: cookieCount ?? null,
+              origin: origin ?? null,
+              storageStateJson: storageStateJson ?? null
+            } satisfies Partial<VendorSessionArtifactMetadata>
+          }
+        };
     },
     acceptChallenge({ code }) {
       if (!/^\d{6}$/.test(code) || code === "000000") {

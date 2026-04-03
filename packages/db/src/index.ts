@@ -285,6 +285,129 @@ export async function createInventoryItem(workspaceId: string, input: {
   });
 }
 
+export async function createInventoryImportRunForWorkspace(
+  workspaceId: string,
+  input: {
+    sourceKind: "LINKED_ACCOUNT" | "CSV_EXPORT" | "PUBLIC_URL";
+    sourcePlatform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT" | "NIFTY" | "CROSSLIST";
+    marketplaceAccountId?: string | null;
+    sourceUrl?: string | null;
+    uploadFilename?: string | null;
+    status?: "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELED";
+    cursor?: Prisma.InputJsonValue;
+    stats?: Prisma.InputJsonValue;
+    artifactUrls?: Prisma.InputJsonValue;
+    startedAt?: Date | null;
+    finishedAt?: Date | null;
+    progressCount?: number;
+    appliedCount?: number;
+    failedCount?: number;
+    skippedCount?: number;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+  }
+) {
+  return db.inventoryImportRun.create({
+    data: {
+      workspaceId,
+      marketplaceAccountId: input.marketplaceAccountId ?? null,
+      sourceKind: input.sourceKind,
+      sourcePlatform: input.sourcePlatform,
+      sourceUrl: input.sourceUrl ?? null,
+      uploadFilename: input.uploadFilename ?? null,
+      status: input.status ?? "PENDING",
+      cursorJson: input.cursor,
+      statsJson: input.stats,
+      artifactUrlsJson: input.artifactUrls,
+      startedAt: input.startedAt ?? null,
+      finishedAt: input.finishedAt ?? null,
+      progressCount: input.progressCount ?? 0,
+      appliedCount: input.appliedCount ?? 0,
+      failedCount: input.failedCount ?? 0,
+      skippedCount: input.skippedCount ?? 0,
+      lastErrorCode: input.lastErrorCode ?? null,
+      lastErrorMessage: input.lastErrorMessage ?? null
+    }
+  });
+}
+
+export async function updateInventoryImportRun(
+  runId: string,
+  data: Prisma.InventoryImportRunUpdateInput
+) {
+  return db.inventoryImportRun.update({
+    where: { id: runId },
+    data
+  });
+}
+
+export async function listInventoryImportRunsForWorkspace(workspaceId: string) {
+  return db.inventoryImportRun.findMany({
+    where: { workspaceId },
+    include: {
+      items: {
+        orderBy: { createdAt: "desc" },
+        take: 25
+      },
+      marketplaceAccount: true
+    },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export async function findInventoryImportRunForWorkspace(workspaceId: string, runId: string) {
+  return db.inventoryImportRun.findFirst({
+    where: {
+      id: runId,
+      workspaceId
+    },
+    include: {
+      items: {
+        orderBy: { createdAt: "desc" }
+      },
+      marketplaceAccount: true
+    }
+  });
+}
+
+export async function createInventoryImportItemForRun(
+  runId: string,
+  input: {
+    matchedInventoryItemId?: string | null;
+    externalItemId?: string | null;
+    sourceUrl?: string | null;
+    dedupeKey: string;
+    status?: "PENDING" | "PREVIEWED" | "APPLIED" | "SKIPPED" | "FAILED";
+    rawSourcePayload?: Prisma.InputJsonValue;
+    normalizedCandidate?: Prisma.InputJsonValue;
+    lastErrorMessage?: string | null;
+  }
+) {
+  return db.inventoryImportItem.create({
+    data: {
+      runId,
+      matchedInventoryItemId: input.matchedInventoryItemId ?? null,
+      externalItemId: input.externalItemId ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      dedupeKey: input.dedupeKey,
+      status: input.status ?? "PENDING",
+      rawSourcePayloadJson: input.rawSourcePayload,
+      normalizedCandidateJson: input.normalizedCandidate,
+      lastErrorMessage: input.lastErrorMessage ?? null
+    }
+  });
+}
+
+export async function updateInventoryImportItem(
+  itemId: string,
+  data: Prisma.InventoryImportItemUpdateInput
+) {
+  return db.inventoryImportItem.update({
+    where: { id: itemId },
+    data
+  });
+}
+
 export async function createMarketplaceAccountForWorkspace(
   workspaceId: string,
   input: {

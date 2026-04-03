@@ -333,6 +333,7 @@ export default function InventoryDetailPage() {
             onMoveImage={(imageId, direction) => moveImage(imageId, direction)}
             onPublishDepop={() => void runMutation(`/api/inventory/${data.item.id}/publish/depop`)}
             onPublishEbay={() => void runMutation(`/api/inventory/${data.item.id}/publish/ebay`)}
+            onPublishLinked={() => void runMutation(`/api/inventory/${data.item.id}/publish-linked`)}
             onPublishPoshmark={() => void runMutation(`/api/inventory/${data.item.id}/publish/poshmark`)}
             onSaveEbayDraft={saveEbayDraft}
             onPublishWhatnot={() => void runMutation(`/api/inventory/${data.item.id}/publish/whatnot`)}

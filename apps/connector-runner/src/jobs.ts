@@ -1,6 +1,13 @@
 import { captureConnectorFailureArtifacts } from "@reselleros/artifacts";
 import { loadConnectorEnv } from "@reselleros/config";
-import { Prisma, db, markMarketplaceAccountConnectorFailure, resetMarketplaceAccountConnectorHealth } from "@reselleros/db";
+import {
+  Prisma,
+  createInventoryImportItemForRun,
+  db,
+  markMarketplaceAccountConnectorFailure,
+  resetMarketplaceAccountConnectorHealth,
+  updateInventoryImportRun
+} from "@reselleros/db";
 import { ConnectorError, classifyConnectorError } from "@reselleros/marketplaces";
 import { depopAdapter } from "@reselleros/marketplaces-depop";
 import { poshmarkAdapter } from "@reselleros/marketplaces-poshmark";
@@ -277,4 +284,35 @@ export async function processConnectorJob(jobName: ConnectorPublishJobName, payl
     });
     throw handled;
   }
+}
+
+export async function processConnectorImportJob(payload: JobPayload<"inventory.importAccountBrowser">) {
+  await updateInventoryImportRun(payload.importRunId, {
+    status: "RUNNING",
+    startedAt: new Date(),
+    statsJson: {
+      mode: "browser-session",
+      sourcePlatform: payload.sourcePlatform
+    }
+  });
+
+  const message = `${payload.sourcePlatform} linked-account import still needs a vendor-specific browser-session importer in connector-runner.`;
+
+  await createInventoryImportItemForRun(payload.importRunId, {
+    dedupeKey: `${payload.sourcePlatform}:${payload.marketplaceAccountId ?? "no-account"}:browser`,
+    status: "FAILED",
+    rawSourcePayload: payload,
+    lastErrorMessage: message
+  });
+
+  await updateInventoryImportRun(payload.importRunId, {
+    status: "FAILED",
+    progressCount: 1,
+    failedCount: 1,
+    finishedAt: new Date(),
+    lastErrorCode: "BROWSER_IMPORT_NOT_IMPLEMENTED",
+    lastErrorMessage: message
+  });
+
+  return { ok: false, message };
 }

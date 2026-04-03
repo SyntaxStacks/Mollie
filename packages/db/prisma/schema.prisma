@@ -114,6 +114,37 @@ enum MarketplaceConnectAttemptState {
   EXPIRED
 }
 
+enum InventoryImportSourceKind {
+  LINKED_ACCOUNT
+  CSV_EXPORT
+  PUBLIC_URL
+}
+
+enum InventoryImportSourcePlatform {
+  EBAY
+  DEPOP
+  POSHMARK
+  WHATNOT
+  NIFTY
+  CROSSLIST
+}
+
+enum InventoryImportRunStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum InventoryImportItemStatus {
+  PENDING
+  PREVIEWED
+  APPLIED
+  SKIPPED
+  FAILED
+}
+
 model User {
   id               String                @id @default(cuid())
   email            String                @unique
@@ -168,6 +199,7 @@ model Workspace {
   memberships        WorkspaceMembership[]
   marketplaceConnectAttempts MarketplaceConnectAttempt[]
   marketplaceAccounts MarketplaceAccount[]
+  inventoryImportRuns InventoryImportRun[]
   sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
   catalogWorkspaceObservations WorkspaceCatalogObservation[]
@@ -210,6 +242,7 @@ model MarketplaceAccount {
   createdAt      DateTime                 @default(now())
   workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   connectAttempts MarketplaceConnectAttempt[]
+  importRuns      InventoryImportRun[]
   platformListings PlatformListing[]
 
   @@index([workspaceId, platform])
@@ -291,10 +324,63 @@ model InventoryItem {
   platformListings     PlatformListing[]
   sales                Sale[]
   executionLogs        ExecutionLog[]
+  importedFrom         InventoryImportItem[]
 
   @@index([workspaceId, status])
   @@index([sourceLotId])
   @@unique([workspaceId, sku])
+}
+
+model InventoryImportRun {
+  id                 String                      @id @default(cuid())
+  workspaceId        String
+  marketplaceAccountId String?
+  sourceKind         InventoryImportSourceKind
+  sourcePlatform     InventoryImportSourcePlatform
+  sourceUrl          String?
+  uploadFilename     String?
+  status             InventoryImportRunStatus   @default(PENDING)
+  cursorJson         Json?
+  statsJson          Json?
+  artifactUrlsJson   Json?
+  progressCount      Int                         @default(0)
+  appliedCount       Int                         @default(0)
+  failedCount        Int                         @default(0)
+  skippedCount       Int                         @default(0)
+  lastErrorCode      String?
+  lastErrorMessage   String?
+  startedAt          DateTime?
+  finishedAt         DateTime?
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+  workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  marketplaceAccount MarketplaceAccount?        @relation(fields: [marketplaceAccountId], references: [id], onDelete: SetNull)
+  items              InventoryImportItem[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status, createdAt])
+  @@index([marketplaceAccountId, createdAt])
+}
+
+model InventoryImportItem {
+  id                    String                    @id @default(cuid())
+  runId                  String
+  matchedInventoryItemId String?
+  externalItemId         String?
+  sourceUrl              String?
+  dedupeKey              String
+  status                 InventoryImportItemStatus @default(PENDING)
+  rawSourcePayloadJson   Json?
+  normalizedCandidateJson Json?
+  lastErrorMessage       String?
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  run                    InventoryImportRun        @relation(fields: [runId], references: [id], onDelete: Cascade)
+  matchedInventoryItem   InventoryItem?            @relation(fields: [matchedInventoryItemId], references: [id], onDelete: SetNull)
+
+  @@index([runId, createdAt])
+  @@index([runId, status, createdAt])
+  @@index([dedupeKey])
 }
 
 model CatalogIdentifier {

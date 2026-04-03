@@ -4,6 +4,10 @@ export const platforms = ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"] as const;
 export type Platform = (typeof platforms)[number];
 export const automationVendors = ["DEPOP", "POSHMARK", "WHATNOT"] as const;
 export type AutomationVendor = (typeof automationVendors)[number];
+export const importSourceKinds = ["LINKED_ACCOUNT", "CSV_EXPORT", "PUBLIC_URL"] as const;
+export type ImportSourceKind = (typeof importSourceKinds)[number];
+export const importSourcePlatforms = ["EBAY", "DEPOP", "POSHMARK", "WHATNOT", "NIFTY", "CROSSLIST"] as const;
+export type ImportSourcePlatform = (typeof importSourcePlatforms)[number];
 
 export const marketplaceAccountStatuses = ["PENDING", "CONNECTED", "DISABLED", "ERROR"] as const;
 export type MarketplaceAccountStatus = (typeof marketplaceAccountStatuses)[number];
@@ -111,6 +115,10 @@ export type VendorConnectPromptKind = (typeof vendorConnectPromptKinds)[number];
 
 export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE"] as const;
 export type VendorConnectCaptureMode = (typeof vendorConnectCaptureModes)[number];
+export const inventoryImportRunStatuses = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"] as const;
+export type InventoryImportRunStatus = (typeof inventoryImportRunStatuses)[number];
+export const inventoryImportItemStatuses = ["PENDING", "PREVIEWED", "APPLIED", "SKIPPED", "FAILED"] as const;
+export type InventoryImportItemStatus = (typeof inventoryImportItemStatuses)[number];
 
 export type OperatorHint = {
   title: string;
@@ -139,6 +147,16 @@ export type VendorSessionArtifactMetadata = {
   externalAccountId?: string | null;
   sessionLabel?: string | null;
   connectAttemptId: string;
+  cookieCount?: number | null;
+  origin?: string | null;
+  storageStateJson?: Record<string, unknown> | null;
+};
+
+export type MarketplaceSessionArtifact = VendorSessionArtifactMetadata & {
+  platform: AutomationVendor;
+  storageStateRef?: string | null;
+  cookieCount?: number | null;
+  origin?: string | null;
 };
 
 export type VendorValidationResult = {
@@ -167,6 +185,21 @@ export type VendorConnectAttempt = {
   marketplaceAccountId?: string | null;
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
+};
+
+export type LinkedPublishPlatformResult = {
+  platform: Platform;
+  marketplaceAccountId?: string | null;
+  displayName?: string | null;
+  state: "QUEUED" | "BLOCKED" | "FAILED_TO_QUEUE";
+  summary: string;
+  hint?: OperatorHint | null;
+  executionLogId?: string | null;
+};
+
+export type LinkedPublishSummary = {
+  inventoryItemId: string;
+  results: LinkedPublishPlatformResult[];
 };
 
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
@@ -260,7 +293,10 @@ export const automationVendorConnectSessionSchema = z.object({
   externalAccountId: z.string().trim().min(2).max(160).optional().nullable(),
   sessionLabel: z.string().trim().min(2).max(160).optional().nullable(),
   captureMode: z.enum(vendorConnectCaptureModes).default("WEB_POPUP_HELPER"),
-  challengeRequired: z.boolean().default(false)
+  challengeRequired: z.boolean().default(false),
+  cookieCount: z.number().int().nonnegative().optional().nullable(),
+  origin: z.string().trim().max(240).optional().nullable(),
+  storageStateJson: z.record(z.string(), z.any()).optional().nullable()
 });
 
 export const ebayOAuthStartSchema = z.object({
@@ -458,6 +494,83 @@ export const inventoryBarcodeImportSchema = z.object({
   message: "Provide a UPC, EAN, ISBN, or Code 128 barcode",
   path: ["identifier"]
 });
+
+export const inventoryImportCandidateSchema = z.object({
+  title: z.string().trim().min(2).max(180),
+  brand: z.string().trim().max(120).optional().nullable(),
+  category: z.string().trim().min(2).max(120).default("General Merchandise"),
+  condition: z.string().trim().min(2).max(120).default("Good used condition"),
+  size: z.string().trim().max(40).optional().nullable(),
+  color: z.string().trim().max(40).optional().nullable(),
+  quantity: z.number().int().positive().default(1),
+  costBasis: z.number().nonnegative().default(0),
+  estimatedResaleMin: z.number().nonnegative().optional().nullable(),
+  estimatedResaleMax: z.number().nonnegative().optional().nullable(),
+  priceRecommendation: z.number().nonnegative().optional().nullable(),
+  sourceUrl: z.string().url().optional().nullable(),
+  externalItemId: z.string().trim().min(1).max(160).optional().nullable(),
+  imageUrls: z.array(z.string().url()).max(12).default([]),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+});
+
+export const inventoryImportAccountStartSchema = z.object({
+  sourcePlatform: z.enum(importSourcePlatforms),
+  marketplaceAccountId: z.string().min(1).optional().nullable(),
+  limit: z.number().int().positive().max(250).default(25)
+});
+
+export const inventoryImportUrlPreviewSchema = z.object({
+  sourcePlatform: z.enum(importSourcePlatforms),
+  url: z.string().url()
+});
+
+export const inventoryImportUrlApplySchema = z.object({
+  sourcePlatform: z.enum(importSourcePlatforms),
+  url: z.string().url(),
+  candidate: inventoryImportCandidateSchema,
+  generateDrafts: z.boolean().default(false),
+  draftPlatforms: z.array(z.enum(platforms)).default([...platforms])
+});
+
+export type InventoryImportCandidate = z.infer<typeof inventoryImportCandidateSchema>;
+
+export type InventoryImportRunView = {
+  id: string;
+  workspaceId: string;
+  sourceKind: ImportSourceKind;
+  sourcePlatform: ImportSourcePlatform;
+  marketplaceAccountId?: string | null;
+  sourceUrl?: string | null;
+  uploadFilename?: string | null;
+  status: InventoryImportRunStatus;
+  progressCount: number;
+  appliedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  cursor?: Record<string, unknown> | null;
+  stats?: Record<string, unknown> | null;
+  artifactUrls: string[];
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type InventoryImportItemView = {
+  id: string;
+  runId: string;
+  externalItemId?: string | null;
+  sourceUrl?: string | null;
+  dedupeKey: string;
+  status: InventoryImportItemStatus;
+  matchedInventoryItemId?: string | null;
+  normalizedCandidate?: InventoryImportCandidate | null;
+  lastErrorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type CatalogLookupRecord = {
   id: string;

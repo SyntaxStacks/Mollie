@@ -7,6 +7,9 @@ export const jobNameSchema = z.enum([
   "macbid.fetchLot",
   "macbid.analyzeLot",
   "inventory.generateListingDraft",
+  "inventory.importAccountApi",
+  "inventory.importAccountBrowser",
+  "inventory.importCsv",
   "listing.publishEbay",
   "listing.publishDepop",
   "listing.publishPoshmark",
@@ -33,6 +36,26 @@ export const jobSchemas = {
     inventoryItemId: z.string().min(1),
     workspaceId: z.string().min(1),
     platforms: z.array(z.enum(["EBAY", "DEPOP", "POSHMARK", "WHATNOT"])).min(1),
+    correlationId: z.string()
+  }),
+  "inventory.importAccountApi": z.object({
+    importRunId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    sourcePlatform: z.enum(["EBAY", "DEPOP", "POSHMARK", "WHATNOT", "NIFTY", "CROSSLIST"]),
+    marketplaceAccountId: z.string().min(1).optional().nullable(),
+    correlationId: z.string()
+  }),
+  "inventory.importAccountBrowser": z.object({
+    importRunId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    sourcePlatform: z.enum(["EBAY", "DEPOP", "POSHMARK", "WHATNOT", "NIFTY", "CROSSLIST"]),
+    marketplaceAccountId: z.string().min(1).optional().nullable(),
+    correlationId: z.string()
+  }),
+  "inventory.importCsv": z.object({
+    importRunId: z.string().min(1),
+    workspaceId: z.string().min(1),
+    sourcePlatform: z.enum(["EBAY", "DEPOP", "POSHMARK", "WHATNOT", "NIFTY", "CROSSLIST"]),
     correlationId: z.string()
   }),
   "listing.publishEbay": z.object({
@@ -97,7 +120,10 @@ export function getQueueConnection(redisUrl = process.env.REDIS_URL ?? "redis://
 }
 
 export function getJobQueueName(name: JobName) {
-  return name === "listing.publishDepop" || name === "listing.publishPoshmark" || name === "listing.publishWhatnot"
+  return name === "listing.publishDepop" ||
+    name === "listing.publishPoshmark" ||
+    name === "listing.publishWhatnot" ||
+    name === "inventory.importAccountBrowser"
     ? connectorQueueName
     : mainQueueName;
 }

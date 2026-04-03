@@ -34,6 +34,7 @@ function HelperContent() {
   const [pending, setPending] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const token = useMemo(() => {
     if (typeof window === "undefined") {
@@ -42,6 +43,39 @@ function HelperContent() {
 
     return window.localStorage.getItem("reselleros.token");
   }, []);
+
+  const helperCommand = useMemo(() => {
+    if (!config || !attemptId || !helperNonce || !token) {
+      return null;
+    }
+
+    return [
+      "pnpm --filter @reselleros/automation-helper connect --",
+      `--vendor ${vendor?.toUpperCase()}`,
+      `--attempt-id ${attemptId}`,
+      `--helper-nonce ${helperNonce}`,
+      `--token ${token}`,
+      `--api-base-url ${API_BASE_URL}`,
+      `--login-url ${config.loginUrl}`,
+      `--account-handle <vendor-handle>`,
+      "--session-label \"Main account\""
+    ].join(" ");
+  }, [attemptId, config, helperNonce, token, vendor]);
+
+  async function copyHelperCommand() {
+    if (!helperCommand) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(helperCommand);
+      setCopyStatus("Helper command copied");
+      window.setTimeout(() => setCopyStatus(null), 2500);
+    } catch {
+      setCopyStatus("Could not copy helper command");
+      window.setTimeout(() => setCopyStatus(null), 2500);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -193,6 +227,25 @@ function HelperContent() {
           </div>
         </form>
       </section>
+
+      {helperCommand ? (
+        <section className="public-doc-card">
+          <h2>Optional local helper</h2>
+          <p className="public-doc-summary">
+            If you run the local desktop helper, it can capture browser storage state and post it back to Mollie through the same connect attempt.
+          </p>
+          <label className="label">
+            Helper command
+            <textarea className="field" readOnly rows={5} value={helperCommand} />
+          </label>
+          <div className="actions">
+            <button className="public-doc-link" onClick={copyHelperCommand} type="button">
+              Copy helper command
+            </button>
+          </div>
+          {copyStatus ? <div className="notice success">{copyStatus}</div> : null}
+        </section>
+      ) : null}
     </main>
   );
 }

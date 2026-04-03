@@ -253,6 +253,9 @@ async function completeAutomationAttempt(input: {
   externalAccountId?: string | null;
   sessionLabel?: string | null;
   captureMode: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE";
+  cookieCount?: number | null;
+  origin?: string | null;
+  storageStateJson?: Record<string, unknown> | null;
 }) {
   const vendor = input.attempt.platform as AutomationVendor;
   const adapter = automationConnectAdapters[vendor];
@@ -283,6 +286,18 @@ async function completeAutomationAttempt(input: {
 
   const validatedAt = new Date();
   const secretRef = `db-session://${vendor.toLowerCase()}/${input.attempt.workspaceId}/${input.attempt.id}`;
+  const sessionArtifact = {
+    connectAttemptId: input.attempt.id,
+    captureMode: input.captureMode,
+    capturedAt: validatedAt.toISOString(),
+    validatedAt: validatedAt.toISOString(),
+    accountHandle: validation.accountHandle,
+    externalAccountId: validation.externalAccountId ?? null,
+    sessionLabel: input.sessionLabel ?? null,
+    cookieCount: input.cookieCount ?? null,
+    origin: input.origin ?? null,
+    storageStateJson: (input.storageStateJson ?? null) as Prisma.InputJsonValue | null
+  };
   const account = await upsertMarketplaceAccountConnectionForWorkspace(input.attempt.workspaceId, {
     platform: vendor,
     displayName: input.attempt.displayName,
@@ -299,26 +314,10 @@ async function completeAutomationAttempt(input: {
       validationDetail: validation.detail,
       connectedAt: validatedAt.toISOString(),
       lastSessionCheckAt: validatedAt.toISOString(),
-      vendorSessionArtifact: {
-        connectAttemptId: input.attempt.id,
-        captureMode: input.captureMode,
-        capturedAt: validatedAt.toISOString(),
-        validatedAt: validatedAt.toISOString(),
-        accountHandle: validation.accountHandle,
-        externalAccountId: validation.externalAccountId ?? null,
-        sessionLabel: input.sessionLabel ?? null
-      }
+      vendorSessionArtifact: sessionArtifact
     } satisfies Prisma.InputJsonValue,
     credentialPayload: {
-      helperSessionArtifact: {
-        connectAttemptId: input.attempt.id,
-        captureMode: input.captureMode,
-        capturedAt: validatedAt.toISOString(),
-        validatedAt: validatedAt.toISOString(),
-        accountHandle: validation.accountHandle,
-        externalAccountId: validation.externalAccountId ?? null,
-        sessionLabel: input.sessionLabel ?? null
-      }
+      helperSessionArtifact: sessionArtifact
     } satisfies Prisma.InputJsonValue
   });
 
@@ -644,6 +643,9 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       externalAccountId?: string | null;
       sessionLabel?: string | null;
       captureMode?: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE";
+      cookieCount?: number | null;
+      origin?: string | null;
+      storageStateJson?: Record<string, unknown> | null;
     };
 
     const validatingAttempt = await updateMarketplaceConnectAttempt(attempt.id, {
@@ -661,7 +663,13 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       accountHandle: pendingSession.accountHandle ?? validatingAttempt.displayName,
       externalAccountId: pendingSession.externalAccountId ?? null,
       sessionLabel: pendingSession.sessionLabel ?? null,
-      captureMode: pendingSession.captureMode ?? "WEB_POPUP_HELPER"
+      captureMode: pendingSession.captureMode ?? "WEB_POPUP_HELPER",
+      cookieCount: typeof pendingSession.cookieCount === "number" ? pendingSession.cookieCount : null,
+      origin: typeof pendingSession.origin === "string" ? pendingSession.origin : null,
+      storageStateJson:
+        pendingSession.storageStateJson && typeof pendingSession.storageStateJson === "object"
+          ? (pendingSession.storageStateJson as Record<string, unknown>)
+          : null
     });
 
     return {
@@ -704,7 +712,10 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       externalAccountId: body.externalAccountId ?? null,
       sessionLabel: body.sessionLabel ?? null,
       captureMode: body.captureMode,
-      challengeRequired: body.challengeRequired
+      challengeRequired: body.challengeRequired,
+      cookieCount: body.cookieCount ?? null,
+      origin: body.origin ?? null,
+      storageStateJson: body.storageStateJson ?? null
     });
 
     const nextAttempt = await updateMarketplaceConnectAttempt(attempt.id, {
@@ -730,7 +741,10 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       accountHandle: body.accountHandle,
       externalAccountId: body.externalAccountId ?? null,
       sessionLabel: body.sessionLabel ?? null,
-      captureMode: body.captureMode
+      captureMode: body.captureMode,
+      cookieCount: body.cookieCount ?? null,
+      origin: body.origin ?? null,
+      storageStateJson: body.storageStateJson ?? null
     });
 
     return {

@@ -1,4 +1,11 @@
-import { Prisma, db, recordAuditLog, updateMarketplaceAccountCredentials } from "@reselleros/db";
+import {
+  Prisma,
+  createInventoryImportItemForRun,
+  db,
+  recordAuditLog,
+  updateInventoryImportRun,
+  updateMarketplaceAccountCredentials
+} from "@reselleros/db";
 import { generateListingDraft, generateLotAnalysis } from "@reselleros/ai";
 import { ebayAdapter } from "@reselleros/marketplaces-ebay";
 import { classifyConnectorError, ConnectorError } from "@reselleros/marketplaces";
@@ -127,6 +134,57 @@ export async function processWorkerJob(name: JobName, data: JobPayload<JobName>)
       });
 
       return createdDrafts;
+    }
+
+    case "inventory.importAccountApi": {
+      const payload = data as JobPayload<"inventory.importAccountApi">;
+
+      await updateInventoryImportRun(payload.importRunId, {
+        status: "RUNNING",
+        startedAt: new Date(),
+        statsJson: {
+          mode: "api",
+          sourcePlatform: payload.sourcePlatform
+        }
+      });
+
+      const message =
+        payload.sourcePlatform === "EBAY"
+          ? "Linked eBay inventory import is not implemented yet."
+          : `${payload.sourcePlatform} does not support API-backed inventory import in the current runtime.`;
+
+      await createInventoryImportItemForRun(payload.importRunId, {
+        dedupeKey: `${payload.sourcePlatform}:${payload.marketplaceAccountId ?? "no-account"}:api`,
+        status: "FAILED",
+        rawSourcePayload: payload,
+        lastErrorMessage: message
+      });
+
+      await updateInventoryImportRun(payload.importRunId, {
+        status: "FAILED",
+        progressCount: 1,
+        failedCount: 1,
+        finishedAt: new Date(),
+        lastErrorCode: "IMPORT_NOT_IMPLEMENTED",
+        lastErrorMessage: message
+      });
+
+      return { ok: false, message };
+    }
+
+    case "inventory.importCsv": {
+      const payload = data as JobPayload<"inventory.importCsv">;
+
+      await updateInventoryImportRun(payload.importRunId, {
+        status: "FAILED",
+        progressCount: 0,
+        failedCount: 0,
+        finishedAt: new Date(),
+        lastErrorCode: "CSV_IMPORT_HANDLED_IN_API",
+        lastErrorMessage: "CSV imports are handled at the API layer in the current implementation."
+      });
+
+      return { ok: true };
     }
 
     case "listing.publishEbay": {
@@ -331,6 +389,7 @@ export async function processWorkerJob(name: JobName, data: JobPayload<JobName>)
     case "listing.publishDepop":
     case "listing.publishPoshmark":
     case "listing.publishWhatnot":
+    case "inventory.importAccountBrowser":
       throw new Error("Connector automation publish jobs are handled by connector-runner");
 
     default:

@@ -69,6 +69,7 @@ type InventoryDetailViewProps = {
   onPublishDepop: () => void;
   onPublishPoshmark: () => void;
   onPublishWhatnot: () => void;
+  onPublishLinked: () => void;
   handoffUrl: string;
   continuityNotice: string | null;
   lastSyncedLabel: string | null;
@@ -203,6 +204,7 @@ function InventoryHeroCard({
   onPublishDepop,
   onPublishPoshmark,
   onPublishWhatnot,
+  onPublishLinked,
   onOpenHandoff
 }: {
   item: InventoryDetailRecord;
@@ -214,6 +216,7 @@ function InventoryHeroCard({
   onPublishDepop: () => void;
   onPublishPoshmark: () => void;
   onPublishWhatnot: () => void;
+  onPublishLinked: () => void;
   onOpenHandoff: () => void;
 }) {
   return (
@@ -262,6 +265,9 @@ function InventoryHeroCard({
       <div className="actions inventory-primary-actions">
         <Button disabled={pending} onClick={onGenerateDrafts}>
           Generate drafts
+        </Button>
+        <Button disabled={pending} kind="secondary" onClick={onPublishLinked}>
+          Publish linked accounts
         </Button>
         <Button disabled={pending} kind="secondary" onClick={onPublishEbay}>
           Publish eBay
@@ -530,6 +536,7 @@ export function InventoryDetailView({
   onPublishDepop,
   onPublishPoshmark,
   onPublishWhatnot,
+  onPublishLinked,
   handoffUrl,
   continuityNotice,
   lastSyncedLabel,
@@ -550,10 +557,11 @@ export function InventoryDetailView({
       lastSyncedLabel={lastSyncedLabel}
       onGenerateDrafts={onGenerateDrafts}
       onOpenHandoff={() => setHandoffOpen(true)}
-      onPublishDepop={onPublishDepop}
-      onPublishEbay={onPublishEbay}
-      onPublishPoshmark={onPublishPoshmark}
-      onPublishWhatnot={onPublishWhatnot}
+            onPublishDepop={onPublishDepop}
+            onPublishEbay={onPublishEbay}
+            onPublishLinked={onPublishLinked}
+            onPublishPoshmark={onPublishPoshmark}
+            onPublishWhatnot={onPublishWhatnot}
       pending={pending}
     />
   );
