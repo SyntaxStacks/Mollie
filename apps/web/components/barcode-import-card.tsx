@@ -1,6 +1,6 @@
 "use client";
 
-import { Camera, CheckCircle2, ExternalLink, ScanBarcode, Search, Sparkles, X } from "lucide-react";
+import { Camera, CheckCircle2, ExternalLink, RefreshCw, ScanBarcode, Search, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type FormEvent } from "react";
 
@@ -50,6 +50,11 @@ declare global {
 type ScannerOverlayPoint = {
   x: number;
   y: number;
+};
+
+type CameraDeviceOption = {
+  deviceId: string;
+  label: string;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -165,6 +170,28 @@ function choosePrefillValue(currentValue: string, nextValue: string | null | und
   }
 
   return replaceableValues.some((value) => value.trim() === current) ? next : currentValue;
+}
+
+function cameraLabelScore(label: string) {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("back") || normalized.includes("rear") || normalized.includes("environment")) {
+    return 3;
+  }
+
+  if (normalized.includes("wide")) {
+    return 2;
+  }
+
+  if (normalized.includes("front") || normalized.includes("user") || normalized.includes("face")) {
+    return 0;
+  }
+
+  return 1;
+}
+
+function pickPreferredCamera(cameras: CameraDeviceOption[]) {
+  return [...cameras].sort((left, right) => cameraLabelScore(right.label) - cameraLabelScore(left.label))[0] ?? null;
 }
 
 function normalizeImageUrls(value: string) {
@@ -297,6 +324,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const [scannerStatus, setScannerStatus] = useState("Point the barcode at the guide.");
   const [capturePending, setCapturePending] = useState(false);
   const [scannerOutlinePoints, setScannerOutlinePoints] = useState<ScannerOverlayPoint[] | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<CameraDeviceOption[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
   const [manualEntryEnabled, setManualEntryEnabled] = useState(false);
@@ -361,10 +390,75 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     };
   }
 
+  async function refreshAvailableCameras() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const cameras = devices
+        .filter((device) => device.kind === "videoinput")
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label?.trim() || `Camera ${index + 1}`
+        }));
+
+      setAvailableCameras(cameras);
+      setSelectedCameraId((current) => {
+        if (current && cameras.some((camera) => camera.deviceId === current)) {
+          return current;
+        }
+
+        return pickPreferredCamera(cameras)?.deviceId ?? null;
+      });
+    } catch {
+      setAvailableCameras([]);
+    }
+  }
+
+  function flipCamera() {
+    if (availableCameras.length !== 2) {
+      return;
+    }
+
+    setSelectedCameraId((current) => {
+      if (!current) {
+        return availableCameras[1]?.deviceId ?? availableCameras[0]?.deviceId ?? null;
+      }
+
+      return availableCameras.find((camera) => camera.deviceId !== current)?.deviceId ?? current;
+    });
+    setScannerStatus("Switching cameras...");
+    setScannerError(null);
+  }
+
   useEffect(() => {
     const hasWindow = typeof window !== "undefined";
     setScannerSupported(hasWindow);
   }, []);
+
+  useEffect(() => {
+    if (!scannerOpen) {
+      return;
+    }
+
+    void refreshAvailableCameras();
+
+    if (!navigator.mediaDevices?.addEventListener) {
+      return;
+    }
+
+    const handleDeviceChange = () => {
+      void refreshAvailableCameras();
+    };
+
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
+  }, [scannerOpen]);
 
   useEffect(() => {
     if (!scannerOpen || !liveScannerReady || !videoRef.current) {
@@ -394,12 +488,20 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
         const BarcodeDetector = window.BarcodeDetector;
 
         if (BarcodeDetector) {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: {
-                ideal: "environment"
+          const videoConstraint = selectedCameraId
+            ? {
+                deviceId: {
+                  exact: selectedCameraId
+                }
               }
-            }
+            : {
+                facingMode: {
+                  ideal: "environment"
+                }
+              };
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraint
           });
 
           if (!active) {
@@ -408,6 +510,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
           previewElement.srcObject = stream;
           await previewElement.play();
+          await refreshAvailableCameras();
 
           const detector = new BarcodeDetector({
             formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
@@ -479,11 +582,17 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
         scannerControls = await reader.decodeFromConstraints(
           {
-            video: {
-              facingMode: {
-                ideal: "environment"
-              }
-            }
+            video: selectedCameraId
+              ? {
+                  deviceId: {
+                    exact: selectedCameraId
+                  }
+                }
+              : {
+                  facingMode: {
+                    ideal: "environment"
+                  }
+                }
           },
           previewElement,
           (result, error) => {
@@ -540,7 +649,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       }
       setScannerOutlinePoints(null);
     };
-  }, [scannerOpen, liveScannerReady]);
+  }, [scannerOpen, liveScannerReady, selectedCameraId]);
 
   useEffect(() => {
     if (!manualEntryEnabled) {
@@ -1768,6 +1877,42 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
             <p className="handoff-copy">
               Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, ISBN, or Code 128 barcode.
             </p>
+            {availableCameras.length > 1 ? (
+              <div className="barcode-scanner-camera-controls">
+                <div className="barcode-scanner-camera-copy">
+                  <span className="eyebrow">Camera</span>
+                  <strong>
+                    {selectedCameraId
+                      ? availableCameras.find((camera) => camera.deviceId === selectedCameraId)?.label ?? "Selected camera"
+                      : "Choose a camera"}
+                  </strong>
+                </div>
+                {availableCameras.length === 2 ? (
+                  <Button kind="secondary" onClick={flipCamera} type="button">
+                    <RefreshCw size={16} /> Flip camera
+                  </Button>
+                ) : (
+                  <label className="label barcode-scanner-camera-select">
+                    <select
+                      aria-label="Select camera"
+                      className="field"
+                      value={selectedCameraId ?? ""}
+                      onChange={(event) => {
+                        setSelectedCameraId(event.target.value || null);
+                        setScannerStatus("Switching cameras...");
+                        setScannerError(null);
+                      }}
+                    >
+                      {availableCameras.map((camera) => (
+                        <option key={camera.deviceId} value={camera.deviceId}>
+                          {camera.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
+            ) : null}
             {liveScannerReady ? (
               <div className="barcode-scanner-video-shell">
                 <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />

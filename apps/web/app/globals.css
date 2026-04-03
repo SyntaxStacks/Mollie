@@ -912,6 +912,26 @@ body {
   font-weight: 600;
 }
 
+.barcode-scanner-camera-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.9rem 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.barcode-scanner-camera-copy {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.barcode-scanner-camera-select {
+  min-width: min(260px, 100%);
+}
+
 .connect-modal {
   width: min(760px, 100%);
 }
@@ -1747,6 +1767,15 @@ body {
   .handoff-modal {
     padding: 1rem;
     border-radius: 22px;
+  }
+
+  .barcode-scanner-camera-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .barcode-scanner-camera-select {
+    min-width: 0;
   }
 
   .handoff-qr-shell {
