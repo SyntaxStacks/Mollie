@@ -10,24 +10,43 @@ import {
   Smartphone,
   X
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { OperatorHint } from "@reselleros/types";
-import { Button, Card, StatusPill } from "@reselleros/ui";
+import { Button } from "@reselleros/ui";
 
-import { currency } from "../lib/api";
+import { currency, formatDate } from "../lib/api";
+import {
+  getItemLifecycleState,
+  getListingReadinessFlags,
+  getMarketplaceStatusSummaries,
+  getNextActionLabel,
+  getProfitEstimate,
+  getItemPrimaryImage
+} from "../lib/item-lifecycle";
+import { ActionRail } from "./action-rail";
+import { MarketplaceStatusRow } from "./marketplace-status-row";
+import { MissingFieldsPanel } from "./missing-fields-panel";
 import { OperatorHintCard } from "./operator-hint-card";
+import { ProfitBadge } from "./profit-badge";
+import { SectionCard } from "./section-card";
+import { StatusPill } from "./status-pill";
 
 export type InventoryDetailRecord = {
   id: string;
   title: string;
   sku: string;
   status: string;
+  brand?: string | null;
   category: string;
   condition: string;
+  costBasis?: number | null;
   priceRecommendation: number | null;
   estimatedResaleMin: number | null;
   estimatedResaleMax: number | null;
+  attributesJson?: Record<string, unknown> | null;
+  createdAt?: string;
+  updatedAt?: string;
   images: Array<{ id: string; url: string; position: number }>;
   listingDrafts: Array<{
     id: string;
@@ -194,333 +213,40 @@ function ContinueOnMobileModal({
   );
 }
 
-function InventoryHeroCard({
-  item,
-  pending,
-  lastSyncedLabel,
-  continuityNotice,
-  onGenerateDrafts,
-  onPublishEbay,
-  onPublishDepop,
-  onPublishPoshmark,
-  onPublishWhatnot,
-  onPublishLinked,
-  onOpenHandoff
-}: {
-  item: InventoryDetailRecord;
-  pending: boolean;
-  lastSyncedLabel: string | null;
-  continuityNotice: string | null;
-  onGenerateDrafts: () => void;
-  onPublishEbay: () => void;
-  onPublishDepop: () => void;
-  onPublishPoshmark: () => void;
-  onPublishWhatnot: () => void;
-  onPublishLinked: () => void;
-  onOpenHandoff: () => void;
-}) {
-  return (
-    <Card
-      action={<StatusPill status={item.status} />}
-      className="inventory-summary-card"
-      eyebrow={item.sku}
-      title={item.title}
-    >
-      <div className="inventory-hero-strip">
-        <div className="inventory-device-note">
-          <Smartphone size={16} />
-          <span>Desktop is the control surface. Mobile is the fastest way to capture photos.</span>
-        </div>
-        <Button className="inventory-handoff-button" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={onOpenHandoff}>
-          <Smartphone size={16} /> Continue on mobile
-        </Button>
-      </div>
-      {continuityNotice ? (
-        <div className="continuity-note" role="status">
-          <RefreshCw size={14} />
-          <span>{continuityNotice}</span>
-        </div>
-      ) : null}
-      {lastSyncedLabel ? <p className="inventory-sync-copy">Continuity refresh active. Last checked {lastSyncedLabel}.</p> : null}
-      <div className="inventory-meta-grid">
-        <div className="metric">
-          <span className="muted">Recommended price</span>
-          <strong>{currency(item.priceRecommendation)}</strong>
-        </div>
-        <div className="metric">
-          <span className="muted">Resale range</span>
-          <strong>
-            {currency(item.estimatedResaleMin)}-{currency(item.estimatedResaleMax)}
-          </strong>
-        </div>
-        <div className="metric">
-          <span className="muted">Category</span>
-          <strong>{item.category}</strong>
-        </div>
-        <div className="metric">
-          <span className="muted">Condition</span>
-          <strong>{item.condition}</strong>
-        </div>
-      </div>
-      <div className="actions inventory-primary-actions">
-        <Button disabled={pending} onClick={onGenerateDrafts}>
-          Generate drafts
-        </Button>
-        <Button disabled={pending} kind="secondary" onClick={onPublishLinked}>
-          Publish linked accounts
-        </Button>
-        <Button disabled={pending} kind="secondary" onClick={onPublishEbay}>
-          Publish eBay
-        </Button>
-        <Button disabled={pending} kind="secondary" onClick={onPublishDepop}>
-          Publish Depop
-        </Button>
-        <Button disabled={pending} kind="secondary" onClick={onPublishPoshmark}>
-          Publish Poshmark
-        </Button>
-        <Button disabled={pending} kind="secondary" onClick={onPublishWhatnot}>
-          Publish Whatnot
-        </Button>
-      </div>
-    </Card>
-  );
+function getIdentifierValue(item: InventoryDetailRecord) {
+  const attributes = item.attributesJson ?? {};
+  const candidates = [
+    attributes.identifier,
+    attributes.barcode,
+    attributes.upc,
+    attributes.ean,
+    attributes.isbn,
+    attributes.code128
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+
+  return item.sku;
 }
 
-function InventoryImagesCard({
-  item,
-  pending,
-  uploadStatus,
-  submitError,
-  onAddImage,
-  onDeleteImage,
-  onMoveImage
-}: {
-  item: InventoryDetailRecord;
-  pending: boolean;
-  uploadStatus: string | null;
-  submitError: string | null;
-  onAddImage: (event: FormEvent<HTMLFormElement>) => void;
-  onDeleteImage: (imageId: string) => void;
-  onMoveImage: (imageId: string, direction: -1 | 1) => void;
-}) {
-  return (
-    <Card
-      className="inventory-images-card"
-      eyebrow="Mobile capture surface"
-      title="Photo capture"
-    >
-      <p className="inventory-section-copy">
-        Upload, reorder, or delete photos here. The same item page works on desktop and phone.
-      </p>
-      <form className="stack inventory-image-form" onSubmit={onAddImage}>
-        <label className="label">
-          Upload image
-          <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
-        </label>
-        <label className="label">
-          Position
-          <input className="field" defaultValue="0" min="0" name="position" type="number" />
-        </label>
-        <Button data-testid="inventory-upload-submit" type="submit" disabled={pending}>
-          <Camera size={16} /> {pending ? "Uploading..." : "Upload image"}
-        </Button>
-      </form>
-      {uploadStatus ? <div className="notice execution-notice-success inventory-inline-notice">{uploadStatus}</div> : null}
-      {submitError ? <div className="notice inventory-inline-notice">{submitError}</div> : null}
-      <div className="stack inventory-image-list">
-        {item.images.length === 0 ? <div className="muted">No images uploaded yet.</div> : null}
-        {item.images.map((image, index) => (
-          <div className="image-upload-row inventory-image-card" data-image-id={image.id} key={image.id}>
-            <img alt={`${item.title} image`} className="image-upload-preview" src={image.url} />
-            <div className="stack">
-              <div className="split">
-                <strong>Image {index + 1}</strong>
-                <span className="muted">Position {image.position + 1}</span>
-              </div>
-              <span className="muted inventory-image-url">{image.url}</span>
-              <div className="actions inventory-image-actions">
-                <Button
-                  disabled={pending || index === 0}
-                  kind="secondary"
-                  onClick={() => onMoveImage(image.id, -1)}
-                  type="button"
-                >
-                  Move up
-                </Button>
-                <Button
-                  disabled={pending || index === item.images.length - 1}
-                  kind="secondary"
-                  onClick={() => onMoveImage(image.id, 1)}
-                  type="button"
-                >
-                  Move down
-                </Button>
-                <Button disabled={pending} kind="secondary" onClick={() => onDeleteImage(image.id)} type="button">
-                  Delete image
-                </Button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
+function lifecycleTone(state: string) {
+  if (state === "ready_to_list" || state === "listed") {
+    return "success" as const;
+  }
 
-function InventoryReadinessCard({
-  item,
-  submitError
-}: {
-  item: InventoryDetailRecord;
-  submitError: string | null;
-}) {
-  return (
-    <Card eyebrow="Drafts and listings" title="Review readiness">
-      {submitError ? <div className="notice">{submitError}</div> : null}
-      <div className="stack">
-        {item.listingDrafts.map((draft) => (
-          <div className="split" key={draft.id}>
-            <span>{draft.platform} draft</span>
-            <StatusPill status={draft.reviewStatus} />
-          </div>
-        ))}
-        {item.platformListings.map((listing) => (
-          <div className="split" key={listing.id}>
-            <span>{listing.platform} listing</span>
-            <StatusPill status={listing.status} />
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
+  if (state === "error") {
+    return "danger" as const;
+  }
 
-function EbayDraftCard({
-  ebayDraft,
-  ebayDraftForm,
-  pending,
-  onSaveEbayDraft,
-  onApproveEbayDraft,
-  onEbayDraftFormChange
-}: {
-  ebayDraft: InventoryDetailRecord["listingDrafts"][number] | null;
-  ebayDraftForm: {
-    generatedTitle: string;
-    generatedPrice: string;
-    ebayCategoryId: string;
-    ebayStoreCategoryId: string;
-  };
-  pending: boolean;
-  onSaveEbayDraft: (event: FormEvent<HTMLFormElement>) => void;
-  onApproveEbayDraft: () => void;
-  onEbayDraftFormChange: (field: "generatedTitle" | "generatedPrice" | "ebayCategoryId" | "ebayStoreCategoryId", value: string) => void;
-}) {
-  return (
-    <Card eyebrow="eBay draft" title="Live listing fields">
-      {!ebayDraft ? (
-        <div className="muted">Generate an eBay draft first, then map the live listing category here.</div>
-      ) : (
-        <form className="stack" onSubmit={onSaveEbayDraft}>
-          <label className="label">
-            eBay title
-            <input
-              className="field"
-              name="generatedTitle"
-              required
-              value={ebayDraftForm.generatedTitle}
-              onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)}
-            />
-          </label>
-          <label className="label">
-            eBay price
-            <input
-              className="field"
-              min="0"
-              name="generatedPrice"
-              required
-              step="0.01"
-              type="number"
-              value={ebayDraftForm.generatedPrice}
-              onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)}
-            />
-          </label>
-          <label className="label">
-            eBay category ID
-            <input
-              className="field"
-              name="ebayCategoryId"
-              placeholder="15724"
-              value={ebayDraftForm.ebayCategoryId}
-              onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)}
-            />
-          </label>
-          <label className="label">
-            eBay store category ID
-            <input
-              className="field"
-              name="ebayStoreCategoryId"
-              placeholder="Optional"
-              value={ebayDraftForm.ebayStoreCategoryId}
-              onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)}
-            />
-          </label>
-          <div className="muted">
-            Save the category mapping here before live eBay publish. The preflight card updates after each save.
-          </div>
-          <div className="actions">
-            <Button disabled={pending} type="submit">
-              Save eBay draft
-            </Button>
-            {ebayDraft.reviewStatus !== "APPROVED" ? (
-              <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">
-                Approve eBay draft
-              </Button>
-            ) : null}
-          </div>
-        </form>
-      )}
-    </Card>
-  );
-}
+  if (state === "listing_in_progress") {
+    return "accent" as const;
+  }
 
-function EbayPreflightCard({
-  preflight,
-  error
-}: {
-  preflight: InventoryPreflightRecord | null;
-  error: string | null;
-}) {
-  return (
-    <Card
-      action={preflight ? <StatusPill status={preflight.state ?? (preflight.ready ? "READY" : "BLOCKED")} /> : null}
-      eyebrow={preflight?.state ?? (preflight?.mode === "live" ? "Live eBay" : "Simulated eBay")}
-      title="Publish readiness"
-    >
-      {error ? <div className="notice">{error}</div> : null}
-      {!preflight ? (
-        <div className="muted">Checking eBay readiness...</div>
-      ) : (
-        <div className="stack">
-          <OperatorHintCard hint={preflight.hint} />
-          <div className="notice">{preflight.summary}</div>
-          <div className="inventory-preflight-meta">
-            <span>State: {preflight.state ?? "none"}</span>
-            <span>Account: {preflight.selectedCredentialType ?? "none"}</span>
-            <span>Mode: {preflight.mode}</span>
-          </div>
-          {preflight.checks.map((check) => (
-            <div className="split inventory-preflight-check" key={check.key}>
-              <div>
-                <strong>{check.label}</strong>
-                <div className="muted">{check.detail}</div>
-              </div>
-              <StatusPill status={check.status} />
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
+  return "neutral" as const;
 }
 
 export function InventoryDetailView({
@@ -549,57 +275,340 @@ export function InventoryDetailView({
   onApproveEbayDraft
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const image = getItemPrimaryImage(item);
+  const readinessFlags = getListingReadinessFlags(item);
+  const marketStatuses = getMarketplaceStatusSummaries(item);
+  const lifecycle = getItemLifecycleState(item);
+  const profit = getProfitEstimate(item);
+  const nextAction = getNextActionLabel(item);
+  const identifier = getIdentifierValue(item);
 
-  const summaryCard = (
-    <InventoryHeroCard
-      continuityNotice={continuityNotice}
-      item={item}
-      lastSyncedLabel={lastSyncedLabel}
-      onGenerateDrafts={onGenerateDrafts}
-      onOpenHandoff={() => setHandoffOpen(true)}
-            onPublishDepop={onPublishDepop}
-            onPublishEbay={onPublishEbay}
-            onPublishLinked={onPublishLinked}
-            onPublishPoshmark={onPublishPoshmark}
-            onPublishWhatnot={onPublishWhatnot}
-      pending={pending}
-    />
-  );
+  const historyRows = useMemo(() => {
+    const rows: Array<{ id: string; label: string; detail: string; meta: string }> = [];
 
-  const imagesCard = (
-    <InventoryImagesCard
-      item={item}
-      onAddImage={onAddImage}
-      onDeleteImage={onDeleteImage}
-      onMoveImage={onMoveImage}
-      pending={pending}
-      submitError={submitError}
-      uploadStatus={uploadStatus}
-    />
-  );
+    for (const sale of item.sales) {
+      rows.push({
+        id: `sale-${sale.id}`,
+        label: "Sold",
+        detail: `Sold for ${currency(sale.soldPrice)}`,
+        meta: formatDate(sale.soldAt)
+      });
+    }
 
-  const readinessCard = <InventoryReadinessCard item={item} submitError={submitError} />;
-  const draftCard = (
-    <EbayDraftCard
-      ebayDraft={ebayDraft}
-      ebayDraftForm={ebayDraftForm}
-      onApproveEbayDraft={onApproveEbayDraft}
-      onEbayDraftFormChange={onEbayDraftFormChange}
-      onSaveEbayDraft={onSaveEbayDraft}
-      pending={pending}
-    />
-  );
-  const preflightCard = <EbayPreflightCard error={ebayPreflightError} preflight={ebayPreflight} />;
+    for (const listing of item.platformListings) {
+      rows.push({
+        id: `listing-${listing.id}`,
+        label: `${listing.platform} listing`,
+        detail: listing.status.replace(/_/g, " "),
+        meta: listing.externalUrl ?? "No marketplace URL saved"
+      });
+    }
+
+    for (const draft of item.listingDrafts) {
+      rows.push({
+        id: `draft-${draft.id}`,
+        label: `${draft.platform} draft`,
+        detail: draft.reviewStatus.replace(/_/g, " "),
+        meta: draft.generatedTitle
+      });
+    }
+
+    return rows;
+  }, [item.listingDrafts, item.platformListings, item.sales]);
 
   return (
     <>
-      <div className="inventory-detail-shell">
-        <section className="inventory-section inventory-section-summary">{summaryCard}</section>
-        <section className="inventory-section inventory-section-images">{imagesCard}</section>
-        <section className="inventory-section inventory-section-readiness">{readinessCard}</section>
-        <section className="inventory-section inventory-section-draft">{draftCard}</section>
-        <section className="inventory-section inventory-section-preflight">{preflightCard}</section>
-      </div>
+      <section className="detail-page-stack">
+        <SectionCard
+          action={<StatusPill label={lifecycle.replace(/_/g, " ")} tone={lifecycleTone(lifecycle)} />}
+          className="detail-snapshot-card"
+          eyebrow="Snapshot"
+          title={item.title}
+        >
+          <div className="detail-snapshot-layout">
+            <div className="detail-primary-image-shell">
+              {image ? <img alt={item.title} className="detail-primary-image" src={image} /> : <div className="detail-primary-image detail-primary-image-empty">No photo yet</div>}
+            </div>
+
+            <div className="detail-snapshot-copy">
+              <div className="detail-snapshot-topline">
+                <div>
+                  <p className="eyebrow">Next action</p>
+                  <h2 className="detail-item-title">{nextAction}</h2>
+                </div>
+                <ProfitBadge value={profit} />
+              </div>
+
+              <div className="detail-metric-grid">
+                <div className="metric">
+                  <span className="muted">Buy cost</span>
+                  <strong>{currency(item.costBasis ?? 0)}</strong>
+                </div>
+                <div className="metric">
+                  <span className="muted">Suggested sell</span>
+                  <strong>{currency(item.priceRecommendation)}</strong>
+                </div>
+                <div className="metric">
+                  <span className="muted">Resale range</span>
+                  <strong>{currency(item.estimatedResaleMin)}-{currency(item.estimatedResaleMax)}</strong>
+                </div>
+                <div className="metric">
+                  <span className="muted">Condition</span>
+                  <strong>{item.condition}</strong>
+                </div>
+              </div>
+
+              {continuityNotice ? (
+                <div className="continuity-note" role="status">
+                  <RefreshCw size={14} />
+                  <span>{continuityNotice}</span>
+                </div>
+              ) : null}
+              {lastSyncedLabel ? <p className="inventory-sync-copy">Continuity refresh active. Last checked {lastSyncedLabel}.</p> : null}
+            </div>
+          </div>
+        </SectionCard>
+
+        <ActionRail>
+          <Button disabled={pending} onClick={onGenerateDrafts}>
+            Generate drafts
+          </Button>
+          <Button disabled={pending} kind="secondary" onClick={onPublishLinked}>
+            Publish linked accounts
+          </Button>
+          <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)}>
+            <Smartphone size={16} /> Continue on mobile
+          </Button>
+        </ActionRail>
+
+        {submitError ? <div className="notice">{submitError}</div> : null}
+        {uploadStatus ? <div className="notice success">{uploadStatus}</div> : null}
+
+        <div className="detail-section-grid">
+          <SectionCard eyebrow="Identification" title="How Mollie knows this item">
+            <div className="detail-meta-list">
+              <div className="detail-meta-row">
+                <span className="muted">SKU</span>
+                <strong>{item.sku}</strong>
+              </div>
+              <div className="detail-meta-row">
+                <span className="muted">Identifier</span>
+                <strong>{identifier}</strong>
+              </div>
+              <div className="detail-meta-row">
+                <span className="muted">Brand</span>
+                <strong>{item.brand?.trim() || "Not set yet"}</strong>
+              </div>
+              <div className="detail-meta-row">
+                <span className="muted">Category</span>
+                <strong>{item.category}</strong>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard eyebrow="Inventory Info" title="Keep the item sellable">
+            <MissingFieldsPanel flags={readinessFlags} />
+            <form className="stack inventory-image-form" onSubmit={onAddImage}>
+              <label className="label">
+                Upload image
+                <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
+              </label>
+              <label className="label">
+                Position
+                <input className="field" defaultValue="0" min="0" name="position" type="number" />
+              </label>
+              <Button data-testid="inventory-upload-submit" disabled={pending} type="submit">
+                <Camera size={16} /> {pending ? "Uploading..." : "Upload image"}
+              </Button>
+            </form>
+
+            <div className="detail-image-list">
+              {item.images.length === 0 ? <div className="muted">No images uploaded yet.</div> : null}
+              {item.images.map((entry, index) => (
+                <div className="detail-image-card" data-image-id={entry.id} key={entry.id}>
+                  <img alt={`${item.title} image ${index + 1}`} className="image-upload-preview" src={entry.url} />
+                  <div className="stack">
+                    <div className="split">
+                      <strong>Photo {index + 1}</strong>
+                      <span className="muted">Position {entry.position + 1}</span>
+                    </div>
+                    <div className="actions inventory-image-actions">
+                      <Button disabled={pending || index === 0} kind="secondary" onClick={() => onMoveImage(entry.id, -1)} type="button">
+                        Move up
+                      </Button>
+                      <Button disabled={pending || index === item.images.length - 1} kind="secondary" onClick={() => onMoveImage(entry.id, 1)} type="button">
+                        Move down
+                      </Button>
+                      <Button disabled={pending} kind="secondary" onClick={() => onDeleteImage(entry.id)} type="button">
+                        Delete
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+
+          <SectionCard eyebrow="Selling Setup" title="Get the item ready to publish">
+            <div className="detail-sell-grid">
+              <div className="market-observation-card">
+                <div className="split">
+                  <div>
+                    <p className="eyebrow">Marketplace work</p>
+                    <strong>Queue and publish</strong>
+                  </div>
+                  <div className="market-observation-value">{marketStatuses.filter((state) => state.state === "published").length} live</div>
+                </div>
+                <div className="actions wrap-actions">
+                  <Button disabled={pending} kind="secondary" onClick={onPublishEbay} type="button">
+                    Publish eBay
+                  </Button>
+                  <Button disabled={pending} kind="secondary" onClick={onPublishDepop} type="button">
+                    Publish Depop
+                  </Button>
+                  <Button disabled={pending} kind="secondary" onClick={onPublishPoshmark} type="button">
+                    Publish Poshmark
+                  </Button>
+                  <Button disabled={pending} kind="secondary" onClick={onPublishWhatnot} type="button">
+                    Publish Whatnot
+                  </Button>
+                </div>
+              </div>
+
+              <div className="market-observation-card">
+                <div className="split">
+                  <div>
+                    <p className="eyebrow">eBay draft</p>
+                    <strong>Live listing fields</strong>
+                  </div>
+                  <div className="market-observation-value">{ebayDraft ? ebayDraft.reviewStatus : "Missing"}</div>
+                </div>
+
+                {!ebayDraft ? (
+                  <div className="muted">Generate an eBay draft first, then map the live listing category here.</div>
+                ) : (
+                  <form className="stack" onSubmit={onSaveEbayDraft}>
+                    <label className="label">
+                      eBay title
+                      <input
+                        className="field"
+                        name="generatedTitle"
+                        required
+                        value={ebayDraftForm.generatedTitle}
+                        onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)}
+                      />
+                    </label>
+                    <label className="label">
+                      eBay price
+                      <input
+                        className="field"
+                        min="0"
+                        name="generatedPrice"
+                        required
+                        step="0.01"
+                        type="number"
+                        value={ebayDraftForm.generatedPrice}
+                        onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)}
+                      />
+                    </label>
+                    <label className="label">
+                      eBay category ID
+                      <input
+                        className="field"
+                        name="ebayCategoryId"
+                        placeholder="15724"
+                        value={ebayDraftForm.ebayCategoryId}
+                        onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)}
+                      />
+                    </label>
+                    <label className="label">
+                      eBay store category ID
+                      <input
+                        className="field"
+                        name="ebayStoreCategoryId"
+                        placeholder="Optional"
+                        value={ebayDraftForm.ebayStoreCategoryId}
+                        onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)}
+                      />
+                    </label>
+                    <div className="actions">
+                      <Button disabled={pending} type="submit">
+                        Save eBay draft
+                      </Button>
+                      {ebayDraft.reviewStatus !== "APPROVED" ? (
+                        <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">
+                          Approve eBay draft
+                        </Button>
+                      ) : null}
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            action={<StatusPill label={ebayPreflight?.state ?? (ebayPreflight?.ready ? "ready" : "blocked")} tone={ebayPreflight?.ready ? "success" : "warning"} />}
+            eyebrow="Marketplace Status"
+            title="What is live, blocked, or waiting"
+          >
+            {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
+            <div className="marketplace-status-stack">
+              {marketStatuses.map((state) => (
+                <MarketplaceStatusRow
+                  key={state.platform}
+                  onAction={
+                    state.platform === "EBAY"
+                      ? onPublishEbay
+                      : state.platform === "DEPOP"
+                        ? onPublishDepop
+                        : state.platform === "POSHMARK"
+                          ? onPublishPoshmark
+                          : state.platform === "WHATNOT"
+                            ? onPublishWhatnot
+                            : null
+                  }
+                  state={state}
+                />
+              ))}
+            </div>
+
+            {ebayPreflight ? (
+              <div className="stack">
+                <OperatorHintCard hint={ebayPreflight.hint} />
+                <div className="notice">{ebayPreflight.summary}</div>
+                <div className="inventory-preflight-meta">
+                  <span>State: {ebayPreflight.state ?? "none"}</span>
+                  <span>Account: {ebayPreflight.selectedCredentialType ?? "none"}</span>
+                </div>
+              </div>
+            ) : null}
+          </SectionCard>
+
+          <SectionCard eyebrow="History" title="What happened to this item">
+            <div className="activity-list">
+              {historyRows.length === 0 ? <div className="muted">No history yet. Scan, draft, publish, and sell activity will show up here.</div> : null}
+              {historyRows.map((row) => (
+                <div className="activity-row" key={row.id}>
+                  <div>
+                    <strong>{row.label}</strong>
+                    <div className="muted">{row.detail}</div>
+                  </div>
+                  <div className="muted">{row.meta}</div>
+                </div>
+              ))}
+              <div className="activity-row">
+                <div>
+                  <strong>Item record</strong>
+                  <div className="muted">Created in inventory and ready for progressive enrichment.</div>
+                </div>
+                <div className="muted">{item.createdAt ? formatDate(item.createdAt) : "Recently created"}</div>
+              </div>
+            </div>
+          </SectionCard>
+        </div>
+      </section>
+
       <ContinueOnMobileModal onClose={() => setHandoffOpen(false)} open={handoffOpen} title={item.title} url={handoffUrl} />
     </>
   );

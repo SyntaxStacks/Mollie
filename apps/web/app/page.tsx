@@ -1,98 +1,135 @@
 "use client";
 
 import Link from "next/link";
-
-import { Card, StatusPill } from "@reselleros/ui";
+import { AlertTriangle, ShoppingBag, Tags, TrendingUp } from "lucide-react";
 
 import { AppShell } from "../components/app-shell";
+import { BarcodeImportCard } from "../components/barcode-import-card";
 import { ProtectedView } from "../components/protected-view";
+import { SectionCard } from "../components/section-card";
 import { useAuth } from "../components/auth-provider";
-import { currency, useAuthedResource } from "../lib/api";
+import { QueueHeader } from "../components/queue-header";
+import { useAuthedResource } from "../lib/api";
+import { getItemLifecycleState } from "../lib/item-lifecycle";
 
-export default function DashboardPage() {
+type ScanInventoryItem = {
+  id: string;
+  title: string;
+  category: string;
+  condition: string;
+  costBasis: number | null;
+  priceRecommendation: number | null;
+  status: string | null;
+  attributesJson: Record<string, unknown> | null;
+  images: Array<{ id: string; url: string; position: number }>;
+  listingDrafts: Array<{ id: string; platform: string; reviewStatus: string }>;
+  platformListings: Array<{ id: string; platform: string; status: string | null }>;
+  sales: Array<{ id: string; soldPrice: number; soldAt: string }>;
+};
+
+type ExecutionLogSummary = {
+  id: string;
+  status: string;
+};
+
+export default function ScanPage() {
   const auth = useAuth();
-  const { data, loading, error } = useAuthedResource<{
-    summary: {
-      inventoryCount: number;
-      listedCount: number;
-      soldCount: number;
-      pendingDrafts: number;
-      totalRevenue: number;
-      totalMargin: number;
-    };
-    inventory: Array<{ id: string; title: string; status: string; priceRecommendation: number | null }>;
-    lots: Array<{ id: string; title: string; status: string; recommendedMaxBid: number | null }>;
-  }>("/api/analytics/pnl", auth.token);
+  const inventory = useAuthedResource<{ items: ScanInventoryItem[] }>("/api/inventory", auth.token);
+  const failedPosts = useAuthedResource<{ logs: ExecutionLogSummary[] }>("/api/execution-logs?status=FAILED", auth.token);
+  const sales = useAuthedResource<{ sales: Array<{ id: string; soldAt: string }> }>("/api/sales", auth.token);
+
+  const items = inventory.data?.items ?? [];
+  const readyToListCount = items.filter((item) => getItemLifecycleState(item) === "ready_to_list").length;
+  const failedPostCount = failedPosts.data?.logs.length ?? 0;
+  const listedCount = items.filter((item) => getItemLifecycleState(item) === "listed").length;
+  const soldTodayCount =
+    sales.data?.sales.filter((sale) => {
+      const soldDate = new Date(sale.soldAt);
+      const now = new Date();
+      return soldDate.toDateString() === now.toDateString();
+    }).length ?? 0;
 
   return (
     <ProtectedView>
-      <AppShell title="Pilot Dashboard">
-        {error ? <div className="notice">{error}</div> : null}
-        <div className="hero-grid">
-          <Card eyebrow="Overview" title="Operator snapshot">
-            {loading || !data ? (
-              <p className="muted">Loading dashboard metrics…</p>
-            ) : (
-              <div className="grid-4">
-                <div className="metric">
-                  <span className="muted">Inventory</span>
-                  <strong>{data.summary.inventoryCount}</strong>
-                </div>
-                <div className="metric">
-                  <span className="muted">Listed</span>
-                  <strong>{data.summary.listedCount}</strong>
-                </div>
-                <div className="metric">
-                  <span className="muted">Pending drafts</span>
-                  <strong>{data.summary.pendingDrafts}</strong>
-                </div>
-                <div className="metric">
-                  <span className="muted">Margin captured</span>
-                  <strong>{currency(data.summary.totalMargin)}</strong>
-                </div>
+      <AppShell chrome="immersive" title="Scan">
+        <section className="scan-home">
+          <div className="scan-home-hero">
+            <QueueHeader
+              count={readyToListCount}
+              description="Scan fast, confirm the match, and keep intake moving without getting buried in admin work."
+              title="Camera-first intake"
+            />
+
+            <div className="scan-productivity-strip">
+              <div className="scan-productivity-card">
+                <span>Ready to list</span>
+                <strong>{readyToListCount}</strong>
               </div>
-            )}
-          </Card>
-
-          <Card eyebrow="Runbook" title="MVP operating order">
-            <div className="stack muted">
-              <span>1. Ingest Mac.bid lots and review max bid guidance.</span>
-              <span>2. Convert viable lots into canonical inventory items.</span>
-              <span>3. Generate drafts, approve, then publish to eBay and Depop.</span>
-              <span>4. Watch execution logs and record sold outcomes for P&L.</span>
+              <div className="scan-productivity-card">
+                <span>Failed posts</span>
+                <strong>{failedPostCount}</strong>
+              </div>
+              <div className="scan-productivity-card">
+                <span>Listed now</span>
+                <strong>{listedCount}</strong>
+              </div>
+              <div className="scan-productivity-card">
+                <span>Sold today</span>
+                <strong>{soldTodayCount}</strong>
+              </div>
             </div>
-          </Card>
-        </div>
 
-        <div className="grid-2">
-          <Card eyebrow="Recent inventory" title="Newest items" action={<Link href="/inventory">Open inventory</Link>}>
-            <div className="stack">
-              {(data?.inventory ?? []).slice(0, 5).map((item) => (
-                <div className="split" key={item.id}>
-                  <div>
-                    <Link href={`/inventory/${item.id}`}>{item.title}</Link>
-                    <div className="muted">{currency(item.priceRecommendation)}</div>
-                  </div>
-                  <StatusPill status={item.status} />
+            <div className="scan-shortcuts">
+              <Link className="scan-shortcut-card" href="/inventory">
+                <ShoppingBag size={18} />
+                <div>
+                  <strong>Inventory</strong>
+                  <span>One tap to manage what you just saved.</span>
                 </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card eyebrow="Lot queue" title="Source lots" action={<Link href="/lots">Open lots</Link>}>
-            <div className="stack">
-              {(data?.lots ?? []).slice(0, 5).map((lot) => (
-                <div className="split" key={lot.id}>
-                  <div>
-                    <Link href={`/lots/${lot.id}`}>{lot.title}</Link>
-                    <div className="muted">Max bid {currency(lot.recommendedMaxBid)}</div>
-                  </div>
-                  <StatusPill status={lot.status} />
+              </Link>
+              <Link className="scan-shortcut-card" href="/sell">
+                <Tags size={18} />
+                <div>
+                  <strong>Sell queue</strong>
+                  <span>See what is ready to list or blocked.</span>
                 </div>
-              ))}
+              </Link>
+              <Link className="scan-shortcut-card" href="/activity">
+                <TrendingUp size={18} />
+                <div>
+                  <strong>Activity</strong>
+                  <span>Watch scans, listings, failures, and sold events.</span>
+                </div>
+              </Link>
+              <Link className="scan-shortcut-card" href="/marketplaces">
+                <AlertTriangle size={18} />
+                <div>
+                  <strong>Accounts</strong>
+                  <span>Reconnect marketplace accounts before the queue backs up.</span>
+                </div>
+              </Link>
             </div>
-          </Card>
-        </div>
+          </div>
+
+          {auth.token ? <BarcodeImportCard presentation="scan" token={auth.token} /> : null}
+
+          <SectionCard eyebrow="Queue pulse" title="Why scan stays the home screen">
+            <div className="scan-pulse-grid">
+              <div className="scan-pulse-card">
+                <strong>Keep intake moving</strong>
+                <p>Missing details can wait. Use scan to capture the opportunity first.</p>
+              </div>
+              <div className="scan-pulse-card">
+                <strong>Inventory is one tap away</strong>
+                <p>Every accepted scan becomes a manageable item, not a lost note.</p>
+              </div>
+              <div className="scan-pulse-card">
+                <strong>Sell is a queue</strong>
+                <p>Drafts, blockers, and retries belong in Sell, not in the intake flow.</p>
+              </div>
+            </div>
+          </SectionCard>
+        </section>
       </AppShell>
     </ProtectedView>
   );

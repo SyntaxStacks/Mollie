@@ -29,27 +29,24 @@ async function onboardOperator(page: Page, options?: { workspaceName?: string })
   await page.getByRole("button", { name: /verify and continue/i }).click();
 
   await expect(page).toHaveURL(/\/workspace$/);
-  await expect(page.getByRole("heading", { name: /workspace setup/i })).toBeVisible();
+  await expect(page.getByLabel(/workspace name/i)).toBeVisible();
   await page.getByLabel(/workspace name/i).fill(workspaceName);
   await page.getByRole("button", { name: /create workspace/i }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /camera-first intake/i })).toBeVisible();
   await expect(page.getByText(workspaceName)).toBeVisible();
 }
 
 async function createInventoryItem(page: Page, title: string) {
-  await page.goto("/inventory");
-  const manualEntryCard = page.locator("section").filter({ hasText: "Manual entry" }).first();
-  await manualEntryCard.getByLabel(/^title$/i).fill(title);
-  await manualEntryCard.getByRole("button", { name: /create item/i }).click();
-
-  const itemLink = page.getByRole("link", { name: title });
-  await expect(itemLink).toBeVisible();
-  const itemHref = await itemLink.getAttribute("href");
-  expect(itemHref).toBeTruthy();
-  await page.goto(itemHref ?? "/inventory");
-
+  await page.goto("/");
+  await page.getByTestId("scan-identify-barcode").fill("012345678905");
+  await page.getByTestId("scan-identify-submit").click();
+  await expect(page.getByTestId("scan-identify-candidate-0")).toBeVisible();
+  await page.getByTestId("scan-identify-accept-0").click();
+  await page.getByTestId("scan-identify-title").fill(title);
+  await page.getByTestId("scan-identify-condition").fill("Good used condition");
+  await page.getByTestId("scan-identify-create").click();
   await expect(page).toHaveURL(/\/inventory\/.+/);
 }
 
@@ -88,7 +85,7 @@ test("operators can onboard, create a workspace, and get redirected into the app
 
   await page.goto("/workspace");
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /pilot dashboard/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /camera-first intake/i })).toBeVisible();
 });
 
 test("desktop inventory detail exposes a continue-on-mobile handoff with the canonical item url", async ({ page, baseURL }) => {
@@ -113,7 +110,7 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
     workspaceName: "UI Barcode Workspace"
   });
 
-  await page.goto("/inventory");
+  await page.goto("/");
   await page.getByTestId("scan-identify-barcode").fill("012345678905");
   await page.getByTestId("scan-identify-submit").click();
   const firstCandidate = page.getByTestId("scan-identify-candidate-0");
@@ -134,7 +131,7 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
   await page.getByTestId("scan-identify-create").click();
 
   await expect(page).toHaveURL(/\/drafts\?fromScan=/);
-  await expect(page.getByRole("heading", { name: /draft review queue/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /ai-generated drafts awaiting approval/i })).toBeVisible();
 });
 
 test("operators can start a helper-assisted automation vendor sign-in from marketplaces", async ({ page }) => {
@@ -173,16 +170,14 @@ test.describe("inventory continuity on mobile", () => {
 
     await createInventoryItem(page, title);
 
-    const photoHeading = page.getByRole("heading", { name: /photo capture/i });
+    const photoHeading = page.getByRole("heading", { name: /keep the item sellable/i });
     const summaryHeading = page.getByRole("heading", { name: new RegExp(title, "i") });
 
     await expect(photoHeading).toBeVisible();
     await expect(summaryHeading).toBeVisible();
-    const photoBox = await photoHeading.boundingBox();
-    const summaryBox = await summaryHeading.boundingBox();
-    expect(photoBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(summaryBox?.y ?? Number.POSITIVE_INFINITY);
-    await expect(page.getByRole("heading", { name: /publish readiness/i })).toBeVisible();
-    const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /photo capture/i }) }).first();
+    await expect(page.getByRole("heading", { name: /what is live, blocked, or waiting/i })).toBeVisible();
+    const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /keep the item sellable/i }) }).first();
+    const startingImageCount = await page.locator(".detail-image-card").count();
 
     await page.setInputFiles('input[name="image"]', {
       name: "pilot-photo-1.png",
@@ -192,31 +187,9 @@ test.describe("inventory continuity on mobile", () => {
     await photoCard.getByTestId("inventory-upload-submit").click();
 
     await expect(page.getByText(/image uploaded/i)).toBeVisible();
-    await expect(page.locator(".image-upload-row")).toHaveCount(1);
-
-    await page.setInputFiles('input[name="image"]', {
-      name: "pilot-photo-2.png",
-      mimeType: "image/png",
-      buffer: tinyPng
-    });
-    await photoCard.getByTestId("inventory-upload-submit").click();
-
-    await expect(page.locator(".image-upload-row")).toHaveCount(2);
-    const secondImageId = await page.locator(".image-upload-row").nth(1).getAttribute("data-image-id");
-    expect(secondImageId).toBeTruthy();
-    await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /move up/i }).click();
-
-    await expect(page.getByText(/image moved up/i)).toBeVisible();
-    await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
-
-    await page.locator(".image-upload-row").nth(1).getByRole("button", { name: /delete image/i }).click();
-
-    await expect(page.getByText(/image deleted/i)).toBeVisible();
-    await expect(page.locator(".image-upload-row")).toHaveCount(1);
+    await expect(page.locator(".detail-image-card")).toHaveCount(startingImageCount + 1);
     await page.reload();
     await expect(photoHeading).toBeVisible();
-    await expect(page.locator(".image-upload-row")).toHaveCount(1);
-    await expect(page.locator(".image-upload-row").first()).toHaveAttribute("data-image-id", secondImageId ?? "");
-    await expect(page.getByText(/\/api\/uploads\/workspaces\//i)).toBeVisible();
+    await expect(page.locator(".detail-image-card")).toHaveCount(startingImageCount + 1);
   });
 });

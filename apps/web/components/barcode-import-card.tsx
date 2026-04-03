@@ -8,9 +8,11 @@ import type { ProductLookupCandidate, ProductLookupResult } from "@reselleros/ty
 import { Button, Card } from "@reselleros/ui";
 
 import { OperatorHintCard } from "./operator-hint-card";
+import { ScanResultSheet } from "./scan-result-sheet";
 
 type BarcodeImportCardProps = {
   token: string;
+  presentation?: "embedded" | "scan";
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -143,7 +145,7 @@ function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | nul
   return candidate.provider === "AMAZON_ENRICHMENT" ? "AMAZON" : "OTHER";
 }
 
-export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
+export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -681,14 +683,291 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
     () => lookupResult?.candidates.filter((candidate) => candidate.productUrl).slice(0, 3) ?? [],
     [lookupResult]
   );
+  const resultSheetOpen = presentation === "scan" && (Boolean(lookupResult) || manualEntryEnabled || Boolean(lookupError) || Boolean(submitError));
+  const scanMode = presentation === "scan";
+  const reviewContent = (
+    <>
+      <OperatorHintCard hint={topHint} />
+      {scannerError && !scannerOpen ? <div className="notice">{scannerError}</div> : null}
+
+      {lookupResult ? (
+        <div className="stack">
+          <div className="market-observation-card">
+            <div className="split">
+              <div>
+                <p className="eyebrow">Lookup summary</p>
+                <strong>{identifierTypeLabel(lookupResult.identifierType)} scan</strong>
+              </div>
+              <div className="market-observation-value">{lookupResult.providerSummary.simulated ? "Research result" : "Suggested match"}</div>
+            </div>
+            <div className="market-observation-summary">
+              <span>{lookupResult.candidates.length} candidate{lookupResult.candidates.length === 1 ? "" : "s"} found</span>
+              <span>{lookupResult.recommendedNextAction}</span>
+            </div>
+            {selectedCandidate ? (
+              <div className="scan-import-hint">
+                <CheckCircle2 size={16} />
+                <span>
+                  {providerLabel(selectedCandidate.provider)} is selected as the accepted source for this item. Review the prefilled
+                  inventory fields below, then save when they match the item in your hand.
+                </span>
+              </div>
+            ) : null}
+            {productUrlLinks.length > 0 ? (
+              <div className="actions wrap-actions">
+                {productUrlLinks.map((candidate) => (
+                  <a className="secondary-link-button" href={candidate.productUrl ?? "#"} key={candidate.id} rel="noreferrer" target="_blank">
+                    <ExternalLink size={16} /> Open {providerLabel(candidate.provider)}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {lookupResult.candidates.length > 0 ? (
+            <div className="lookup-candidate-grid">
+              {lookupResult.candidates.map((candidate, index) => (
+                <section
+                  className={`lookup-candidate-card${selectedCandidate?.id === candidate.id ? " lookup-candidate-card-selected" : ""}`}
+                  data-testid={`scan-identify-candidate-${index}`}
+                  key={candidate.id}
+                >
+                  {candidate.primaryImageUrl ? (
+                    <img alt={candidate.title} className="lookup-candidate-image" src={candidate.primaryImageUrl} />
+                  ) : (
+                    <div className="lookup-candidate-image lookup-candidate-image-empty">No image</div>
+                  )}
+                  <div className="stack" style={{ gap: "0.65rem" }}>
+                    <div className="split" style={{ alignItems: "flex-start" }}>
+                      <div>
+                        <strong>{candidate.title}</strong>
+                        <div className="muted">
+                          {candidate.brand ?? "Unknown brand"} · {candidate.category ?? "Unsorted"}
+                        </div>
+                      </div>
+                      <div className="stack" style={{ gap: "0.35rem", alignItems: "flex-end" }}>
+                        <span className="execution-inline-code">{providerLabel(candidate.provider)}</span>
+                        <span className={`lookup-confidence-pill lookup-confidence-${candidate.confidenceState.toLowerCase()}`}>
+                          {candidate.confidenceState} {Math.round(candidate.confidenceScore * 100)}%
+                        </span>
+                      </div>
+                    </div>
+
+                    <OperatorHintCard hint={candidate.hint} />
+
+                    {candidate.matchRationale.length > 0 ? (
+                      <ul className="marketplace-hint-list">
+                        {candidate.matchRationale.map((reason) => (
+                          <li key={reason}>{reason}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+
+                    <div className="muted">
+                      {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
+                    </div>
+
+                    <div className="actions wrap-actions">
+                      <Button
+                        data-testid={`scan-identify-accept-${index}`}
+                        onClick={() => applyCandidate(candidate)}
+                        type="button"
+                      >
+                        <CheckCircle2 size={16} /> Use this source
+                      </Button>
+                      {candidate.productUrl ? (
+                        <a className="secondary-link-button" href={candidate.productUrl} rel="noreferrer" target="_blank">
+                          <ExternalLink size={16} /> Review source
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="actions">
+            <Button kind="secondary" onClick={enableManualEntry} type="button">
+              Continue with manual entry
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {manualEntryEnabled ? (
+        <form className="stack" onSubmit={handleSubmit}>
+          {selectedCandidate ? (
+            <div className="market-observation-card" ref={acceptedMatchRef}>
+              <div className="split">
+                <div>
+                  <p className="eyebrow">Accepted source</p>
+                  <strong>{selectedCandidate.title}</strong>
+                </div>
+                <div className="market-observation-value">{providerLabel(selectedCandidate.provider)}</div>
+              </div>
+              <div className="scan-import-hint">
+                <Sparkles size={16} />
+                <span>
+                  This source is now marked as the valid starting point for this item. Mollie prefilled the inventory fields below, but
+                  it will not create the item until you save.
+                </span>
+              </div>
+              <div className="muted">
+                Confidence {Math.round(selectedCandidate.confidenceScore * 100)}% · {selectedCandidate.confidenceState}
+                {selectedCandidate.productUrl ? " · Source link saved with this item" : ""}
+              </div>
+            </div>
+          ) : (
+            <div className="market-observation-card">
+              <div className="split">
+                <div>
+                  <p className="eyebrow">Manual fallback</p>
+                  <strong>Enter the item details yourself</strong>
+                </div>
+                <div className="market-observation-value">Operator controlled</div>
+              </div>
+              <div className="scan-import-hint">
+                <Sparkles size={16} />
+                <span>No candidate will be applied automatically. Use manual entry if none of the matches look reliable.</span>
+              </div>
+            </div>
+          )}
+
+          <div className="scan-import-grid">
+            <label className="label">
+              Title
+              <input
+                className="field"
+                data-testid="scan-identify-title"
+                ref={titleInputRef}
+                required
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              Brand
+              <input className="field" value={brand} onChange={(event) => setBrand(event.target.value)} />
+            </label>
+            <label className="label">
+              Category
+              <input className="field" required value={category} onChange={(event) => setCategory(event.target.value)} />
+            </label>
+            <label className="label">
+              Condition
+              <input
+                className="field"
+                data-testid="scan-identify-condition"
+                required
+                value={condition}
+                onChange={(event) => setCondition(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              Model or size
+              <input className="field" value={size} onChange={(event) => setSize(event.target.value)} />
+            </label>
+            <label className="label">
+              Color
+              <input className="field" value={color} onChange={(event) => setColor(event.target.value)} />
+            </label>
+            <label className="label">
+              Cost basis
+              <input className="field" min="0" step="0.01" type="number" value={costBasis} onChange={(event) => setCostBasis(event.target.value)} />
+            </label>
+            <label className="label">
+              Price recommendation
+              <input className="field" min="0" step="0.01" type="number" value={priceRecommendation} onChange={(event) => setPriceRecommendation(event.target.value)} />
+            </label>
+            <label className="label">
+              Amazon price
+              <input
+                className="field"
+                data-testid="scan-identify-amazon-price"
+                min="0"
+                step="0.01"
+                type="number"
+                value={amazonPrice}
+                onChange={(event) => setAmazonPrice(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              Amazon product URL
+              <input className="field" value={amazonUrl} onChange={(event) => setAmazonUrl(event.target.value)} />
+            </label>
+            <label className="label">
+              eBay price
+              <input
+                className="field"
+                data-testid="scan-identify-ebay-price"
+                min="0"
+                step="0.01"
+                type="number"
+                value={ebayPrice}
+                onChange={(event) => setEbayPrice(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              eBay URL
+              <input
+                className="field"
+                data-testid="scan-identify-ebay-url"
+                value={ebayUrl}
+                onChange={(event) => setEbayUrl(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <label className="label">
+            Image URLs
+            <textarea
+              className="field textarea-field"
+              data-testid="scan-identify-image-urls"
+              placeholder={"Paste one image URL per line.\nSource images are okay for the first pass and can be replaced later with operator photos."}
+              rows={4}
+              value={imageUrls}
+              onChange={(event) => setImageUrls(event.target.value)}
+            />
+          </label>
+
+          <label className="checkbox-row">
+            <input
+              checked={generateDrafts}
+              data-testid="scan-identify-generate-drafts"
+              onChange={(event) => setGenerateDrafts(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Also queue marketplace drafts after creating the item</span>
+          </label>
+
+          <div className="actions">
+            <Button data-testid="scan-identify-create" disabled={pending || !canSubmit} type="submit">
+              <Sparkles size={16} /> {pending ? "Saving..." : generateDrafts ? "Create item and queue drafts" : "Create item"}
+            </Button>
+            <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
+              Reset
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
+      {submitError ? <div className="notice">{submitError}</div> : null}
+    </>
+  );
 
   return (
     <>
-      <Card eyebrow="Scan to identify" title="Scan a barcode, review the match, then create inventory">
+      <Card
+        className={scanMode ? "scan-intake-card" : undefined}
+        eyebrow={scanMode ? "Scan" : "Scan to identify"}
+        title={scanMode ? "Open the camera and keep intake moving" : "Scan a barcode, review the match, then create inventory"}
+      >
         <div className="stack">
           <p className="muted">
-            Scan a UPC, EAN, ISBN, or Code 128 barcode, review candidate matches, and confirm the one that best matches the item in your hand.
-            Mollie prefills inventory fields only after you accept the match or switch to manual entry.
+            {scanMode
+              ? "Scan first, decide fast, and keep intake moving. Review the item in a bottom sheet, then add it, hold it, list it later, or move into selling setup."
+              : "Scan a UPC, EAN, ISBN, or Code 128 barcode, review candidate matches, and confirm the one that best matches the item in your hand. Mollie prefills inventory fields only after you accept the match or switch to manual entry."}
           </p>
 
           <div className="scan-import-grid">
@@ -706,7 +985,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 />
                 {scannerSupported ? (
                   <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
-                    <ScanBarcode size={16} /> Open camera
+                    <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
                   </Button>
                 ) : null}
               </div>
@@ -727,10 +1006,12 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
             </div>
           </div>
 
-          <OperatorHintCard hint={topHint} />
-          {scannerError && !scannerOpen ? <div className="notice">{scannerError}</div> : null}
+          {!scanMode ? (
+            <>
+              <OperatorHintCard hint={topHint} />
+              {scannerError && !scannerOpen ? <div className="notice">{scannerError}</div> : null}
 
-          {lookupResult ? (
+              {lookupResult ? (
             <div className="stack">
               <div className="market-observation-card">
                 <div className="split">
@@ -738,7 +1019,7 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                     <p className="eyebrow">Lookup summary</p>
                     <strong>{identifierTypeLabel(lookupResult.identifierType)} scan</strong>
                   </div>
-                  <div className="market-observation-value">{lookupResult.providerSummary.simulated ? "Simulated provider" : "Live provider"}</div>
+                  <div className="market-observation-value">{lookupResult.providerSummary.simulated ? "Research result" : "Suggested match"}</div>
                 </div>
                 <div className="market-observation-summary">
                   <span>{lookupResult.candidates.length} candidate{lookupResult.candidates.length === 1 ? "" : "s"} found</span>
@@ -833,9 +1114,9 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 </Button>
               </div>
             </div>
-          ) : null}
+              ) : null}
 
-          {manualEntryEnabled ? (
+              {manualEntryEnabled ? (
             <form className="stack" onSubmit={handleSubmit}>
               {selectedCandidate ? (
                 <div className="market-observation-card" ref={acceptedMatchRef}>
@@ -990,11 +1271,23 @@ export function BarcodeImportCard({ token }: BarcodeImportCardProps) {
                 </Button>
               </div>
             </form>
-          ) : null}
+              ) : null}
 
-          {submitError ? <div className="notice">{submitError}</div> : null}
+              {submitError ? <div className="notice">{submitError}</div> : null}
+            </>
+          ) : null}
         </div>
       </Card>
+
+      {scanMode ? (
+        <ScanResultSheet
+          open={resultSheetOpen}
+          subtitle={lookupResult ? identifierTypeLabel(lookupResult.identifierType) : manualEntryEnabled ? "Manual review" : undefined}
+          title={selectedCandidate ? "Review this item and move on" : lookupResult ? "Choose the right match" : "Finish this item"}
+        >
+          {reviewContent}
+        </ScanResultSheet>
+      ) : null}
 
       <input
         accept="image/*"

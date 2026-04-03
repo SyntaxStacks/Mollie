@@ -2,84 +2,106 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Boxes, Tags, Receipt, ShoppingBag, ScrollText, Settings, Store, Factory, Download } from "lucide-react";
+import {
+  Activity,
+  Camera,
+  Download,
+  Factory,
+  Settings,
+  ShoppingBag,
+  Store,
+  Tags
+} from "lucide-react";
 
 import { Button } from "@reselleros/ui";
 
 import { useAuth } from "./auth-provider";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/workspace", label: "Workspace", icon: Factory },
+const primaryNavItems = [
+  { href: "/", label: "Scan", icon: Camera, match: (pathname: string) => pathname === "/" || pathname.startsWith("/scan") },
+  { href: "/inventory", label: "Inventory", icon: ShoppingBag, match: (pathname: string) => pathname.startsWith("/inventory") },
+  { href: "/sell", label: "Sell", icon: Tags, match: (pathname: string) => pathname.startsWith("/sell") || pathname.startsWith("/drafts") },
+  { href: "/activity", label: "Activity", icon: Activity, match: (pathname: string) => pathname.startsWith("/activity") || pathname.startsWith("/executions") || pathname.startsWith("/sales") }
+] as const;
+
+const utilityNavItems = [
   { href: "/marketplaces", label: "Accounts", icon: Store },
-  { href: "/lots", label: "Source Lots", icon: Boxes },
-  { href: "/inventory", label: "Inventory", icon: ShoppingBag },
   { href: "/imports", label: "Imports", icon: Download },
-  { href: "/drafts", label: "Drafts", icon: Tags },
-  { href: "/executions", label: "Executions", icon: ScrollText },
-  { href: "/sales", label: "Sales", icon: Receipt },
+  { href: "/workspace", label: "Workspace", icon: Factory },
   { href: "/settings", label: "Settings", icon: Settings }
-];
+] as const;
 
-const legalLinks = [
-  { href: "/privacy", label: "Privacy" },
-  { href: "/terms", label: "Terms" },
-  { href: "/acceptable-use", label: "Acceptable use" },
-  { href: "/contact", label: "Contact" }
-];
-
-export function AppShell({ title, children }: { title: string; children: React.ReactNode }) {
+export function AppShell({
+  title,
+  children,
+  chrome = "standard"
+}: {
+  title: string;
+  children: React.ReactNode;
+  chrome?: "standard" | "immersive";
+}) {
   const pathname = usePathname();
   const auth = useAuth();
+  const activePrimary = primaryNavItems.find((item) => item.match(pathname))?.href ?? "/";
 
   return (
-    <div className="layout">
-      <aside className="sidebar">
-        <div>
-          <p className="sidebar-kicker">ResellerOS MVP</p>
+    <div className={`app-shell${chrome === "immersive" ? " app-shell-immersive" : ""}`}>
+      <header className="app-topbar">
+        <div className="app-brand-block">
+          <p className="sidebar-kicker">Resale operating system</p>
           <h1>Mollie</h1>
-          <p className="sidebar-copy">Buy smarter. List faster. Keep every automation visible.</p>
-        </div>
-
-        <nav className="nav">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href;
-            return (
-              <Link className={`nav-item ${active ? "active" : ""}`} href={item.href} key={item.href}>
-                <Icon size={18} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
-
-        <div className="workspace-chip">
-          <strong>{auth.workspace?.name ?? "No workspace"}</strong>
-          <span>{auth.user?.email}</span>
-        </div>
-
-        <div className="sidebar-legal">
-          {legalLinks.map((link) => (
-            <Link key={link.href} href={link.href}>
-              {link.label}
-            </Link>
-          ))}
-        </div>
-      </aside>
-
-      <main className="content">
-        <header className="page-header">
-          <div>
-            <p className="eyebrow">Operator Console</p>
-            <h2>{title}</h2>
+          <div className="app-topbar-meta">
+            <span>{title}</span>
+            <span>{auth.workspace?.name ?? "No workspace"}</span>
           </div>
+        </div>
+
+        <div className="app-topbar-actions">
+          <nav className="app-utility-nav" aria-label="Utilities">
+            {utilityNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = pathname.startsWith(item.href);
+              return (
+                <Link className={`app-utility-link${active ? " active" : ""}`} href={item.href} key={item.href}>
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
           <Button kind="ghost" onClick={auth.logout}>
             Sign out
           </Button>
-        </header>
-        {children}
-      </main>
+        </div>
+      </header>
+
+      <nav aria-label="Primary" className="primary-tab-nav">
+        {primaryNavItems.map((item) => {
+          const Icon = item.icon;
+          const active = activePrimary === item.href;
+          return (
+            <Link className={`primary-tab-link${active ? " active" : ""}`} href={item.href} key={item.href}>
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <main className="app-main">{children}</main>
+
+      <nav aria-label="Primary mobile" className="mobile-tab-bar">
+        {primaryNavItems.map((item) => {
+          const Icon = item.icon;
+          const active = activePrimary === item.href;
+          return (
+            <Link className={`mobile-tab-link${active ? " active" : ""}`} href={item.href} key={item.href}>
+              <Icon size={18} />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }
