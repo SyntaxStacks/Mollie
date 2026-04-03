@@ -837,6 +837,38 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                       {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
                     </div>
 
+                    <div className="lookup-candidate-meta-grid">
+                      <div className="lookup-candidate-meta-item">
+                        <span className="muted">ASIN</span>
+                        <strong>{candidate.asin ?? "Not available"}</strong>
+                      </div>
+                      <div className="lookup-candidate-meta-item">
+                        <span className="muted">Model</span>
+                        <strong>{candidate.model ?? "Not available"}</strong>
+                      </div>
+                      <div className="lookup-candidate-meta-item">
+                        <span className="muted">Size</span>
+                        <strong>{candidate.size ?? "Not available"}</strong>
+                      </div>
+                      <div className="lookup-candidate-meta-item">
+                        <span className="muted">Color</span>
+                        <strong>{candidate.color ?? "Not available"}</strong>
+                      </div>
+                    </div>
+
+                    {candidate.imageUrls.length > 1 ? (
+                      <div className="lookup-candidate-thumb-strip">
+                        {candidate.imageUrls.slice(0, 4).map((imageUrl, imageIndex) => (
+                          <img
+                            alt={`${candidate.title} alternate ${imageIndex + 1}`}
+                            className="lookup-candidate-thumb"
+                            key={`${candidate.id}:${imageUrl}`}
+                            src={imageUrl}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+
                     <div className="actions wrap-actions">
                       <Button
                         data-testid={`scan-identify-accept-${index}`}
@@ -1221,6 +1253,38 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                         <div className="muted">
                           {candidate.asin ? `ASIN ${candidate.asin}` : "No ASIN available"}{candidate.model ? ` · Model ${candidate.model}` : ""}
                         </div>
+
+                        <div className="lookup-candidate-meta-grid">
+                          <div className="lookup-candidate-meta-item">
+                            <span className="muted">ASIN</span>
+                            <strong>{candidate.asin ?? "Not available"}</strong>
+                          </div>
+                          <div className="lookup-candidate-meta-item">
+                            <span className="muted">Model</span>
+                            <strong>{candidate.model ?? "Not available"}</strong>
+                          </div>
+                          <div className="lookup-candidate-meta-item">
+                            <span className="muted">Size</span>
+                            <strong>{candidate.size ?? "Not available"}</strong>
+                          </div>
+                          <div className="lookup-candidate-meta-item">
+                            <span className="muted">Color</span>
+                            <strong>{candidate.color ?? "Not available"}</strong>
+                          </div>
+                        </div>
+
+                        {candidate.imageUrls.length > 1 ? (
+                          <div className="lookup-candidate-thumb-strip">
+                            {candidate.imageUrls.slice(0, 4).map((imageUrl, imageIndex) => (
+                              <img
+                                alt={`${candidate.title} alternate ${imageIndex + 1}`}
+                                className="lookup-candidate-thumb"
+                                key={`${candidate.id}:${imageUrl}`}
+                                src={imageUrl}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
 
                         <div className="actions wrap-actions">
                           <Button

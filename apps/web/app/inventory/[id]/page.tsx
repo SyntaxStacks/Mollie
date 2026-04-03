@@ -376,10 +376,6 @@ export default function InventoryDetailPage() {
   }
 
   async function deleteItem() {
-    if (!window.confirm("Delete this inventory item? This will remove its drafts, listings, images, and sales history from Mollie.")) {
-      return;
-    }
-
     startTransition(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}`, {

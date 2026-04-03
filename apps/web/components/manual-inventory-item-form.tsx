@@ -2,7 +2,7 @@
 
 import { Plus, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import { useMemo, useState, useTransition, type FormEvent } from "react";
 
 import { Button } from "@reselleros/ui";
 
@@ -10,14 +10,29 @@ type ManualInventoryItemFormProps = {
   token: string;
   open: boolean;
   onClose: () => void;
+  existingItems: Array<{
+    id: string;
+    title: string;
+    sku?: string;
+    attributesJson?: Record<string, unknown> | null;
+  }>;
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
-export function ManualInventoryItemForm({ token, open, onClose }: ManualInventoryItemFormProps) {
+function normalizeIdentifier(value: string) {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9X]/g, "");
+}
+
+function normalizeTitle(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export function ManualInventoryItemForm({ token, open, onClose, existingItems }: ManualInventoryItemFormProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [identifier, setIdentifier] = useState("");
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState("General Merchandise");
@@ -34,7 +49,25 @@ export function ManualInventoryItemForm({ token, open, onClose }: ManualInventor
     return null;
   }
 
+  const duplicateMatches = useMemo(() => {
+    const normalizedIdentifier = normalizeIdentifier(identifier);
+    const normalizedTitle = normalizeTitle(title);
+
+    return existingItems.filter((item) => {
+      const itemIdentifier = typeof item.attributesJson?.identifier === "string" ? normalizeIdentifier(item.attributesJson.identifier) : "";
+      const itemTitle = normalizeTitle(item.title);
+      const identifierMatch = Boolean(normalizedIdentifier && itemIdentifier && normalizedIdentifier === itemIdentifier);
+      const titleMatch =
+        Boolean(normalizedTitle) &&
+        normalizedTitle.length >= 6 &&
+        (itemTitle.includes(normalizedTitle) || normalizedTitle.includes(itemTitle));
+
+      return identifierMatch || titleMatch;
+    }).slice(0, 3);
+  }, [existingItems, identifier, title]);
+
   function resetForm() {
+    setIdentifier("");
     setTitle("");
     setBrand("");
     setCategory("General Merchandise");
@@ -73,7 +106,12 @@ export function ManualInventoryItemForm({ token, open, onClose }: ManualInventor
             estimatedResaleMax: estimatedResaleMax.trim() ? Number(estimatedResaleMax) : null,
             priceRecommendation: priceRecommendation.trim() ? Number(priceRecommendation) : null,
             attributes: {
-              importSource: "MANUAL_ENTRY"
+              importSource: "MANUAL_ENTRY",
+              ...(identifier.trim()
+                ? {
+                    identifier: normalizeIdentifier(identifier)
+                  }
+                : {})
             }
           })
         });
@@ -111,6 +149,10 @@ export function ManualInventoryItemForm({ token, open, onClose }: ManualInventor
 
         <form className="stack" onSubmit={handleSubmit}>
           <div className="scan-import-grid">
+            <label className="label">
+              Identifier
+              <input className="field" placeholder="Optional UPC, EAN, ISBN, or Code 128" value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
+            </label>
             <label className="label">
               Title
               <input className="field" required value={title} onChange={(event) => setTitle(event.target.value)} />
@@ -156,6 +198,21 @@ export function ManualInventoryItemForm({ token, open, onClose }: ManualInventor
               <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMax} onChange={(event) => setEstimatedResaleMax(event.target.value)} />
             </label>
           </div>
+
+          {duplicateMatches.length > 0 ? (
+            <div className="notice warning">
+              <strong>Possible duplicate</strong>
+              <div className="muted">Mollie already has item records that look close to this manual entry.</div>
+              <ul className="marketplace-hint-list">
+                {duplicateMatches.map((item) => (
+                  <li key={item.id}>
+                    {item.title}
+                    {typeof item.attributesJson?.identifier === "string" ? ` • ${item.attributesJson.identifier}` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {error ? <div className="notice">{error}</div> : null}
 

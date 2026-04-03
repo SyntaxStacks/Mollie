@@ -301,6 +301,7 @@ export function InventoryDetailView({
   onSaveItemDetails
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const image = getItemPrimaryImage(item);
   const readinessFlags = getListingReadinessFlags(item);
   const marketStatuses = getMarketplaceStatusSummaries(item);
@@ -402,7 +403,7 @@ export function InventoryDetailView({
           <Button disabled={pending} kind="secondary" onClick={onPublishLinked}>
             Publish linked accounts
           </Button>
-          <Button disabled={pending} kind="secondary" onClick={onDeleteItem}>
+          <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)}>
             Delete item
           </Button>
           <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)}>
@@ -692,6 +693,50 @@ export function InventoryDetailView({
       </section>
 
       <ContinueOnMobileModal onClose={() => setHandoffOpen(false)} open={handoffOpen} title={item.title} url={handoffUrl} />
+      {deleteConfirmOpen ? (
+        <div className="handoff-modal-backdrop" role="presentation" onClick={() => setDeleteConfirmOpen(false)}>
+          <div
+            aria-labelledby="delete-item-title"
+            aria-modal="true"
+            className="handoff-modal"
+            role="dialog"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="handoff-modal-header">
+              <div>
+                <p className="eyebrow">Delete item</p>
+                <h3 id="delete-item-title">Remove this item from Mollie</h3>
+              </div>
+              <Button disabled={pending} kind="ghost" onClick={() => setDeleteConfirmOpen(false)} type="button">
+                <X size={16} /> Close
+              </Button>
+            </div>
+            <p className="handoff-copy">
+              Delete <strong>{item.title}</strong> and remove its images, drafts, marketplace listings, and sales history from this workspace.
+            </p>
+            <div className="actions">
+              <Button
+                disabled={pending}
+                kind="secondary"
+                onClick={() => setDeleteConfirmOpen(false)}
+                type="button"
+              >
+                Keep item
+              </Button>
+              <Button
+                disabled={pending}
+                onClick={() => {
+                  setDeleteConfirmOpen(false);
+                  onDeleteItem();
+                }}
+                type="button"
+              >
+                Delete permanently
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

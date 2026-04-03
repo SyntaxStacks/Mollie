@@ -104,7 +104,19 @@ export default function InventoryPage() {
           </SectionCard>
 
           {error ? <div className="notice">{error}</div> : null}
-          {auth.token ? <ManualInventoryItemForm onClose={() => setManualAddOpen(false)} open={manualAddOpen} token={auth.token} /> : null}
+          {auth.token ? (
+            <ManualInventoryItemForm
+              existingItems={items.map((item) => ({
+                id: item.id,
+                title: item.title,
+                sku: item.sku,
+                attributesJson: item.attributesJson ?? null
+              }))}
+              onClose={() => setManualAddOpen(false)}
+              open={manualAddOpen}
+              token={auth.token}
+            />
+          ) : null}
 
           <div className="inventory-bucket-grid">
             {inventoryBuckets.map((bucketName) => {
