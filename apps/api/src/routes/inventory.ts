@@ -7,6 +7,7 @@ import {
   createExecutionLog,
   createInventoryItem,
   db,
+  deleteInventoryItemForWorkspace,
   deleteInventoryImageForWorkspace,
   findInventoryItemDetailForWorkspace,
   findInventoryItemForWorkspace,
@@ -444,6 +445,39 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     });
 
     return { item };
+  });
+
+  app.delete("/api/inventory/:id", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const deletedItem = await deleteInventoryItemForWorkspace(workspace.id, params.id);
+
+    if (!deletedItem) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    const storageDeletion = await Promise.all(
+      deletedItem.images.map((image) => deleteManagedInventoryImage(image.url))
+    );
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "inventory.deleted",
+      targetType: "inventory_item",
+      targetId: params.id,
+      metadata: {
+        title: deletedItem.title,
+        imageCount: deletedItem.images.length,
+        managedImageDeletes: storageDeletion.filter((entry) => entry.deleted).length
+      }
+    });
+
+    return {
+      ok: true,
+      itemId: deletedItem.id
+    };
   });
 
   app.post("/api/inventory/:id/images", async (request) => {

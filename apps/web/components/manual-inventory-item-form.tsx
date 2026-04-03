@@ -1,0 +1,174 @@
+"use client";
+
+import { Plus, Sparkles, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, useTransition, type FormEvent } from "react";
+
+import { Button } from "@reselleros/ui";
+
+type ManualInventoryItemFormProps = {
+  token: string;
+  open: boolean;
+  onClose: () => void;
+};
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+
+export function ManualInventoryItemForm({ token, open, onClose }: ManualInventoryItemFormProps) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [title, setTitle] = useState("");
+  const [brand, setBrand] = useState("");
+  const [category, setCategory] = useState("General Merchandise");
+  const [condition, setCondition] = useState("Good used condition");
+  const [size, setSize] = useState("");
+  const [color, setColor] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [costBasis, setCostBasis] = useState("0");
+  const [estimatedResaleMin, setEstimatedResaleMin] = useState("");
+  const [estimatedResaleMax, setEstimatedResaleMax] = useState("");
+  const [priceRecommendation, setPriceRecommendation] = useState("");
+
+  if (!open) {
+    return null;
+  }
+
+  function resetForm() {
+    setTitle("");
+    setBrand("");
+    setCategory("General Merchandise");
+    setCondition("Good used condition");
+    setSize("");
+    setColor("");
+    setQuantity("1");
+    setCostBasis("0");
+    setEstimatedResaleMin("");
+    setEstimatedResaleMax("");
+    setPriceRecommendation("");
+    setError(null);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/inventory`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            title: title.trim(),
+            brand: brand.trim() || null,
+            category: category.trim(),
+            condition: condition.trim(),
+            size: size.trim() || null,
+            color: color.trim() || null,
+            quantity: Math.max(1, Number(quantity || 1)),
+            costBasis: Number(costBasis || 0),
+            estimatedResaleMin: estimatedResaleMin.trim() ? Number(estimatedResaleMin) : null,
+            estimatedResaleMax: estimatedResaleMax.trim() ? Number(estimatedResaleMax) : null,
+            priceRecommendation: priceRecommendation.trim() ? Number(priceRecommendation) : null,
+            attributes: {
+              importSource: "MANUAL_ENTRY"
+            }
+          })
+        });
+        const payload = (await response.json()) as { error?: string; item?: { id: string } };
+
+        if (!response.ok || !payload.item?.id) {
+          throw new Error(payload.error ?? "Could not create this inventory item");
+        }
+
+        resetForm();
+        router.push(`/inventory/${payload.item.id}`);
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Could not create this inventory item");
+      }
+    });
+  }
+
+  return (
+    <section className="rs-card">
+      <header className="rs-card-header">
+        <div>
+          <p className="rs-eyebrow">Manual add</p>
+          <h3>Create an inventory item without scanning</h3>
+        </div>
+        <Button disabled={pending} kind="ghost" onClick={onClose} type="button">
+          <X size={16} /> Close
+        </Button>
+      </header>
+
+      <div className="stack">
+        <div className="scan-import-hint">
+          <Sparkles size={16} />
+          <span>Save the item first, then keep editing photos, selling details, and marketplace setup on the item page.</span>
+        </div>
+
+        <form className="stack" onSubmit={handleSubmit}>
+          <div className="scan-import-grid">
+            <label className="label">
+              Title
+              <input className="field" required value={title} onChange={(event) => setTitle(event.target.value)} />
+            </label>
+            <label className="label">
+              Brand
+              <input className="field" value={brand} onChange={(event) => setBrand(event.target.value)} />
+            </label>
+            <label className="label">
+              Category
+              <input className="field" required value={category} onChange={(event) => setCategory(event.target.value)} />
+            </label>
+            <label className="label">
+              Condition
+              <input className="field" required value={condition} onChange={(event) => setCondition(event.target.value)} />
+            </label>
+            <label className="label">
+              Size
+              <input className="field" value={size} onChange={(event) => setSize(event.target.value)} />
+            </label>
+            <label className="label">
+              Color
+              <input className="field" value={color} onChange={(event) => setColor(event.target.value)} />
+            </label>
+            <label className="label">
+              Quantity
+              <input className="field" min="1" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+            </label>
+            <label className="label">
+              Buy cost
+              <input className="field" min="0" step="0.01" type="number" value={costBasis} onChange={(event) => setCostBasis(event.target.value)} />
+            </label>
+            <label className="label">
+              Suggested sell
+              <input className="field" min="0" step="0.01" type="number" value={priceRecommendation} onChange={(event) => setPriceRecommendation(event.target.value)} />
+            </label>
+            <label className="label">
+              Resale min
+              <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMin} onChange={(event) => setEstimatedResaleMin(event.target.value)} />
+            </label>
+            <label className="label">
+              Resale max
+              <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMax} onChange={(event) => setEstimatedResaleMax(event.target.value)} />
+            </label>
+          </div>
+
+          {error ? <div className="notice">{error}</div> : null}
+
+          <div className="actions">
+            <Button data-testid="manual-inventory-create" disabled={pending} type="submit">
+              <Plus size={16} /> {pending ? "Creating..." : "Create item"}
+            </Button>
+            <Button disabled={pending} kind="secondary" onClick={resetForm} type="button">
+              Reset
+            </Button>
+          </div>
+        </form>
+      </div>
+    </section>
+  );
+}

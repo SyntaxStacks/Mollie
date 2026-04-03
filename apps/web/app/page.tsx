@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, ShoppingBag, Tags, TrendingUp } from "lucide-react";
+import { AlertTriangle, PencilLine, ShoppingBag, Tags, TrendingUp } from "lucide-react";
 
 import { AppShell } from "../components/app-shell";
 import { BarcodeImportCard } from "../components/barcode-import-card";
@@ -85,6 +85,13 @@ export default function ScanPage() {
                 <div>
                   <strong>Inventory</strong>
                   <span>One tap to manage what you just saved.</span>
+                </div>
+              </Link>
+              <Link className="scan-shortcut-card" href="/inventory?compose=manual">
+                <PencilLine size={18} />
+                <div>
+                  <strong>Manual add</strong>
+                  <span>Create an item without scanning when the barcode path is a dead end.</span>
                 </div>
               </Link>
               <Link className="scan-shortcut-card" href="/sell">

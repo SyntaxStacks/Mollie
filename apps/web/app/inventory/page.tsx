@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Camera, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Camera, Plus, Search } from "lucide-react";
 
 import { Button } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
 import { ItemCard } from "../../components/item-card";
+import { ManualInventoryItemForm } from "../../components/manual-inventory-item-form";
 import { ProtectedView } from "../../components/protected-view";
 import { QueueHeader } from "../../components/queue-header";
 import { SectionCard } from "../../components/section-card";
@@ -27,6 +28,18 @@ export default function InventoryPage() {
   const { data, error } = useAuthedResource<{ items: InventoryItemView[] }>("/api/inventory", auth.token);
   const [query, setQuery] = useState("");
   const [bucket, setBucket] = useState<(typeof inventoryBuckets)[number] | "All">("All");
+  const [manualAddOpen, setManualAddOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("compose") === "manual") {
+      setManualAddOpen(true);
+    }
+  }, []);
 
   const items = data?.items ?? [];
   const filteredItems = useMemo(() => {
@@ -84,10 +97,14 @@ export default function InventoryPage() {
                   <Camera size={16} /> Back to scan
                 </Button>
               </Link>
+              <Button kind="secondary" onClick={() => setManualAddOpen((current) => !current)} type="button">
+                <Plus size={16} /> {manualAddOpen ? "Close manual add" : "Add manually"}
+              </Button>
             </div>
           </SectionCard>
 
           {error ? <div className="notice">{error}</div> : null}
+          {auth.token ? <ManualInventoryItemForm onClose={() => setManualAddOpen(false)} open={manualAddOpen} token={auth.token} /> : null}
 
           <div className="inventory-bucket-grid">
             {inventoryBuckets.map((bucketName) => {

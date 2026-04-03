@@ -206,16 +206,44 @@ test("product lookup fetches richer source data before falling back to a generic
   global.fetch = (async (input: string | URL | Request) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
-    if (url.includes("amazon.com")) {
+    if (url.includes("amazon.com/s?")) {
       return new Response(
         `
           <html>
             <body>
-              <div data-cy="title-recipe"><h2>Acme Red Blender 700W</h2></div>
-              <a href="/Acme-Blender/dp/B012345678"></a>
+              <div data-cy="title-recipe"><h2>Bioré Pore Refining Bubbling Nose Mask</h2></div>
+              <a href="/Biore-Refining-Hyaluronic-Exfoliant-Cleansing/dp/B0F6NYKXDV/ref=sr_1_1"></a>
               <span class="a-price-whole">49</span>
               <span class="a-price-fraction">99</span>
-              <img src="https://images.example.com/blender.jpg" />
+              <img src="https://images.example.com/biore-search.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    if (url.includes("/dp/B0F6NYKXDV")) {
+      return new Response(
+        `
+          <html>
+            <head>
+              <meta property="og:image" content="https://images.example.com/biore-primary.jpg" />
+            </head>
+            <body>
+              <span id="productTitle">Bioré Pore Refining Bubbling Nose Mask, Glycolic Acid and Hyaluronic Acid Exfoliant for Face, Pore Cleansing Mask, 8 Ct</span>
+              <a id="bylineInfo">Visit the Bioré Store</a>
+              <img id="landingImage" src="https://images.example.com/biore-primary.jpg" data-a-dynamic-image="{&quot;https://images.example.com/biore-primary.jpg&quot;:[600,600],&quot;https://images.example.com/biore-alt.jpg&quot;:[300,300]}" />
+              <span class="a-price-whole">13</span>
+              <span class="a-price-fraction">96</span>
+              <table>
+                <tr><th>Brand Name</th><td>Bioré</td></tr>
+                <tr><th>UPC</th><td>019100296459</td></tr>
+                <tr><th>Manufacturer Part Number</th><td>29645</td></tr>
+                <tr><th>Model Number</th><td>29645</td></tr>
+                <tr><th>ASIN</th><td>B0F6NYKXDV</td></tr>
+                <tr><th>Best Sellers Rank</th><td>#24,881 in Beauty &amp; Personal Care</td></tr>
+              </table>
             </body>
           </html>
         `,
@@ -275,6 +303,11 @@ test("product lookup fetches richer source data before falling back to a generic
       candidates: Array<{
         provider: string;
         title: string;
+        brand: string | null;
+        category: string | null;
+        model: string | null;
+        asin: string | null;
+        primaryImageUrl: string | null;
         productUrl: string | null;
         confidenceState: string;
       }>;
@@ -285,9 +318,14 @@ test("product lookup fetches richer source data before falling back to a generic
   assert.equal(result.providerSummary.barcodeLookupProvider, "web-source-research");
   assert.ok(result.candidates.length >= 1);
   assert.equal(result.candidates[0]?.provider, "AMAZON_ENRICHMENT");
-  assert.match(result.candidates[0]?.title ?? "", /acme red blender/i);
-  assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com\/Acme-Blender\/dp\/B012345678/i);
-  assert.equal(result.candidates[0]?.confidenceState, "MEDIUM");
+  assert.match(result.candidates[0]?.title ?? "", /bior[ée] pore refining bubbling nose mask/i);
+  assert.equal(result.candidates[0]?.brand, "Bioré");
+  assert.match(result.candidates[0]?.category ?? "", /Beauty & Personal Care/i);
+  assert.equal(result.candidates[0]?.model, "29645");
+  assert.equal(result.candidates[0]?.asin, "B0F6NYKXDV");
+  assert.equal(result.candidates[0]?.primaryImageUrl, "https://images.example.com/biore-primary.jpg");
+  assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com\/dp\/B0F6NYKXDV/i);
+  assert.equal(result.candidates[0]?.confidenceState, "HIGH");
 });
 
 test("product lookup ignores blocked or generic Google support results", async () => {

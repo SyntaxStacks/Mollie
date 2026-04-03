@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
 import { AppShell } from "../../../components/app-shell";
@@ -27,9 +27,23 @@ type EbayPreflightResponse = {
 export default function InventoryDetailPage() {
   const auth = useAuth();
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [itemForm, setItemForm] = useState({
+    title: "",
+    brand: "",
+    category: "",
+    condition: "",
+    size: "",
+    color: "",
+    quantity: "1",
+    costBasis: "0",
+    estimatedResaleMin: "",
+    estimatedResaleMax: "",
+    priceRecommendation: ""
+  });
   const [handoffUrl, setHandoffUrl] = useState("");
   const [ebayDraftForm, setEbayDraftForm] = useState({
     generatedTitle: "",
@@ -77,6 +91,26 @@ export default function InventoryDetailPage() {
     ebayDraftAttributes.ebayCategoryId,
     ebayDraftAttributes.ebayStoreCategoryId
   ]);
+
+  useEffect(() => {
+    if (!data?.item) {
+      return;
+    }
+
+    setItemForm({
+      title: data.item.title ?? "",
+      brand: data.item.brand ?? "",
+      category: data.item.category ?? "",
+      condition: data.item.condition ?? "",
+      size: data.item.size ?? "",
+      color: data.item.color ?? "",
+      quantity: String(data.item.quantity ?? 1),
+      costBasis: String(data.item.costBasis ?? 0),
+      estimatedResaleMin: data.item.estimatedResaleMin == null ? "" : String(data.item.estimatedResaleMin),
+      estimatedResaleMax: data.item.estimatedResaleMax == null ? "" : String(data.item.estimatedResaleMax),
+      priceRecommendation: data.item.priceRecommendation == null ? "" : String(data.item.priceRecommendation)
+    });
+  }, [data?.item]);
 
   const continuityFingerprint = useMemo(() => {
     if (!data?.item) {
@@ -300,6 +334,74 @@ export default function InventoryDetailPage() {
     });
   }
 
+  async function saveItemDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            title: itemForm.title.trim(),
+            brand: itemForm.brand.trim() || null,
+            category: itemForm.category.trim(),
+            condition: itemForm.condition.trim(),
+            size: itemForm.size.trim() || null,
+            color: itemForm.color.trim() || null,
+            quantity: Math.max(1, Number(itemForm.quantity || 1)),
+            costBasis: Number(itemForm.costBasis || 0),
+            estimatedResaleMin: itemForm.estimatedResaleMin.trim() ? Number(itemForm.estimatedResaleMin) : null,
+            estimatedResaleMax: itemForm.estimatedResaleMax.trim() ? Number(itemForm.estimatedResaleMax) : null,
+            priceRecommendation: itemForm.priceRecommendation.trim() ? Number(itemForm.priceRecommendation) : null
+          })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not save item details");
+        }
+
+        setSubmitError(null);
+        setUploadStatus("Item details saved");
+        await Promise.all([refresh(), ebayPreflight.refresh()]);
+      } catch (caughtError) {
+        setUploadStatus(null);
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not save item details");
+      }
+    });
+  }
+
+  async function deleteItem() {
+    if (!window.confirm("Delete this inventory item? This will remove its drafts, listings, images, and sales history from Mollie.")) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${auth.token}`
+          }
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not delete this inventory item");
+        }
+
+        router.push("/inventory");
+      } catch (caughtError) {
+        setUploadStatus(null);
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not delete this inventory item");
+      }
+    });
+  }
+
   return (
     <ProtectedView>
       <AppShell title="Inventory Detail">
@@ -319,8 +421,15 @@ export default function InventoryDetailPage() {
             onAddImage={addImage}
             onApproveEbayDraft={() => void runMutation(`/api/drafts/${ebayDraft?.id}/approve`)}
             onDeleteImage={(imageId) => void deleteImage(imageId)}
+            onDeleteItem={() => void deleteItem()}
             onEbayDraftFormChange={(field, value) =>
               setEbayDraftForm((current) => ({
+                ...current,
+                [field]: value
+              }))
+            }
+            onFieldChange={(field, value) =>
+              setItemForm((current) => ({
                 ...current,
                 [field]: value
               }))
@@ -336,7 +445,9 @@ export default function InventoryDetailPage() {
             onPublishLinked={() => void runMutation(`/api/inventory/${data.item.id}/publish-linked`)}
             onPublishPoshmark={() => void runMutation(`/api/inventory/${data.item.id}/publish/poshmark`)}
             onSaveEbayDraft={saveEbayDraft}
+            onSaveItemDetails={saveItemDetails}
             onPublishWhatnot={() => void runMutation(`/api/inventory/${data.item.id}/publish/whatnot`)}
+            itemForm={itemForm}
             pending={pending}
             submitError={submitError}
             uploadStatus={uploadStatus}

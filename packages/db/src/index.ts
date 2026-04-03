@@ -843,6 +843,20 @@ export async function updateInventoryItemForWorkspace(
   });
 }
 
+export async function deleteInventoryItemForWorkspace(workspaceId: string, inventoryItemId: string) {
+  const item = await findInventoryItemDetailForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return null;
+  }
+
+  await db.inventoryItem.delete({
+    where: { id: item.id }
+  });
+
+  return item;
+}
+
 export async function addInventoryImageForWorkspace(
   workspaceId: string,
   inventoryItemId: string,

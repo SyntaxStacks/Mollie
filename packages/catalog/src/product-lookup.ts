@@ -13,8 +13,15 @@ type SourceResearchCandidate = {
   market: "GOOGLE" | "AMAZON" | "EBAY";
   title: string | null;
   url: string | null;
+  brand?: string | null;
+  category?: string | null;
+  model?: string | null;
+  size?: string | null;
+  color?: string | null;
+  asin?: string | null;
   price?: number | null;
   imageUrl?: string | null;
+  imageUrls?: string[];
 };
 
 export type BarcodeLookupProvider = {
@@ -108,6 +115,56 @@ function stripHtml(value: string | null | undefined) {
     .trim();
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripHtmlPreservingEntities(value: string | null | undefined) {
+  return stripHtml(value)?.replace(/\u00c2/g, "") ?? null;
+}
+
+function parseDecimalPrice(whole: string | null | undefined, fraction: string | null | undefined) {
+  if (!whole) {
+    return null;
+  }
+
+  return Number(`${whole.replace(/,/g, "")}.${fraction ?? "00"}`);
+}
+
+function normalizeAmazonProductUrl(url: string | null | undefined) {
+  if (!url) {
+    return null;
+  }
+
+  const asin = inferAsinFromUrl(url);
+  if (!asin) {
+    return url;
+  }
+
+  return `https://www.amazon.com/dp/${asin}`;
+}
+
+function parseAmazonDetailTable(html: string) {
+  const details = new Map<string, string>();
+  const rowPatterns = [
+    /<tr[^>]*>\s*<th[^>]*>(.*?)<\/th>\s*<td[^>]*>(.*?)<\/td>\s*<\/tr>/gis,
+    /<li[^>]*>\s*<span[^>]*class="[^"]*a-text-bold[^"]*"[^>]*>(.*?):<\/span>\s*<span[^>]*>(.*?)<\/span>\s*<\/li>/gis
+  ];
+
+  for (const pattern of rowPatterns) {
+    for (const match of html.matchAll(pattern)) {
+      const label = stripHtmlPreservingEntities(match[1])?.toLowerCase();
+      const value = stripHtmlPreservingEntities(match[2]);
+
+      if (label && value) {
+        details.set(label, value);
+      }
+    }
+  }
+
+  return details;
+}
+
 function isGoogleOwnedUrl(url: string | null | undefined) {
   if (!url) {
     return false;
@@ -188,10 +245,116 @@ function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
   return {
     market: "AMAZON",
     title: stripHtml(titleMatch?.[1]) ?? null,
-    url: hrefMatch?.[1] ? `https://www.amazon.com${hrefMatch[1]}` : null,
-    price: priceWhole ? Number(`${priceWhole.replace(/,/g, "")}.${priceFraction}`) : null,
-    imageUrl: imageMatch?.[1] ?? null
+    url: hrefMatch?.[1] ? normalizeAmazonProductUrl(`https://www.amazon.com${hrefMatch[1]}`) : null,
+    price: parseDecimalPrice(priceWhole, priceFraction),
+    imageUrl: imageMatch?.[1] ?? null,
+    imageUrls: imageMatch?.[1] ? [imageMatch[1]] : []
   };
+}
+
+function parseAmazonProductHtml(html: string, url: string): SourceResearchCandidate | null {
+  const details = parseAmazonDetailTable(html);
+  const title =
+    stripHtmlPreservingEntities(html.match(/id="productTitle"[^>]*>\s*(.*?)\s*<\/span>/is)?.[1]) ??
+    stripHtmlPreservingEntities(html.match(/property="og:title" content="([^"]+)"/i)?.[1]);
+  const brand =
+    stripHtmlPreservingEntities(html.match(/id="bylineInfo"[^>]*>\s*(?:Visit\s+the\s+)?(.*?)\s+Store\s*<\/a>/is)?.[1]) ??
+    details.get("brand name") ??
+    details.get("brand");
+  const breadcrumbCategory = stripHtmlPreservingEntities(
+    html.match(/id="wayfinding-breadcrumbs_feature_div"[\s\S]*?<a[^>]*>(.*?)<\/a>/is)?.[1]
+  );
+  const bestSellerRank = details.get("best sellers rank") ?? null;
+  const rankCategory = bestSellerRank
+    ? stripHtmlPreservingEntities(bestSellerRank.match(/in\s+([^#(]+)/i)?.[1])
+    : null;
+  const model =
+    details.get("model number") ??
+    details.get("manufacturer part number") ??
+    details.get("item model number") ??
+    null;
+  const color = details.get("color") ?? null;
+  const size = details.get("size") ?? details.get("item volume") ?? null;
+  const asin = details.get("asin") ?? inferAsinFromUrl(url);
+  const whole =
+    html.match(/class="a-price-whole">([\d,]+)/i)?.[1] ??
+    html.match(/priceToPay[\s\S]*?a-price-whole[^>]*>([\d,]+)/i)?.[1] ??
+    null;
+  const fraction =
+    html.match(/class="a-price-fraction">(\d{2})/i)?.[1] ??
+    html.match(/priceToPay[\s\S]*?a-price-fraction[^>]*>(\d{2})/i)?.[1] ??
+    "00";
+  const dynamicImagesRaw = html.match(/data-a-dynamic-image="({.*?})"/i)?.[1] ?? null;
+  const imageUrls: string[] = [];
+
+  if (dynamicImagesRaw) {
+    try {
+      const decoded = dynamicImagesRaw.replace(/&quot;/g, '"');
+      const parsed = JSON.parse(decoded) as Record<string, unknown>;
+      for (const key of Object.keys(parsed)) {
+        if (typeof key === "string" && key.startsWith("http")) {
+          imageUrls.push(key);
+        }
+      }
+    } catch {
+      // Ignore malformed image blobs and fall back to regular img parsing.
+    }
+  }
+
+  const primaryImageUrl =
+    imageUrls[0] ??
+    html.match(/id="landingImage"[^>]+src="([^"]+)"/i)?.[1] ??
+    html.match(/property="og:image" content="([^"]+)"/i)?.[1] ??
+    null;
+
+  if (primaryImageUrl && imageUrls.length === 0) {
+    imageUrls.push(primaryImageUrl);
+  }
+
+  if (!title && !brand && !asin && !primaryImageUrl) {
+    return null;
+  }
+
+  return {
+    market: "AMAZON",
+    title,
+    brand,
+    category: breadcrumbCategory ?? rankCategory ?? "Amazon catalog result",
+    model,
+    size,
+    color,
+    asin,
+    url: normalizeAmazonProductUrl(url),
+    price: parseDecimalPrice(whole, fraction),
+    imageUrl: primaryImageUrl,
+    imageUrls
+  };
+}
+
+async function enrichAmazonSourceCandidate(candidate: SourceResearchCandidate | null) {
+  if (!candidate?.url || candidate.market !== "AMAZON") {
+    return candidate;
+  }
+
+  const productHtml = await fetchSourceHtml(candidate.url);
+  if (!productHtml) {
+    return candidate;
+  }
+
+  const productCandidate = parseAmazonProductHtml(productHtml, candidate.url);
+  if (!productCandidate) {
+    return candidate;
+  }
+
+  return {
+    ...candidate,
+    ...productCandidate,
+    title: productCandidate.title ?? candidate.title,
+    url: productCandidate.url ?? candidate.url,
+    price: productCandidate.price ?? candidate.price,
+    imageUrl: productCandidate.imageUrl ?? candidate.imageUrl,
+    imageUrls: productCandidate.imageUrls?.length ? productCandidate.imageUrls : candidate.imageUrls
+  } satisfies SourceResearchCandidate;
 }
 
 function parseEbaySearchHtml(html: string): SourceResearchCandidate | null {
@@ -249,13 +412,19 @@ function buildSourceResearchCandidates(input: {
       const hasTitle = Boolean(source.title);
       const hasImage = Boolean(source.imageUrl);
       const hasPrice = typeof source.price === "number" && Number.isFinite(source.price);
+      const hasBrand = Boolean(source.brand);
+      const hasCategory = Boolean(source.category);
       const confidenceScore =
         source.market === "AMAZON"
-          ? hasTitle && hasImage
-            ? 0.76
-            : hasTitle
-              ? 0.63
-              : 0.48
+          ? hasTitle && hasImage && hasBrand
+            ? 0.88
+            : hasTitle && hasImage && hasCategory
+              ? 0.82
+              : hasTitle && hasImage
+                ? 0.76
+                : hasTitle
+                  ? 0.63
+                  : 0.48
           : source.market === "EBAY"
             ? hasTitle && hasImage
               ? 0.67
@@ -270,12 +439,13 @@ function buildSourceResearchCandidates(input: {
         source.title ??
         `${source.market === "AMAZON" ? "Amazon" : source.market === "EBAY" ? "eBay" : "Google"} result for ${input.barcode}`;
       const category =
-        source.market === "AMAZON"
+        source.category ??
+        (source.market === "AMAZON"
           ? "Amazon catalog result"
           : source.market === "EBAY"
             ? "eBay listing result"
-            : "Web research result";
-      const imageUrls = source.imageUrl ? [source.imageUrl] : [];
+            : "Web research result");
+      const imageUrls = source.imageUrls?.length ? source.imageUrls : source.imageUrl ? [source.imageUrl] : [];
       const confidenceState = confidenceStateFromScore(confidenceScore);
 
       return {
@@ -283,14 +453,14 @@ function buildSourceResearchCandidates(input: {
         barcode: input.barcode,
         identifierType: input.identifierType,
         title,
-        brand: null,
+        brand: source.brand ?? null,
         category,
-        model: null,
-        size: null,
-        color: null,
+        model: source.model ?? null,
+        size: source.size ?? null,
+        color: source.color ?? null,
         primaryImageUrl: source.imageUrl ?? null,
         imageUrls,
-        asin: source.market === "AMAZON" ? inferAsinFromUrl(source.url) : null,
+        asin: source.market === "AMAZON" ? source.asin ?? inferAsinFromUrl(source.url) : null,
         productUrl: source.url ?? null,
         provider: source.market === "AMAZON" ? "AMAZON_ENRICHMENT" : "SOURCE_RESEARCH",
         confidenceScore,
@@ -298,6 +468,8 @@ function buildSourceResearchCandidates(input: {
         matchRationale: [
           `${source.market} returned a barcode search result for this code.`,
           ...(hasTitle ? ["The source returned a specific item title instead of a generic barcode query."] : []),
+          ...(hasBrand ? [`The source returned brand data: ${source.brand}.`] : []),
+          ...(hasCategory ? [`The source returned category data: ${category}.`] : []),
           ...(hasImage ? ["The source also returned an item image for review."] : []),
           ...(hasPrice ? ["A price was visible in the source result."] : [])
         ],
@@ -520,9 +692,10 @@ const webSourceLookupProvider: BarcodeLookupProvider = {
       fetchSourceHtml(ebayUrl)
     ]);
 
+    const amazonSearchCandidate = amazonHtml ? parseAmazonSearchHtml(amazonHtml) : null;
     const sourceCandidates = [
       googleHtml ? parseGoogleSearchHtml(googleHtml) : null,
-      amazonHtml ? parseAmazonSearchHtml(amazonHtml) : null,
+      await enrichAmazonSourceCandidate(amazonSearchCandidate),
       ebayHtml ? parseEbaySearchHtml(ebayHtml) : null
     ].filter((candidate): candidate is SourceResearchCandidate => Boolean(candidate));
 

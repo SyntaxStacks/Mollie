@@ -40,6 +40,9 @@ export type InventoryDetailRecord = {
   brand?: string | null;
   category: string;
   condition: string;
+  size?: string | null;
+  color?: string | null;
+  quantity?: number | null;
   costBasis?: number | null;
   priceRecommendation: number | null;
   estimatedResaleMin: number | null;
@@ -82,6 +85,7 @@ type InventoryDetailViewProps = {
   uploadStatus: string | null;
   onAddImage: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteImage: (imageId: string) => void;
+  onDeleteItem: () => void;
   onMoveImage: (imageId: string, direction: -1 | 1) => void;
   onGenerateDrafts: () => void;
   onPublishEbay: () => void;
@@ -104,6 +108,24 @@ type InventoryDetailViewProps = {
   onEbayDraftFormChange: (field: "generatedTitle" | "generatedPrice" | "ebayCategoryId" | "ebayStoreCategoryId", value: string) => void;
   onSaveEbayDraft: (event: FormEvent<HTMLFormElement>) => void;
   onApproveEbayDraft: () => void;
+  itemForm: {
+    title: string;
+    brand: string;
+    category: string;
+    condition: string;
+    size: string;
+    color: string;
+    quantity: string;
+    costBasis: string;
+    estimatedResaleMin: string;
+    estimatedResaleMax: string;
+    priceRecommendation: string;
+  };
+  onFieldChange: (
+    field: "title" | "brand" | "category" | "condition" | "size" | "color" | "quantity" | "costBasis" | "estimatedResaleMin" | "estimatedResaleMax" | "priceRecommendation",
+    value: string
+  ) => void;
+  onSaveItemDetails: (event: FormEvent<HTMLFormElement>) => void;
 };
 
 function ContinueOnMobileModal({
@@ -256,6 +278,7 @@ export function InventoryDetailView({
   uploadStatus,
   onAddImage,
   onDeleteImage,
+  onDeleteItem,
   onMoveImage,
   onGenerateDrafts,
   onPublishEbay,
@@ -272,7 +295,10 @@ export function InventoryDetailView({
   ebayDraftForm,
   onEbayDraftFormChange,
   onSaveEbayDraft,
-  onApproveEbayDraft
+  onApproveEbayDraft,
+  itemForm,
+  onFieldChange,
+  onSaveItemDetails
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
   const image = getItemPrimaryImage(item);
@@ -376,6 +402,9 @@ export function InventoryDetailView({
           <Button disabled={pending} kind="secondary" onClick={onPublishLinked}>
             Publish linked accounts
           </Button>
+          <Button disabled={pending} kind="secondary" onClick={onDeleteItem}>
+            Delete item
+          </Button>
           <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)}>
             <Smartphone size={16} /> Continue on mobile
           </Button>
@@ -407,7 +436,60 @@ export function InventoryDetailView({
           </SectionCard>
 
           <SectionCard eyebrow="Inventory Info" title="Keep the item sellable">
-            <MissingFieldsPanel flags={readinessFlags} />
+            <form className="stack" onSubmit={onSaveItemDetails}>
+              <MissingFieldsPanel flags={readinessFlags} />
+              <div className="scan-import-grid">
+                <label className="label">
+                  Title
+                  <input className="field" required value={itemForm.title} onChange={(event) => onFieldChange("title", event.target.value)} />
+                </label>
+                <label className="label">
+                  Brand
+                  <input className="field" value={itemForm.brand} onChange={(event) => onFieldChange("brand", event.target.value)} />
+                </label>
+                <label className="label">
+                  Category
+                  <input className="field" required value={itemForm.category} onChange={(event) => onFieldChange("category", event.target.value)} />
+                </label>
+                <label className="label">
+                  Condition
+                  <input className="field" required value={itemForm.condition} onChange={(event) => onFieldChange("condition", event.target.value)} />
+                </label>
+                <label className="label">
+                  Size
+                  <input className="field" value={itemForm.size} onChange={(event) => onFieldChange("size", event.target.value)} />
+                </label>
+                <label className="label">
+                  Color
+                  <input className="field" value={itemForm.color} onChange={(event) => onFieldChange("color", event.target.value)} />
+                </label>
+                <label className="label">
+                  Quantity
+                  <input className="field" min="1" type="number" value={itemForm.quantity} onChange={(event) => onFieldChange("quantity", event.target.value)} />
+                </label>
+                <label className="label">
+                  Buy cost
+                  <input className="field" min="0" step="0.01" type="number" value={itemForm.costBasis} onChange={(event) => onFieldChange("costBasis", event.target.value)} />
+                </label>
+                <label className="label">
+                  Suggested sell
+                  <input className="field" min="0" step="0.01" type="number" value={itemForm.priceRecommendation} onChange={(event) => onFieldChange("priceRecommendation", event.target.value)} />
+                </label>
+                <label className="label">
+                  Resale min
+                  <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMin} onChange={(event) => onFieldChange("estimatedResaleMin", event.target.value)} />
+                </label>
+                <label className="label">
+                  Resale max
+                  <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMax} onChange={(event) => onFieldChange("estimatedResaleMax", event.target.value)} />
+                </label>
+              </div>
+              <div className="actions">
+                <Button disabled={pending} type="submit">
+                  Save item details
+                </Button>
+              </div>
+            </form>
             <form className="stack inventory-image-form" onSubmit={onAddImage}>
               <label className="label">
                 Upload image
