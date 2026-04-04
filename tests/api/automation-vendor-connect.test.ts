@@ -151,6 +151,47 @@ test("production blocks simulated automation vendor sign-in", async () => {
   }
 });
 
+test("production allows Whatnot helper sign-in testing while other automation vendors stay blocked", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllow = process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+  const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = "false";
+  process.env.AUTH_EXPOSE_DEV_CODE = "true";
+
+  try {
+    const session = await createWorkspaceSession("vendor-connect-production-whatnot");
+
+    const startResponse = await app.inject({
+      method: "POST",
+      url: "/api/marketplace-accounts/WHATNOT/connect/start",
+      headers: session.headers,
+      payload: {
+        displayName: "Main Whatnot account"
+      }
+    });
+
+    assert.equal(startResponse.statusCode, 200);
+    const body = startResponse.json() as {
+      attempt: { state: string; helperLaunchUrl: string };
+    };
+    assert.equal(body.attempt.state, "AWAITING_LOGIN");
+    assert.match(body.attempt.helperLaunchUrl, /whatnot/i);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+    } else {
+      process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = originalAllow;
+    }
+    if (originalExpose === undefined) {
+      delete process.env.AUTH_EXPOSE_DEV_CODE;
+    } else {
+      process.env.AUTH_EXPOSE_DEV_CODE = originalExpose;
+    }
+  }
+});
+
 test("automation vendor connect flow starts and completes after session validation", async () => {
   const session = await createWorkspaceSession("vendor-connect-success");
 

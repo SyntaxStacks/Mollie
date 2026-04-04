@@ -73,6 +73,10 @@ function simulatedMarketplacePathsAllowed() {
   return process.env.NODE_ENV !== "production" || process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS === "true";
 }
 
+function productionAutomationConnectAllowed(vendor: AutomationVendor) {
+  return simulatedMarketplacePathsAllowed() || vendor === "WHATNOT";
+}
+
 function buildAttemptHint(input: {
   vendor: AutomationVendor;
   title: string;
@@ -532,7 +536,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.parse(request.params);
-    if (!simulatedMarketplacePathsAllowed()) {
+    if (!productionAutomationConnectAllowed(params.vendor)) {
       throw app.httpErrors.serviceUnavailable(
         `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet. Mollie blocks this simulated marketplace path until the real automation runtime is ready.`
       );
@@ -598,7 +602,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.extend({ attemptId: z.string().min(1) }).parse(request.params);
-    if (!simulatedMarketplacePathsAllowed()) {
+    if (!productionAutomationConnectAllowed(params.vendor)) {
       throw app.httpErrors.serviceUnavailable(
         `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet.`
       );
@@ -689,7 +693,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = automationVendorParamsSchema.extend({ attemptId: z.string().min(1) }).parse(request.params);
-    if (!simulatedMarketplacePathsAllowed()) {
+    if (!productionAutomationConnectAllowed(params.vendor)) {
       throw app.httpErrors.serviceUnavailable(
         `${automationVendorLabels[params.vendor]} secure sign-in is not live in production yet.`
       );
