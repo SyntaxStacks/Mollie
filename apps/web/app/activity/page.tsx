@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Package, TrendingUp } from "lucide-react";
 
 import { AppShell } from "../../components/app-shell";
 import { ProtectedView } from "../../components/protected-view";
@@ -40,6 +41,7 @@ export default function ActivityPage() {
   const recentFailures = (logs.data?.logs ?? []).filter((log) => log.status === "FAILED").slice(0, 5);
   const recentPublishes = (logs.data?.logs ?? []).filter((log) => log.status === "SUCCEEDED").slice(0, 5);
   const recentSales = (sales.data?.sales ?? []).slice(0, 5);
+  const readyToListCount = (inventory.data?.items ?? []).filter((item) => getItemLifecycleState(item) === "ready_to_list").length;
 
   return (
     <ProtectedView>
@@ -48,9 +50,43 @@ export default function ActivityPage() {
           <SectionCard eyebrow="Activity" title="Operational feed">
             <QueueHeader
               count={recentScans.length + recentPublishes.length + recentFailures.length + recentSales.length}
-              description="Keep the feed lightweight: what you scanned, what sold, what published, and what needs attention next."
+              description="Use the feed to spot what moved, what stalled, and which next action will turn saved inventory into listed inventory."
               title="Recent movement"
             />
+            <div className="activity-summary-grid">
+              <div className="activity-summary-card">
+                <div className="activity-summary-topline">
+                  <Package size={16} />
+                  <span>Scanned recently</span>
+                </div>
+                <strong>{recentScans.length}</strong>
+                <p>Fresh inventory waiting for review or selling setup.</p>
+              </div>
+              <div className="activity-summary-card">
+                <div className="activity-summary-topline">
+                  <CheckCircle2 size={16} />
+                  <span>Ready to list</span>
+                </div>
+                <strong>{readyToListCount}</strong>
+                <p>Items that are close enough to move into posting work now.</p>
+              </div>
+              <div className="activity-summary-card">
+                <div className="activity-summary-topline">
+                  <AlertTriangle size={16} />
+                  <span>Failures</span>
+                </div>
+                <strong>{recentFailures.length}</strong>
+                <p>Marketplace or sync work that needs review before it backs up.</p>
+              </div>
+              <div className="activity-summary-card">
+                <div className="activity-summary-topline">
+                  <TrendingUp size={16} />
+                  <span>Sold</span>
+                </div>
+                <strong>{recentSales.length}</strong>
+                <p>Recent wins that confirm the workflow is converting.</p>
+              </div>
+            </div>
           </SectionCard>
 
           <div className="activity-grid">

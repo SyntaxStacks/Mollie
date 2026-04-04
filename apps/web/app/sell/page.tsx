@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { CheckCircle2, Clock3, AlertTriangle, Sparkles } from "lucide-react";
 
 import { Button } from "@reselleros/ui";
 
@@ -25,6 +26,40 @@ const sellQueues = ["Ready to List", "Drafts", "Publishing", "Listed", "Failed",
 
 type SellItem = InventoryListLikeItem & { sku: string };
 
+function queueHeadline(queue: (typeof sellQueues)[number]) {
+  switch (queue) {
+    case "Ready to List":
+      return "These items are close enough to make money now.";
+    case "Drafts":
+      return "Drafts exist. Review and push them toward publish.";
+    case "Publishing":
+      return "These items are already moving through marketplace work.";
+    case "Listed":
+      return "Live items that now need monitoring, not more prep.";
+    case "Failed":
+      return "Something broke. Fix the blocker and retry deliberately.";
+    default:
+      return "These items need a little more setup before they can sell.";
+  }
+}
+
+function queuePrimaryAction(queue: (typeof sellQueues)[number]) {
+  switch (queue) {
+    case "Ready to List":
+      return "Push live";
+    case "Drafts":
+      return "Review drafts";
+    case "Publishing":
+      return "Watch progress";
+    case "Listed":
+      return "Check listings";
+    case "Failed":
+      return "Retry safely";
+    default:
+      return "Fill the gaps";
+  }
+}
+
 export default function SellPage() {
   const auth = useAuth();
   const { data, error, refresh } = useAuthedResource<{ items: SellItem[] }>("/api/inventory", auth.token);
@@ -39,6 +74,7 @@ export default function SellPage() {
       items: items.filter((item) => getSellQueue(item) === queue)
     }));
   }, [items]);
+  const activeGroup = grouped.find((entry) => entry.queue === activeQueue);
 
   async function runPost(path: string, successMessage: string) {
     startTransition(async () => {
@@ -68,10 +104,38 @@ export default function SellPage() {
         <section className="page-stack">
           <SectionCard eyebrow="Sell queue" title="Queue-based selling">
             <QueueHeader
-              count={grouped.find((entry) => entry.queue === activeQueue)?.items.length ?? 0}
-              description="Work the queue, not the integrations. Every row should tell you what is ready, what is blocked, and what to do next."
+              count={activeGroup?.items.length ?? 0}
+              description="Work the queue, not the integrations. Pull from what is ready, fix only the blockers that matter, and keep items moving toward published."
               title={activeQueue}
             />
+            <div className="sell-queue-summary-grid">
+              {grouped.map((entry) => {
+                const Icon =
+                  entry.queue === "Ready to List"
+                    ? CheckCircle2
+                    : entry.queue === "Publishing"
+                      ? Clock3
+                      : entry.queue === "Failed"
+                        ? AlertTriangle
+                        : Sparkles;
+
+                return (
+                  <button
+                    className={`sell-queue-summary-card${activeQueue === entry.queue ? " active" : ""}`}
+                    key={entry.queue}
+                    onClick={() => setActiveQueue(entry.queue)}
+                    type="button"
+                  >
+                    <div className="sell-queue-summary-topline">
+                      <Icon size={16} />
+                      <span>{entry.queue}</span>
+                    </div>
+                    <strong>{entry.items.length}</strong>
+                    <p>{queuePrimaryAction(entry.queue)}</p>
+                  </button>
+                );
+              })}
+            </div>
             <div className="inventory-filter-chips">
               {sellQueues.map((queue) => (
                 <button
@@ -89,7 +153,13 @@ export default function SellPage() {
           {error ? <div className="notice">{error}</div> : null}
           {actionMessage ? <div className="notice success">{actionMessage}</div> : null}
 
-          {(grouped.find((entry) => entry.queue === activeQueue)?.items ?? []).map((item) => {
+          {activeGroup ? (
+            <SectionCard eyebrow="Queue focus" title={queuePrimaryAction(activeGroup.queue)}>
+              <p className="muted">{queueHeadline(activeGroup.queue)}</p>
+            </SectionCard>
+          ) : null}
+
+          {(activeGroup?.items ?? []).map((item) => {
             const readinessFlags = getListingReadinessFlags(item);
             const marketStatuses = getMarketplaceStatusSummaries(item);
 
@@ -131,9 +201,9 @@ export default function SellPage() {
             );
           })}
 
-          {(grouped.find((entry) => entry.queue === activeQueue)?.items.length ?? 0) === 0 ? (
+          {(activeGroup?.items.length ?? 0) === 0 ? (
             <SectionCard eyebrow="Queue empty" title="Nothing here right now">
-              <p className="muted">This queue is clear. Scan more items or move inventory forward from another queue.</p>
+              <p className="muted">This queue is clear. Scan more items, use manual lookup for dead-end barcodes, or move inventory forward from another queue.</p>
             </SectionCard>
           ) : null}
         </section>

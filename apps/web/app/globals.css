@@ -1288,6 +1288,54 @@ body {
   gap: 1rem;
 }
 
+.sell-queue-summary-grid,
+.activity-summary-grid {
+  display: grid;
+  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.sell-queue-summary-card,
+.activity-summary-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 1rem;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.82);
+  text-align: left;
+}
+
+.sell-queue-summary-card strong,
+.activity-summary-card strong {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.sell-queue-summary-card p,
+.activity-summary-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.sell-queue-summary-topline,
+.activity-summary-topline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.sell-queue-summary-card.active {
+  border-color: rgba(15, 118, 110, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.14), transparent 26%),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: var(--shadow);
+}
+
 .inventory-bucket-count,
 .queue-header-count {
   display: inline-flex;
