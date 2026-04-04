@@ -289,7 +289,7 @@ export const automationVendorConnectChallengeSchema = z.object({
 
 export const automationVendorConnectSessionSchema = z.object({
   helperNonce: z.string().trim().min(16).max(160),
-  accountHandle: z.string().trim().min(2).max(160),
+  accountHandle: z.string().trim().max(160).optional().nullable(),
   externalAccountId: z.string().trim().min(2).max(160).optional().nullable(),
   sessionLabel: z.string().trim().min(2).max(160).optional().nullable(),
   captureMode: z.enum(vendorConnectCaptureModes).default("WEB_POPUP_HELPER"),

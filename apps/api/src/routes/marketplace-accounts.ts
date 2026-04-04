@@ -715,7 +715,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
 
     const capture = adapter.captureSession({
       attempt: toAttemptContext(attempt),
-      accountHandle: body.accountHandle,
+      accountHandle: body.accountHandle ?? "",
       externalAccountId: body.externalAccountId ?? null,
       sessionLabel: body.sessionLabel ?? null,
       captureMode: body.captureMode,
@@ -745,7 +745,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
     const completed = await completeAutomationAttempt({
       attempt: nextAttempt,
       authUserId: auth.userId,
-      accountHandle: body.accountHandle,
+      accountHandle: body.accountHandle ?? "",
       externalAccountId: body.externalAccountId ?? null,
       sessionLabel: body.sessionLabel ?? null,
       captureMode: body.captureMode,

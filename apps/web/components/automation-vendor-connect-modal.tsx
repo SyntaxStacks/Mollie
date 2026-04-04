@@ -93,7 +93,7 @@ export function AutomationVendorConnectModal(props: {
               Mollie will walk you through a secure {label} sign-in bridge, capture a workspace session artifact, and only
               mark the account connected after validation succeeds.
               {props.vendor === "WHATNOT"
-                ? " Whatnot should be completed in the desktop helper so Google sign-in and the final Whatnot session can be captured reliably."
+                ? " Whatnot should be completed in the desktop companion so Google sign-in and the final Whatnot session can be captured reliably."
                 : ""}
             </p>
             <label className="label">
@@ -124,13 +124,13 @@ export function AutomationVendorConnectModal(props: {
             {attemptState === "AWAITING_LOGIN" || attemptState === "CAPTURING_SESSION" ? (
               <div className="stack">
                 <div className="muted">
-                  Open the secure sign-in bridge in a popup, finish the vendor login there, and then return here if a code
-                  challenge appears.
-                  {props.vendor === "WHATNOT" ? " For Whatnot, use the local desktop helper if you sign in with Google." : ""}
+                  {props.vendor === "WHATNOT"
+                    ? "Launch the desktop companion, finish Whatnot and Google sign-in there, and then return here if a verification challenge appears."
+                    : "Open the secure sign-in bridge in a popup, finish the vendor login there, and then return here if a code challenge appears."}
                 </div>
                 <div className="actions">
                   <Button disabled={props.pending} onClick={props.onOpenHelper}>
-                    Open secure sign-in
+                    {props.vendor === "WHATNOT" ? "Open desktop companion" : "Open secure sign-in"}
                   </Button>
                   <Button disabled={props.pending} kind="secondary" onClick={props.onRetry}>
                     Refresh status

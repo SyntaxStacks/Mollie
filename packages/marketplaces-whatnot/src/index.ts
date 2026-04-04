@@ -37,14 +37,16 @@ function simulateWhatnotPublish(input: PublishListingInput) {
 }
 
 function summarizeWhatnotAccount(input: {
-  accountHandle: string;
+  accountHandle?: string | null;
   externalAccountId?: string | null;
   sessionLabel?: string | null;
 }) {
+  const normalizedHandle = input.accountHandle?.trim() || "";
+
   return {
-    accountHandle: input.sessionLabel?.trim() || input.accountHandle.trim(),
+    accountHandle: input.sessionLabel?.trim() || normalizedHandle || "Whatnot",
     externalAccountId: input.externalAccountId?.trim() || null,
-    detail: `Whatnot seller account ${input.accountHandle.trim()}`
+    detail: normalizedHandle ? `Whatnot seller account ${normalizedHandle}` : "Whatnot seller account"
   };
 }
 
@@ -82,7 +84,7 @@ function buildWhatnotInvalidHint(explanation: string, nextActions: string[]) {
     severity: "ERROR",
     nextActions,
     canContinue: false,
-    helpText: "Whatnot sign-in should be captured with the local desktop helper so Mollie can validate the real browser session."
+    helpText: "Whatnot sign-in should be captured with the Mollie desktop companion so Mollie can validate the real browser session."
   });
 }
 
@@ -94,24 +96,24 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
       prompts: [
         {
           kind: "LOGIN",
-          label: "Run the desktop Whatnot sign-in helper",
-          detail: `Launch the local desktop helper, complete Whatnot sign-in there, and let Mollie capture the real browser session for ${displayName}.`,
+          label: "Launch the Whatnot desktop companion",
+          detail: `Launch the Mollie desktop companion, complete Whatnot sign-in there, and let Mollie capture the real browser session for ${displayName}.`,
           required: true
         }
       ],
       hint: buildAutomationConnectHint({
         platform: "WHATNOT",
         platformLabel: "Whatnot",
-        title: "Whatnot sign-in starts in the desktop helper.",
+        title: "Whatnot sign-in starts in the desktop companion.",
         explanation:
           "Whatnot sessions should be captured from a real desktop browser context, especially when the account uses Google sign-in. Mollie will validate the captured session before marking the account ready.",
         severity: "INFO",
         nextActions: [
           "Open the Whatnot secure sign-in bridge on desktop.",
-          "If you use Google sign-in, complete the Google handoff in the helper browser before returning to Mollie."
+          "If you use Google sign-in, complete the Google handoff in the companion browser before returning to Mollie."
         ],
         canContinue: true,
-        helpText: "The popup bridge can explain the flow, but the local helper is the preferred capture path for Whatnot."
+        helpText: "The popup bridge can explain the flow, but the desktop companion is the preferred capture path for Whatnot."
       }),
       helperPath: "/marketplaces/connect-helper?vendor=whatnot",
       expiresInSeconds: 15 * 60,
@@ -135,14 +137,14 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         prompts: [
           {
             kind: "LOGIN",
-            label: "Use the desktop helper for Whatnot",
-            detail: "Whatnot sign-in should be captured through the local desktop helper so the real browser session can be validated.",
+            label: "Use the desktop companion for Whatnot",
+            detail: "Whatnot sign-in should be captured through the desktop companion so the real browser session can be validated.",
             required: true
           }
         ],
         hint: buildWhatnotInvalidHint(
-          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Use the desktop helper and complete sign-in there instead.",
-          ["Run the local desktop helper.", "Finish the Whatnot or Google sign-in in that helper browser."]
+          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Use the desktop companion and complete sign-in there instead.",
+          ["Launch the desktop companion.", "Finish the Whatnot or Google sign-in in that companion browser."]
         ),
         metadata: {
           pendingSession: null
@@ -157,7 +159,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         hint: buildWhatnotInvalidHint(
           `Mollie captured ${summary.accountHandle}, but the storage state did not contain a usable Whatnot session yet.`,
           [
-            "Finish sign-in fully in the desktop helper browser.",
+            "Finish sign-in fully in the desktop companion browser.",
             "Make sure you reach a signed-in Whatnot page before completing capture."
           ]
         ),
@@ -267,7 +269,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
     };
   },
   validateSession(input): VendorValidationResult {
-    const normalizedHandle = input.accountHandle.trim();
+    const normalizedHandle = input.accountHandle?.trim() || input.sessionLabel?.trim() || "Whatnot";
 
     if (!normalizedHandle || /fail|invalid|blocked/i.test(normalizedHandle)) {
       return {
@@ -278,7 +280,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         detail: "The captured browser context did not look safe enough to reuse for automation.",
         operatorHint: buildWhatnotInvalidHint(
           "Mollie could not validate the Whatnot session from the captured browser context.",
-          ["Restart the Whatnot desktop helper flow.", "Make sure the correct seller account finishes sign-in."]
+          ["Restart the Whatnot desktop companion flow.", "Make sure the correct seller account finishes sign-in."]
         )
       };
     }
@@ -288,11 +290,11 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         validationStatus: "INVALID",
         accountHandle: normalizedHandle,
         externalAccountId: input.externalAccountId ?? null,
-        summary: "Whatnot sign-in requires the desktop helper.",
+        summary: "Whatnot sign-in requires the desktop companion.",
         detail: "The popup flow did not provide a reusable browser session artifact for Whatnot.",
         operatorHint: buildWhatnotInvalidHint(
-          "Whatnot should be connected through the local desktop helper so Mollie can validate the real browser session.",
-          ["Run the local desktop helper.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow."]
+          "Whatnot should be connected through the desktop companion so Mollie can validate the real browser session.",
+          ["Launch the desktop companion.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow."]
         )
       };
     }
@@ -360,7 +362,7 @@ export const whatnotAdapter: MarketplaceAdapter = {
       {
         capability: "CONNECT_ACCOUNT",
         support: "SUPPORTED",
-        detail: "Operators connect Whatnot through the desktop helper so Mollie can capture a real browser session."
+        detail: "Operators connect Whatnot through the desktop companion so Mollie can capture a real browser session."
       },
       {
         capability: "VALIDATE_AUTH",

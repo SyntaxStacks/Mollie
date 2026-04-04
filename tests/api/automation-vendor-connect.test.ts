@@ -330,7 +330,6 @@ test("whatnot connect succeeds only when the local helper returns a signed-in st
     headers: session.headers,
     payload: {
       helperNonce: startBody.attempt.helperNonce,
-      accountHandle: "whatnot-seller",
       sessionLabel: "Main Whatnot account",
       captureMode: "LOCAL_BRIDGE",
       challengeRequired: false,
