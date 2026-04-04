@@ -92,6 +92,9 @@ export function AutomationVendorConnectModal(props: {
             <p className="handoff-copy">
               Mollie will walk you through a secure {label} sign-in bridge, capture a workspace session artifact, and only
               mark the account connected after validation succeeds.
+              {props.vendor === "WHATNOT"
+                ? " Whatnot should be completed in the desktop helper so Google sign-in and the final Whatnot session can be captured reliably."
+                : ""}
             </p>
             <label className="label">
               Account label in Mollie
@@ -123,6 +126,7 @@ export function AutomationVendorConnectModal(props: {
                 <div className="muted">
                   Open the secure sign-in bridge in a popup, finish the vendor login there, and then return here if a code
                   challenge appears.
+                  {props.vendor === "WHATNOT" ? " For Whatnot, use the local desktop helper if you sign in with Google." : ""}
                 </div>
                 <div className="actions">
                   <Button disabled={props.pending} onClick={props.onOpenHelper}>

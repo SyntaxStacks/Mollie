@@ -27,6 +27,7 @@ function HelperContent() {
   const attemptId = searchParams.get("attemptId");
   const helperNonce = searchParams.get("helperNonce");
   const config = vendor ? vendorConfig[vendor] : null;
+  const requiresLocalHelper = vendor === "whatnot";
   const [accountHandle, setAccountHandle] = useState("");
   const [externalAccountId, setExternalAccountId] = useState("");
   const [sessionLabel, setSessionLabel] = useState("");
@@ -82,6 +83,11 @@ function HelperContent() {
 
     if (!config || !attemptId || !helperNonce || !token) {
       setError("Mollie could not find the secure sign-in context for this popup.");
+      return;
+    }
+
+    if (requiresLocalHelper) {
+      setError("Whatnot should be connected through the local desktop helper so Mollie can capture the real browser session after Google sign-in.");
       return;
     }
 
@@ -172,6 +178,12 @@ function HelperContent() {
             Open the vendor login page, finish sign-in, then confirm the account details here so Mollie can validate and store the
             workspace session artifact.
           </p>
+          {requiresLocalHelper ? (
+            <p className="public-doc-summary">
+              For Whatnot, use the local desktop helper. The popup bridge is not reliable enough for Google sign-in and does not
+              capture the browser storage state Mollie needs.
+            </p>
+          ) : null}
         </div>
         <div className="public-doc-actions">
           <a className="public-doc-link" href={config.loginUrl} rel="noreferrer" target="_blank">
@@ -187,45 +199,61 @@ function HelperContent() {
         {error ? <div className="notice">{error}</div> : null}
         {status ? <div className="notice success">{status}</div> : null}
 
-        <form className="stack" onSubmit={submit}>
-          <label className="label">
-            Vendor account handle
-            <input
-              className="field"
-              placeholder={`Your ${config.label} username or shop handle`}
-              required
-              value={accountHandle}
-              onChange={(event) => setAccountHandle(event.target.value)}
-            />
-          </label>
-          <label className="label">
-            External account ID
-            <input
-              className="field"
-              placeholder="Optional stable vendor ID"
-              value={externalAccountId}
-              onChange={(event) => setExternalAccountId(event.target.value)}
-            />
-          </label>
-          <label className="label">
-            Session label in Mollie
-            <input
-              className="field"
-              placeholder={`Main ${config.label} account`}
-              value={sessionLabel}
-              onChange={(event) => setSessionLabel(event.target.value)}
-            />
-          </label>
-          <label className="checkbox-row">
-            <input checked={challengeRequired} type="checkbox" onChange={(event) => setChallengeRequired(event.target.checked)} />
-            The vendor asked for a verification code after sign-in.
-          </label>
-          <div className="actions">
-            <button className="public-doc-link" disabled={pending} type="submit">
-              {pending ? "Capturing session..." : "I finished vendor sign-in"}
-            </button>
+        {requiresLocalHelper ? (
+          <div className="stack">
+            <h2>Use the desktop helper for Whatnot</h2>
+            <p className="public-doc-summary">
+              Whatnot sign-in, especially with Google, should be completed in the local desktop helper. That helper captures the
+              signed-in browser storage state and posts it back to Mollie for validation.
+            </p>
+            <ol className="public-doc-list">
+              <li>Copy the helper command below.</li>
+              <li>Run it on your desktop.</li>
+              <li>Finish Google and Whatnot sign-in in the opened helper browser.</li>
+              <li>Return to Marketplace Accounts after Mollie confirms the account.</li>
+            </ol>
           </div>
-        </form>
+        ) : (
+          <form className="stack" onSubmit={submit}>
+            <label className="label">
+              Vendor account handle
+              <input
+                className="field"
+                placeholder={`Your ${config.label} username or shop handle`}
+                required
+                value={accountHandle}
+                onChange={(event) => setAccountHandle(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              External account ID
+              <input
+                className="field"
+                placeholder="Optional stable vendor ID"
+                value={externalAccountId}
+                onChange={(event) => setExternalAccountId(event.target.value)}
+              />
+            </label>
+            <label className="label">
+              Session label in Mollie
+              <input
+                className="field"
+                placeholder={`Main ${config.label} account`}
+                value={sessionLabel}
+                onChange={(event) => setSessionLabel(event.target.value)}
+              />
+            </label>
+            <label className="checkbox-row">
+              <input checked={challengeRequired} type="checkbox" onChange={(event) => setChallengeRequired(event.target.checked)} />
+              The vendor asked for a verification code after sign-in.
+            </label>
+            <div className="actions">
+              <button className="public-doc-link" disabled={pending} type="submit">
+                {pending ? "Capturing session..." : "I finished vendor sign-in"}
+              </button>
+            </div>
+          </form>
+        )}
       </section>
 
       {helperCommand ? (

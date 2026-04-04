@@ -266,7 +266,64 @@ test("automation vendor connect flow supports inline challenge before connection
   assert.equal(challengeBody.account?.platform, "POSHMARK");
 });
 
-test("automation vendor validation failure keeps the attempt failed and does not connect an account", async () => {
+test("whatnot connect succeeds only when the local helper returns a signed-in storage state", async () => {
+  const session = await createWorkspaceSession("vendor-connect-whatnot-success");
+
+  const startResponse = await app.inject({
+    method: "POST",
+    url: "/api/marketplace-accounts/WHATNOT/connect/start",
+    headers: session.headers,
+    payload: {
+      displayName: "Main Whatnot account"
+    }
+  });
+
+  assert.equal(startResponse.statusCode, 200);
+  const startBody = startResponse.json() as {
+    attempt: { id: string; helperNonce: string };
+  };
+
+  const sessionCaptureResponse = await app.inject({
+    method: "POST",
+    url: `/api/marketplace-accounts/WHATNOT/connect/${startBody.attempt.id}/session`,
+    headers: session.headers,
+    payload: {
+      helperNonce: startBody.attempt.helperNonce,
+      accountHandle: "whatnot-seller",
+      sessionLabel: "Main Whatnot account",
+      captureMode: "LOCAL_BRIDGE",
+      challengeRequired: false,
+      cookieCount: 7,
+      origin: "https://www.whatnot.com",
+      storageStateJson: {
+        cookies: [{ name: "wn_session", value: "abc123", domain: ".whatnot.com" }],
+        origins: [
+          { origin: "https://www.whatnot.com", localStorage: [] },
+          { origin: "https://accounts.google.com", localStorage: [] }
+        ]
+      }
+    }
+  });
+
+  assert.equal(sessionCaptureResponse.statusCode, 200);
+  const body = sessionCaptureResponse.json() as {
+    attempt: { state: string };
+    account: {
+      id: string;
+      platform: string;
+      validationStatus: string;
+      credentialMetadata?: { accountHandle?: string; publishMode?: string } | null;
+    } | null;
+  };
+
+  assert.equal(body.attempt.state, "CONNECTED");
+  assert.equal(body.account?.platform, "WHATNOT");
+  assert.equal(body.account?.validationStatus, "VALID");
+  assert.equal(body.account?.credentialMetadata?.accountHandle, "Main Whatnot account");
+  assert.equal(body.account?.credentialMetadata?.publishMode, "automation");
+});
+
+test("whatnot popup capture fails closed and does not connect an account", async () => {
   const session = await createWorkspaceSession("vendor-connect-invalid");
 
   const startResponse = await app.inject({
@@ -289,7 +346,7 @@ test("automation vendor validation failure keeps the attempt failed and does not
     headers: session.headers,
     payload: {
       helperNonce: startBody.attempt.helperNonce,
-      accountHandle: "invalid-whatnot-session",
+      accountHandle: "whatnot-seller",
       sessionLabel: "Main Whatnot account",
       captureMode: "WEB_POPUP_HELPER",
       challengeRequired: false

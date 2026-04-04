@@ -264,7 +264,10 @@ async function completeAutomationAttempt(input: {
     accountHandle: input.accountHandle,
     externalAccountId: input.externalAccountId,
     captureMode: input.captureMode,
-    sessionLabel: input.sessionLabel
+    sessionLabel: input.sessionLabel,
+    cookieCount: input.cookieCount ?? null,
+    origin: input.origin ?? null,
+    storageStateJson: input.storageStateJson ?? null
   });
 
   if (validation.validationStatus !== "VALID") {

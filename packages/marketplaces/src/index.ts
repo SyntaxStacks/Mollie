@@ -140,6 +140,9 @@ export type AutomationVendorConnectAdapter = {
     externalAccountId?: string | null;
     captureMode: VendorConnectCaptureMode;
     sessionLabel?: string | null;
+    cookieCount?: number | null;
+    origin?: string | null;
+    storageStateJson?: Record<string, unknown> | null;
   }): VendorValidationResult;
   summarizeAccount(input: {
     accountHandle: string;
