@@ -15,6 +15,8 @@ import type { JobPayload } from "@reselleros/queue";
 import { whatnotAdapter } from "@reselleros/marketplaces-whatnot";
 import type { Platform } from "@reselleros/types";
 
+import { publishWhatnotListing } from "./whatnot-runtime.js";
+
 const env = loadConnectorEnv();
 const failureThreshold = env.CONNECTOR_FAILURE_THRESHOLD;
 
@@ -70,6 +72,14 @@ async function handleConnectorFailure(input: {
       ...(connectorError.metadata ?? {}),
       artifactCaptureError
     };
+  }
+
+  const runtimeArtifacts = Array.isArray(connectorError.metadata?.runtimeArtifacts)
+    ? connectorError.metadata?.runtimeArtifacts.filter((value): value is string => typeof value === "string")
+    : [];
+
+  if (runtimeArtifacts.length > 0) {
+    artifactUrls = [...new Set([...artifactUrls, ...runtimeArtifacts])];
   }
 
   await markMarketplaceAccountConnectorFailure({
@@ -191,7 +201,7 @@ export async function processConnectorJob(jobName: ConnectorPublishJobName, payl
   }
 
   try {
-    const publishResult = await config.adapter.publishListing({
+    const publishInput = {
       inventoryItemId: item.id,
       sku: item.sku,
       quantity: item.quantity,
@@ -215,7 +225,12 @@ export async function processConnectorJob(jobName: ConnectorPublishJobName, payl
         credentialMetadata: (account.credentialMetadataJson ?? null) as Record<string, unknown> | null,
         credentialPayload: (account.credentialPayloadJson ?? null) as Record<string, unknown> | null
       }
-    });
+    } satisfies Parameters<typeof config.adapter.publishListing>[0];
+
+    const publishResult =
+      config.platform === "WHATNOT"
+        ? (await publishWhatnotListing(publishInput)) ?? (await config.adapter.publishListing(publishInput))
+        : await config.adapter.publishListing(publishInput);
 
     const existingListing = await db.platformListing.findFirst({
       where: {
@@ -261,6 +276,29 @@ export async function processConnectorJob(jobName: ConnectorPublishJobName, payl
     });
 
     await resetMarketplaceAccountConnectorHealth(account.id);
+
+    if (publishResult.marketplaceAccountUpdate) {
+      const nextCredentialPayload =
+        "credentialPayload" in publishResult.marketplaceAccountUpdate
+          ? publishResult.marketplaceAccountUpdate.credentialPayload
+          : undefined;
+      const nextCredentialMetadata =
+        "credentialMetadata" in publishResult.marketplaceAccountUpdate
+          ? publishResult.marketplaceAccountUpdate.credentialMetadata
+          : undefined;
+      await db.marketplaceAccount.update({
+        where: { id: account.id },
+        data: {
+          validationStatus: publishResult.marketplaceAccountUpdate.validationStatus,
+          credentialPayloadJson: nextCredentialPayload as Prisma.InputJsonValue | undefined,
+          credentialMetadataJson: nextCredentialMetadata as Prisma.InputJsonValue | undefined,
+          lastValidatedAt:
+            typeof publishResult.marketplaceAccountUpdate.lastValidatedAt === "string"
+              ? new Date(publishResult.marketplaceAccountUpdate.lastValidatedAt)
+              : undefined
+        }
+      });
+    }
 
     await db.executionLog.update({
       where: { id: payload.executionLogId },
