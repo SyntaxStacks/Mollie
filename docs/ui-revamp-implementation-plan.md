@@ -1,7 +1,7 @@
 # UI Revamp Implementation Plan
 
 ## Goal
-Refactor Mollie into a mobile-first resale workflow with a camera-first Scan home, photo-first Inventory, queue-first Sell, and action-oriented Activity feed while preserving current API and route compatibility.
+Refactor Mollie into a mobile-first resale workflow with a camera-first Scan home, a first-class manual/source lookup path, photo-first Inventory, queue-first Sell, and action-oriented Activity feed while preserving current API and route compatibility.
 
 ## Affected routes and screens
 - `/`
@@ -47,6 +47,7 @@ Refactor Mollie into a mobile-first resale workflow with a camera-first Scan hom
   - listingDrafts
   - platformListings
   - sales
+- Current lookup API is barcode-oriented, so manual lookup should use honest source-search helpers and prefill adapters rather than pretending there is a mature free-text product API already
 - New UI adapter layer should derive:
   - top-level item lifecycle
   - readiness flags
@@ -54,6 +55,7 @@ Refactor Mollie into a mobile-first resale workflow with a camera-first Scan hom
   - profit signal
   - marketplace summary
 - Existing barcode lookup and create-item flow should remain intact
+- Existing inventory create flow should be reused for manual/source lookup item creation
 - Existing eBay preflight and linked publish endpoints should power marketplace status and primary actions
 
 ## Migration notes
@@ -87,13 +89,16 @@ Refactor Mollie into a mobile-first resale workflow with a camera-first Scan hom
 
 ### Phase 3: Scan experience
 - [ ] Reframe barcode scanner as camera-first landing surface
+- [ ] Add explicit intake-path switching between code lookup and manual/source lookup
 - [ ] Add productivity strip and quick shortcuts
 - [ ] Add result sheet instead of immediate hard navigation
 - [ ] Preserve manual fallback and fast return to scan
+- [ ] Make source results act as field prefills rather than accepted truth
 
 ### Phase 4: Inventory and item detail
 - [ ] Replace table-first inventory with card-first buckets
 - [ ] Add search and lightweight filters
+- [ ] Promote manual/source item creation as a first-class inventory entry point
 - [ ] Refactor item detail into lifecycle sections
 - [ ] Add sticky action rail
 

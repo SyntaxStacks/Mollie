@@ -9,11 +9,26 @@ The UI must bias toward fast intake in chaotic environments while keeping invent
 
 ## Product principles
 - Camera first: scanning is the default landing behavior and should stay fast.
+- Code or manual lookup: when a barcode path fails, the user needs an equally obvious manual/source lookup path.
 - Inventory one tap away: users need immediate confidence that scanned items are saved.
 - Sell is queue-based: publishing is framed as work queues, blockers, and retries.
 - Every item is a sale opportunity: items move through a lifecycle instead of sitting as static records.
 - Progressive enrichment: missing data should not block intake unless absolutely required.
 - Always show next action: each screen should guide the operator toward the next profitable step.
+
+## Intake focus
+The intake UI should feel like a practical resale workstation for finding item data quickly, not a generic admin form.
+
+The happy path is:
+
+`identify by code or manual lookup -> review source data -> prefill trusted fields -> save inventory -> queue for sale`
+
+Key rules:
+- Barcode scan remains the fastest path when a printed code exists.
+- Manual/source lookup must be a first-class path, not a buried fallback.
+- Search results are source references, not truth.
+- Mollie should prefill what looks useful from lookup results, then keep the item editable before save.
+- Posting and draft generation should feel like the next obvious step once the item is saved.
 
 ## Information architecture
 The primary user-facing navigation becomes:
@@ -31,6 +46,9 @@ Existing routes remain available where needed, but the shell and screen hierarch
 - Fullscreen or near-fullscreen camera-first layout
 - Minimal chrome
 - Scan reticle
+- Clear intake-path switch between:
+  - identify by code
+  - manual/source lookup
 - Flash toggle placeholder if no browser-safe implementation exists yet
 - Manual add entry
 - Inventory shortcut
@@ -60,6 +78,17 @@ Existing routes remain available where needed, but the shell and screen hierarch
   - List Later
   - Post Now
   - Skip
+
+### Manual/source lookup
+- Lives inside the same intake flow as scan
+- Lets the operator:
+  - enter a title or lookup phrase
+  - open product-centric source searches
+  - paste a source URL
+  - use those results to prefill the item form
+- Must keep the operator in control:
+  - source data should prefill fields, not auto-commit them
+  - the operator should always be able to continue with a manual item
 
 ### Inventory
 - Photo-first inventory management
@@ -177,3 +206,4 @@ The interface should avoid:
 - Preserve barcode scan speed above all
 - Keep loading, empty, and error states polished
 - Do not present fake marketplace readiness in production
+- Do not imply Mollie has a full manual text-search backend if the current API only supports barcode identification; use honest source-search handoffs where needed

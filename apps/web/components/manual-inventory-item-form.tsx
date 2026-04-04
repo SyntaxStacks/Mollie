@@ -6,6 +6,8 @@ import { useMemo, useState, useTransition, type FormEvent } from "react";
 
 import { Button } from "@reselleros/ui";
 
+import { SourceSearchPanel } from "./source-search-panel";
+
 type ManualInventoryItemFormProps = {
   token: string;
   open: boolean;
@@ -35,6 +37,8 @@ export function ManualInventoryItemForm({ token, open, onClose, existingItems }:
   const [identifier, setIdentifier] = useState("");
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [category, setCategory] = useState("General Merchandise");
   const [condition, setCondition] = useState("Good used condition");
   const [size, setSize] = useState("");
@@ -70,6 +74,8 @@ export function ManualInventoryItemForm({ token, open, onClose, existingItems }:
     setIdentifier("");
     setTitle("");
     setBrand("");
+    setLookupQuery("");
+    setSourceUrl("");
     setCategory("General Merchandise");
     setCondition("Good used condition");
     setSize("");
@@ -106,7 +112,18 @@ export function ManualInventoryItemForm({ token, open, onClose, existingItems }:
             estimatedResaleMax: estimatedResaleMax.trim() ? Number(estimatedResaleMax) : null,
             priceRecommendation: priceRecommendation.trim() ? Number(priceRecommendation) : null,
             attributes: {
-              importSource: "MANUAL_ENTRY",
+              importSource: lookupQuery.trim() || sourceUrl.trim() ? "MANUAL_LOOKUP" : "MANUAL_ENTRY",
+              ...(lookupQuery.trim()
+                ? {
+                    sourceQuery: lookupQuery.trim()
+                  }
+                : {}),
+              ...(sourceUrl.trim()
+                ? {
+                    primarySourceUrl: sourceUrl.trim(),
+                    referenceUrls: [sourceUrl.trim()]
+                  }
+                : {}),
               ...(identifier.trim()
                 ? {
                     identifier: normalizeIdentifier(identifier)
@@ -144,8 +161,17 @@ export function ManualInventoryItemForm({ token, open, onClose, existingItems }:
       <div className="stack">
         <div className="scan-import-hint">
           <Sparkles size={16} />
-          <span>Save the item first, then keep editing photos, selling details, and marketplace setup on the item page.</span>
+          <span>Use code or manual lookup to get the item moving, then finish photos, selling details, and marketplace setup on the item page.</span>
         </div>
+
+        <SourceSearchPanel
+          description="Search for product data manually when the item has no usable barcode. Paste the best source URL you find, then create the item with those details."
+          query={lookupQuery}
+          sourceUrl={sourceUrl}
+          title="Look it up manually"
+          onQueryChange={setLookupQuery}
+          onSourceUrlChange={setSourceUrl}
+        />
 
         <form className="stack" onSubmit={handleSubmit}>
           <div className="scan-import-grid">

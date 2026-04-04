@@ -63,8 +63,8 @@ export default function InventoryPage() {
           <SectionCard eyebrow="Inventory" title="Photo-first item management">
             <QueueHeader
               count={filteredItems.length}
-              description="Find what you scanned, see what is blocked, and move items toward sale without falling back into table-heavy admin work."
-              title="Inventory one tap away"
+              description="Every saved item should be easy to find, easy to fix, and easy to move toward listing. Use manual lookup when scan data is thin."
+              title="Inventory built for finish-and-sell work"
             />
 
             <div className="inventory-toolbar">
@@ -98,7 +98,7 @@ export default function InventoryPage() {
                 </Button>
               </Link>
               <Button kind="secondary" onClick={() => setManualAddOpen((current) => !current)} type="button">
-                <Plus size={16} /> {manualAddOpen ? "Close manual add" : "Add manually"}
+                <Plus size={16} /> {manualAddOpen ? "Close manual lookup" : "Add with manual lookup"}
               </Button>
             </div>
           </SectionCard>

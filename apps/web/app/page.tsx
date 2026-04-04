@@ -56,8 +56,8 @@ export default function ScanPage() {
           <div className="scan-home-hero">
             <QueueHeader
               count={readyToListCount}
-              description="Scan fast, confirm the match, and keep intake moving without getting buried in admin work."
-              title="Camera-first intake"
+              description="Identify by code when you can, switch to manual/source lookup when you cannot, then prefill the item and push it toward sale."
+              title="Identify fast. Fill what matters. Sell sooner."
             />
 
             <div className="scan-productivity-strip">
@@ -84,14 +84,14 @@ export default function ScanPage() {
                 <ShoppingBag size={18} />
                 <div>
                   <strong>Inventory</strong>
-                  <span>One tap to manage what you just saved.</span>
+                  <span>See what you saved, what still needs details, and what can move into selling.</span>
                 </div>
               </Link>
               <Link className="scan-shortcut-card" href="/inventory?compose=manual">
                 <PencilLine size={18} />
                 <div>
-                  <strong>Manual add</strong>
-                  <span>Create an item without scanning when the barcode path is a dead end.</span>
+                  <strong>Manual lookup</strong>
+                  <span>Research by title, brand, or source URL when the printed code path fails.</span>
                 </div>
               </Link>
               <Link className="scan-shortcut-card" href="/sell">
@@ -123,16 +123,16 @@ export default function ScanPage() {
           <SectionCard eyebrow="Queue pulse" title="Why scan stays the home screen">
             <div className="scan-pulse-grid">
               <div className="scan-pulse-card">
-                <strong>Keep intake moving</strong>
-                <p>Missing details can wait. Use scan to capture the opportunity first.</p>
+                <strong>Start with the code in your hand</strong>
+                <p>Use the camera when the barcode is available. It stays the fastest path to a usable item record.</p>
               </div>
               <div className="scan-pulse-card">
-                <strong>Inventory is one tap away</strong>
-                <p>Every accepted scan becomes a manageable item, not a lost note.</p>
+                <strong>Switch to lookup without losing momentum</strong>
+                <p>If the code path is weak, jump to manual/source lookup and borrow the details you trust.</p>
               </div>
               <div className="scan-pulse-card">
-                <strong>Sell is a queue</strong>
-                <p>Drafts, blockers, and retries belong in Sell, not in the intake flow.</p>
+                <strong>Save now, sell next</strong>
+                <p>Once the item is filled enough to save, the queue and posting flows should take over from there.</p>
               </div>
             </div>
           </SectionCard>

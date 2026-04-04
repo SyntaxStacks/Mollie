@@ -9,6 +9,7 @@ import { Button, Card } from "@reselleros/ui";
 
 import { OperatorHintCard } from "./operator-hint-card";
 import { ScanResultSheet } from "./scan-result-sheet";
+import { SourceSearchPanel } from "./source-search-panel";
 
 type BarcodeImportCardProps = {
   token: string;
@@ -16,6 +17,7 @@ type BarcodeImportCardProps = {
 };
 
 type IntakeDecision = "ADD" | "HOLD" | "LIST_LATER" | "POST_NOW";
+type IntakeEntryMode = "CODE" | "MANUAL";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -303,6 +305,24 @@ function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | nul
   return candidate.provider === "AMAZON_ENRICHMENT" ? "AMAZON" : "OTHER";
 }
 
+function sourceMarketForUrl(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+
+  if (!normalized) {
+    return "OTHER" as const;
+  }
+
+  if (normalized.includes("amazon.")) {
+    return "AMAZON" as const;
+  }
+
+  if (normalized.includes("ebay.")) {
+    return "EBAY" as const;
+  }
+
+  return "OTHER" as const;
+}
+
 export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeImportCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -327,6 +347,9 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const [availableCameras, setAvailableCameras] = useState<CameraDeviceOption[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string | null>(null);
   const [barcode, setBarcode] = useState("");
+  const [entryMode, setEntryMode] = useState<IntakeEntryMode>("CODE");
+  const [lookupQuery, setLookupQuery] = useState("");
+  const [manualSourceUrl, setManualSourceUrl] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState<ProductLookupCandidate | null>(null);
   const [manualEntryEnabled, setManualEntryEnabled] = useState(false);
   const [title, setTitle] = useState("");
@@ -895,7 +918,10 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   function resetForm() {
     scanResolvedRef.current = false;
     revealScannerOutline(null);
+    setEntryMode("CODE");
     setBarcode("");
+    setLookupQuery("");
+    setManualSourceUrl("");
     setLookupResult(null);
     setLookupError(null);
     setSubmitError(null);
@@ -923,7 +949,10 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
     setSelectedCandidate(candidate);
     setManualEntryEnabled(true);
+    setEntryMode("CODE");
     setLookupError(null);
+    setLookupQuery((current) => current || candidate.title);
+    setManualSourceUrl((current) => choosePrefillValue(current, candidate.productUrl ?? "", [previousCandidate?.productUrl ?? ""]));
     setTitle((current) => choosePrefillValue(current, candidate.title, [previousCandidate?.title ?? ""]));
     setBrand((current) => choosePrefillValue(current, candidate.brand ?? "", [previousCandidate?.brand ?? ""]));
     setCategory((current) =>
@@ -942,16 +971,28 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     );
   }
 
-  function enableManualEntry() {
+  function enableManualEntry(seedTitle?: string) {
     setSelectedCandidate(null);
     setManualEntryEnabled(true);
-    if (!title) {
-      setTitle("");
-    }
+    setTitle((current) => current || seedTitle || "");
   }
 
   function handleLookup() {
     runLookup(barcode);
+  }
+
+  function handleManualLookupStart() {
+    setLookupResult(null);
+    setLookupError(null);
+    setSubmitError(null);
+    setSelectedCandidate(null);
+    setAmazonUrl((current) =>
+      choosePrefillValue(current, sourceMarketForUrl(manualSourceUrl) === "AMAZON" ? manualSourceUrl : "", [current])
+    );
+    setEbayUrl((current) =>
+      choosePrefillValue(current, sourceMarketForUrl(manualSourceUrl) === "EBAY" ? manualSourceUrl : "", [current])
+    );
+    enableManualEntry(lookupQuery.trim());
   }
 
   function shouldQueueDraftsForDecision(decision: IntakeDecision) {
@@ -986,11 +1027,98 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     }
   }
 
+  async function submitManualCreate(
+    decisionOverride: IntakeDecision = intakeDecision,
+    generateDraftsOverride: boolean = generateDrafts
+  ) {
+    const normalizedLookupQuery = lookupQuery.trim();
+    const normalizedSourceUrl = manualSourceUrl.trim();
+
+    const createResponse = await fetch(`${API_BASE_URL}/api/inventory`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        title,
+        brand: brand || null,
+        category,
+        condition,
+        size: size || null,
+        color: color || null,
+        quantity: 1,
+        costBasis: Number(costBasis || 0),
+        priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
+        estimatedResaleMin: null,
+        estimatedResaleMax: null,
+        attributes: {
+          importSource: normalizedLookupQuery || normalizedSourceUrl ? "MANUAL_LOOKUP" : "MANUAL_ENTRY",
+          intakeDecision: decisionOverride,
+          ...(normalizedLookupQuery
+            ? {
+                sourceQuery: normalizedLookupQuery
+              }
+            : {}),
+          ...(normalizedSourceUrl
+            ? {
+                primarySourceUrl: normalizedSourceUrl,
+                referenceUrls: [normalizedSourceUrl]
+              }
+            : {}),
+          ...(barcode.trim()
+            ? {
+                identifier: barcode.trim()
+              }
+            : {})
+        }
+      })
+    });
+    const createPayload = (await createResponse.json().catch(() => ({ error: "Could not create this inventory item." }))) as {
+      error?: string;
+      item?: { id: string };
+    };
+
+    if (!createResponse.ok || !createPayload.item?.id) {
+      throw new Error(createPayload.error ?? "Could not create this inventory item.");
+    }
+
+    const itemId = createPayload.item.id;
+
+    if (generateDraftsOverride) {
+      const draftsResponse = await fetch(`${API_BASE_URL}/api/inventory/${itemId}/generate-drafts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          platforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
+        })
+      });
+      const draftsPayload = (await draftsResponse.json().catch(() => ({ error: "Could not queue listing drafts." }))) as {
+        error?: string;
+      };
+
+      if (!draftsResponse.ok) {
+        throw new Error(draftsPayload.error ?? "Could not queue listing drafts.");
+      }
+    }
+
+    resetForm();
+    router.push(generateDraftsOverride ? `/drafts?fromScan=${itemId}` : `/inventory/${itemId}`);
+  }
+
   async function submitImport(
     decisionOverride: IntakeDecision = intakeDecision,
     generateDraftsOverride: boolean = generateDrafts
   ) {
     try {
+      if (!barcode.trim() && entryMode === "MANUAL") {
+        await submitManualCreate(decisionOverride, generateDraftsOverride);
+        return;
+      }
+
       const observations = [
         amazonPrice
           ? {
@@ -1096,7 +1224,12 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     }
   }
 
-  const canSubmit = manualEntryEnabled && Boolean(barcode.trim()) && Boolean(title.trim()) && Boolean(category.trim()) && Boolean(condition.trim());
+  const canSubmit =
+    manualEntryEnabled &&
+    Boolean(title.trim()) &&
+    Boolean(category.trim()) &&
+    Boolean(condition.trim()) &&
+    (entryMode === "MANUAL" || Boolean(barcode.trim()));
   const topHint = lookupResult?.hint ?? (lookupError
     ? {
         title: "Could not identify this barcode",
@@ -1250,7 +1383,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           ) : null}
 
           <div className="actions">
-            <Button kind="secondary" onClick={enableManualEntry} type="button">
+            <Button kind="secondary" onClick={() => enableManualEntry()} type="button">
               Continue with manual entry
             </Button>
           </div>
@@ -1461,8 +1594,10 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           <div className="scan-result-actions-footer">
             <div className="muted">
               {canSubmit
-                ? `${decisionActionLabel(intakeDecision)} is ready. Save now or keep editing the details below.`
-                : "Choose a source or finish the item details below before saving this scan."}
+                ? `${decisionActionLabel(intakeDecision)} is ready. Save now or keep refining the item below.`
+                : entryMode === "MANUAL"
+                  ? "Find a source or fill the item details below before saving."
+                  : "Choose a source or finish the item details below before saving this scan."}
             </div>
             <Button
               className="scan-result-action-skip"
@@ -1487,50 +1622,97 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       <Card
         className={scanMode ? "scan-intake-card" : undefined}
         eyebrow={scanMode ? "Scan" : "Scan to identify"}
-        title={scanMode ? "Open the camera and keep intake moving" : "Scan a barcode, review the match, then create inventory"}
+        title={scanMode ? "Scan a code or switch to manual lookup" : "Identify the item, prefill the details, then create inventory"}
       >
         <div className="stack">
           <p className="muted">
             {scanMode
-              ? "Scan first, decide fast, and keep intake moving. Review the item in a bottom sheet, then add it, hold it, list it later, or move into selling setup."
-              : "Scan a UPC, EAN, ISBN, or Code 128 barcode, review candidate matches, and confirm the one that best matches the item in your hand. Mollie prefills inventory fields only after you accept the match or switch to manual entry."}
+              ? "Start with the camera when a code is available. If the printed path fails, switch to manual/source lookup, prefill what you trust, and keep intake moving."
+              : "Identify by barcode when you have one, or switch to manual/source lookup when you do not. Mollie prefills fields from source data, but you stay in control before the item is saved."}
           </p>
 
-          <div className="scan-import-grid">
-            <label className="label">
-              Barcode
-              <div className="scan-field-row">
-                <input
-                  className="field"
-                  data-testid="scan-identify-barcode"
-                  inputMode="numeric"
-                  placeholder="Scan or type barcode"
-                  required
-                  value={barcode}
-                  onChange={(event) => setBarcode(event.target.value)}
-                />
-                {scannerSupported ? (
-                  <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
-                    <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
+          <div className="intake-path-switch" role="tablist" aria-label="Intake path">
+            <button
+              aria-selected={entryMode === "CODE"}
+              className={`intake-path-button${entryMode === "CODE" ? " active" : ""}`}
+              onClick={() => setEntryMode("CODE")}
+              role="tab"
+              type="button"
+            >
+              <ScanBarcode size={16} />
+              <span>Identify by code</span>
+            </button>
+            <button
+              aria-selected={entryMode === "MANUAL"}
+              className={`intake-path-button${entryMode === "MANUAL" ? " active" : ""}`}
+              onClick={() => setEntryMode("MANUAL")}
+              role="tab"
+              type="button"
+            >
+              <Search size={16} />
+              <span>Manual/source lookup</span>
+            </button>
+          </div>
+
+          {entryMode === "CODE" ? (
+            <div className="scan-import-grid">
+              <label className="label">
+                Barcode
+                <div className="scan-field-row">
+                  <input
+                    className="field"
+                    data-testid="scan-identify-barcode"
+                    inputMode="numeric"
+                    placeholder="Scan or type barcode"
+                    required
+                    value={barcode}
+                    onChange={(event) => setBarcode(event.target.value)}
+                  />
+                  {scannerSupported ? (
+                    <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
+                      <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
+                    </Button>
+                  ) : null}
+                </div>
+              </label>
+              <div className="label">
+                Identify
+                <div className="scan-field-row">
+                  <Button
+                    data-testid="scan-identify-submit"
+                    disabled={lookupPending || !barcode.trim()}
+                    kind="secondary"
+                    onClick={handleLookup}
+                    type="button"
+                  >
+                    <Search size={16} /> {lookupPending ? "Identifying..." : "Find product match"}
                   </Button>
-                ) : null}
+                </div>
               </div>
-            </label>
-            <div className="label">
-              Identify
-              <div className="scan-field-row">
+            </div>
+          ) : (
+            <div className="stack">
+              <SourceSearchPanel
+                description="Use a title, brand, or model phrase to pull up product-centric sources. Review the best result, then use it to prefill the item instead of typing from scratch."
+                query={lookupQuery}
+                sourceUrl={manualSourceUrl}
+                title="Find source data without a barcode"
+                onQueryChange={setLookupQuery}
+                onSourceUrlChange={setManualSourceUrl}
+              />
+              <div className="actions">
                 <Button
-                  data-testid="scan-identify-submit"
-                  disabled={lookupPending || !barcode.trim()}
+                  data-testid="scan-identify-manual-start"
+                  disabled={!lookupQuery.trim() && !manualSourceUrl.trim()}
                   kind="secondary"
-                  onClick={handleLookup}
+                  onClick={handleManualLookupStart}
                   type="button"
                 >
-                  <Search size={16} /> {lookupPending ? "Identifying..." : "Find product match"}
+                  <Sparkles size={16} /> Prefill from manual lookup
                 </Button>
               </div>
             </div>
-          </div>
+          )}
 
           {!scanMode ? (
             <>
@@ -1667,7 +1849,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
               ) : null}
 
               <div className="actions">
-                <Button kind="secondary" onClick={enableManualEntry} type="button">
+                <Button kind="secondary" onClick={() => enableManualEntry()} type="button">
                   Continue with manual entry
                 </Button>
               </div>
