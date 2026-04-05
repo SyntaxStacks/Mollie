@@ -5,6 +5,7 @@ import {
   Camera,
   Copy,
   ExternalLink,
+  Plug2,
   QrCode,
   RefreshCw,
   Smartphone,
@@ -60,6 +61,16 @@ export type InventoryDetailRecord = {
     attributesJson: Record<string, unknown> | null;
   }>;
   platformListings: Array<{ id: string; platform: string; status: string; externalUrl: string | null }>;
+  extensionTasks: Array<{
+    id: string;
+    platform: string;
+    action: string;
+    state: string;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+  }>;
   sales: Array<{ id: string; soldPrice: number; soldAt: string }>;
 };
 
@@ -126,6 +137,13 @@ type InventoryDetailViewProps = {
     value: string
   ) => void;
   onSaveItemDetails: (event: FormEvent<HTMLFormElement>) => void;
+  extensionInstalled: boolean;
+  extensionConnected: boolean;
+  extensionPendingCount: number;
+  extensionLoading: boolean;
+  onRefreshExtension: () => void;
+  onSendToExtension: () => void;
+  extensionActionStatus: string | null;
 };
 
 function ContinueOnMobileModal({
@@ -298,7 +316,14 @@ export function InventoryDetailView({
   onApproveEbayDraft,
   itemForm,
   onFieldChange,
-  onSaveItemDetails
+  onSaveItemDetails,
+  extensionInstalled,
+  extensionConnected,
+  extensionPendingCount,
+  extensionLoading,
+  onRefreshExtension,
+  onSendToExtension,
+  extensionActionStatus
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -309,6 +334,7 @@ export function InventoryDetailView({
   const profit = getProfitEstimate(item);
   const nextAction = getNextActionLabel(item);
   const identifier = getIdentifierValue(item);
+  const recentExtensionTasks = item.extensionTasks.slice(0, 4);
 
   const historyRows = useMemo(() => {
     const rows: Array<{ id: string; label: string; detail: string; meta: string }> = [];
@@ -666,6 +692,61 @@ export function InventoryDetailView({
                 </div>
               </div>
             ) : null}
+          </SectionCard>
+
+          <SectionCard
+            action={
+              <StatusPill
+                label={extensionConnected ? "connected" : extensionInstalled ? "detected" : "missing"}
+                tone={extensionConnected ? "success" : extensionInstalled ? "warning" : "neutral"}
+              />
+            }
+            eyebrow="Browser Extension"
+            title="Hand off marketplace work in this browser"
+          >
+            <div className="extension-task-card">
+              <div className="extension-task-header">
+                <div>
+                  <strong className="extension-task-title">
+                    <Plug2 size={16} /> Mollie browser extension
+                  </strong>
+                  <p className="muted">
+                    {extensionConnected
+                      ? "Connected. Send this item into the browser extension for import or marketplace-side work."
+                      : extensionInstalled
+                        ? "The extension was detected, but this page needs to refresh the Mollie session bridge."
+                        : "Install the Mollie browser extension to import marketplace listings and accept Mollie handoff tasks."}
+                  </p>
+                </div>
+                <div className="actions">
+                  <Button kind="secondary" onClick={onRefreshExtension} type="button">
+                    <RefreshCw size={16} /> Refresh
+                  </Button>
+                  <Button disabled={!extensionConnected || pending} onClick={onSendToExtension} type="button">
+                    Open in extension
+                  </Button>
+                </div>
+              </div>
+              <div className="inventory-preflight-meta">
+                <span>Pending tasks: {extensionPendingCount}</span>
+                <span>{extensionLoading ? "Checking extension…" : extensionConnected ? "Ready for handoff" : "Not ready for handoff"}</span>
+              </div>
+              {extensionActionStatus ? <div className="notice">{extensionActionStatus}</div> : null}
+              <div className="activity-list">
+                {recentExtensionTasks.length === 0 ? (
+                  <div className="muted">No extension work yet. Use the browser extension to import a listing or hand this item off for marketplace-specific work.</div>
+                ) : null}
+                {recentExtensionTasks.map((task) => (
+                  <div className="activity-row" key={task.id}>
+                    <div>
+                      <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
+                      <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
+                    </div>
+                    <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </SectionCard>
 
           <SectionCard eyebrow="History" title="What happened to this item">

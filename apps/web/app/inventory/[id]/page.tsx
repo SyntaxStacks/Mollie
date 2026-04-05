@@ -11,8 +11,10 @@ import {
 } from "../../../components/inventory-detail-view";
 import { ProtectedView } from "../../../components/protected-view";
 import { useAuth } from "../../../components/auth-provider";
+import { useDesktopExtension } from "../../../components/use-desktop-extension";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
 import { useAuthedResource } from "../../../lib/api";
+import { handoffExtensionTask } from "../../../lib/extension-bridge";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -24,6 +26,16 @@ type EbayPreflightResponse = {
   preflight: InventoryPreflightRecord;
 };
 
+type ExtensionStatusResponse = {
+  tasks: Array<{
+    id: string;
+    inventoryItemId?: string | null;
+    platform: string;
+    action: string;
+    state: string;
+  }>;
+};
+
 export default function InventoryDetailPage() {
   const auth = useAuth();
   const params = useParams<{ id: string }>();
@@ -31,6 +43,7 @@ export default function InventoryDetailPage() {
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [extensionActionStatus, setExtensionActionStatus] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState({
     title: "",
     brand: "",
@@ -53,6 +66,8 @@ export default function InventoryDetailPage() {
   });
   const { data, error, refresh } = useAuthedResource<InventoryItemResponse>(`/api/inventory/${params.id}`, auth.token, [params.id]);
   const ebayPreflight = useAuthedResource<EbayPreflightResponse>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
+  const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
+  const extension = useDesktopExtension();
   const ebayDraft =
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY" && draft.reviewStatus === "APPROVED") ??
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY") ??
@@ -334,6 +349,62 @@ export default function InventoryDetailPage() {
     });
   }
 
+  async function sendToExtension() {
+    if (!auth.token || !auth.workspace) {
+      return;
+    }
+
+    const workspaceId = auth.workspace.id;
+
+    if (!extension.connected) {
+      setExtensionActionStatus("Refresh the browser extension connection first.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/extension/tasks/handoff`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`,
+            "x-workspace-id": workspaceId
+          },
+          body: JSON.stringify({
+            inventoryItemId: params.id,
+            platform: "EBAY",
+            action: "PREPARE_DRAFT"
+          })
+        });
+        const payload = (await response.json().catch(() => ({ error: "Could not create extension handoff" }))) as {
+          error?: string;
+          task?: { id: string; platform: string; action: string };
+          listing?: Record<string, unknown>;
+        };
+
+        if (!response.ok || !payload.task || !payload.listing) {
+          throw new Error(payload.error ?? "Could not create extension handoff");
+        }
+
+        const handoff = await handoffExtensionTask({
+          taskId: payload.task.id,
+          platform: payload.task.platform,
+          action: payload.task.action,
+          listing: payload.listing
+        });
+
+        if (!handoff.ok) {
+          throw new Error(handoff.error ?? "Extension did not accept the task");
+        }
+
+        setExtensionActionStatus("Queued in the browser extension.");
+        await Promise.all([refresh(), extensionStatus.refresh()]);
+      } catch (caughtError) {
+        setExtensionActionStatus(caughtError instanceof Error ? caughtError.message : "Could not send item to extension");
+      }
+    });
+  }
+
   async function saveItemDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -443,6 +514,16 @@ export default function InventoryDetailPage() {
             onSaveEbayDraft={saveEbayDraft}
             onSaveItemDetails={saveItemDetails}
             onPublishWhatnot={() => void runMutation(`/api/inventory/${data.item.id}/publish/whatnot`)}
+            extensionActionStatus={extensionActionStatus}
+            extensionConnected={extension.connected}
+            extensionInstalled={extension.installed}
+            extensionLoading={extension.loading}
+            extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
+            onRefreshExtension={() => {
+              void extension.refresh();
+              void extensionStatus.refresh();
+            }}
+            onSendToExtension={() => void sendToExtension()}
             itemForm={itemForm}
             pending={pending}
             submitError={submitError}

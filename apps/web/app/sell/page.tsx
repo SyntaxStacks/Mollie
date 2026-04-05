@@ -6,6 +6,7 @@ import { CheckCircle2, Clock3, AlertTriangle, Sparkles } from "lucide-react";
 import { Button } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
+import { DesktopExtensionStatusCard } from "../../components/desktop-extension-status-card";
 import { ItemCard } from "../../components/item-card";
 import { MarketplaceStatusRow } from "../../components/marketplace-status-row";
 import { MissingFieldsPanel } from "../../components/missing-fields-panel";
@@ -13,6 +14,7 @@ import { ProtectedView } from "../../components/protected-view";
 import { QueueHeader } from "../../components/queue-header";
 import { SectionCard } from "../../components/section-card";
 import { useAuth } from "../../components/auth-provider";
+import { useDesktopExtension } from "../../components/use-desktop-extension";
 import { useAuthedResource } from "../../lib/api";
 import {
   getListingReadinessFlags,
@@ -25,6 +27,10 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4
 const sellQueues = ["Ready to List", "Drafts", "Publishing", "Listed", "Failed", "Needs Details"] as const;
 
 type SellItem = InventoryListLikeItem & { sku: string };
+
+type ExtensionStatusResponse = {
+  tasks: Array<{ id: string; state: string }>;
+};
 
 function queueHeadline(queue: (typeof sellQueues)[number]) {
   switch (queue) {
@@ -63,6 +69,8 @@ function queuePrimaryAction(queue: (typeof sellQueues)[number]) {
 export default function SellPage() {
   const auth = useAuth();
   const { data, error, refresh } = useAuthedResource<{ items: SellItem[] }>("/api/inventory", auth.token);
+  const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
+  const extension = useDesktopExtension();
   const [activeQueue, setActiveQueue] = useState<(typeof sellQueues)[number]>("Ready to List");
   const [pending, startTransition] = useTransition();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -102,6 +110,17 @@ export default function SellPage() {
     <ProtectedView>
       <AppShell title="Sell">
         <section className="page-stack">
+          <DesktopExtensionStatusCard
+            connected={extension.connected}
+            installed={extension.installed}
+            loading={extension.loading}
+            onRefresh={() => {
+              void extension.refresh();
+              void extensionStatus.refresh();
+            }}
+            pendingTasks={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
+          />
+
           <SectionCard eyebrow="Sell queue" title="Queue-based selling">
             <QueueHeader
               count={activeGroup?.items.length ?? 0}

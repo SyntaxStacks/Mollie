@@ -202,6 +202,172 @@ export type LinkedPublishSummary = {
   results: LinkedPublishPlatformResult[];
 };
 
+export const marketplaceAdapterCapabilities = [
+  "API_IMPORT",
+  "EXTENSION_IMPORT",
+  "API_PUBLISH",
+  "EXTENSION_PUBLISH",
+  "BULK_IMPORT",
+  "BULK_PUBLISH",
+  "RELIST",
+  "DELIST",
+  "UPDATE",
+  "SOLD_SYNC"
+] as const;
+export type MarketplaceAdapterCapability = (typeof marketplaceAdapterCapabilities)[number];
+
+export const extensionTaskActions = [
+  "IMPORT_LISTING",
+  "PREPARE_DRAFT",
+  "PUBLISH_LISTING",
+  "UPDATE_LISTING",
+  "DELIST_LISTING",
+  "RELIST_LISTING"
+] as const;
+export type ExtensionTaskAction = (typeof extensionTaskActions)[number];
+
+export const extensionTaskStates = ["QUEUED", "RUNNING", "NEEDS_INPUT", "FAILED", "SUCCEEDED", "CANCELED"] as const;
+export type ExtensionTaskState = (typeof extensionTaskStates)[number];
+
+export const extensionTaskFailureCodes = [
+  "AUTH_REQUIRED",
+  "EXTENSION_MISSING",
+  "MISSING_REQUIRED_FIELD",
+  "UNSUPPORTED_FLOW",
+  "SELECTOR_FAILED",
+  "UPLOAD_FAILED",
+  "PUBLISH_FAILED",
+  "VALIDATION_FAILED",
+  "RATE_LIMITED",
+  "UNKNOWN"
+] as const;
+export type ExtensionTaskFailureCode = (typeof extensionTaskFailureCodes)[number];
+
+export const extensionConnectionStates = ["INSTALLED", "NOT_INSTALLED", "DISCONNECTED"] as const;
+export type ExtensionConnectionState = (typeof extensionConnectionStates)[number];
+
+export const extensionBridgeTargets = ["MOLLIE_APP", "MOLLIE_EXTENSION"] as const;
+export type ExtensionBridgeTarget = (typeof extensionBridgeTargets)[number];
+
+export const universalListingPhotoSchema = z.object({
+  url: z.string().url(),
+  kind: z.enum(["PRIMARY", "GALLERY"]).default("GALLERY"),
+  alt: z.string().trim().max(180).optional().nullable(),
+  width: z.number().int().positive().optional().nullable(),
+  height: z.number().int().positive().optional().nullable()
+});
+
+export const universalListingMarketplaceOverrideSchema = z.object({
+  title: z.string().trim().min(2).max(180).optional(),
+  description: z.string().trim().min(2).max(5000).optional(),
+  category: z.string().trim().min(2).max(160).optional(),
+  price: z.number().nonnegative().optional(),
+  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+});
+
+export const universalListingSchema = z.object({
+  inventoryItemId: z.string().min(1),
+  sku: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(2).max(180),
+  description: z.string().trim().max(5000).default(""),
+  category: z.string().trim().min(2).max(160),
+  brand: z.string().trim().max(120).optional().nullable(),
+  condition: z.string().trim().min(2).max(120),
+  price: z.number().nonnegative().nullable(),
+  quantity: z.number().int().positive().default(1),
+  size: z.string().trim().max(80).optional().nullable(),
+  color: z.string().trim().max(80).optional().nullable(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(24).default([]),
+  dimensions: z
+    .object({
+      length: z.number().positive().optional().nullable(),
+      width: z.number().positive().optional().nullable(),
+      height: z.number().positive().optional().nullable(),
+      unit: z.enum(["in", "cm"]).default("in")
+    })
+    .optional()
+    .nullable(),
+  weight: z
+    .object({
+      value: z.number().positive(),
+      unit: z.enum(["oz", "lb", "g", "kg"]).default("oz")
+    })
+    .optional()
+    .nullable(),
+  photos: z.array(universalListingPhotoSchema).max(24).default([]),
+  marketplaceOverrides: z.record(z.enum(platforms), universalListingMarketplaceOverrideSchema).default({}),
+  metadata: z.record(z.string(), z.any()).default({})
+});
+
+export type UniversalListingPhoto = z.infer<typeof universalListingPhotoSchema>;
+export type UniversalListing = z.infer<typeof universalListingSchema>;
+
+export type MarketplaceCapabilitySummary = {
+  platform: Platform;
+  capabilities: MarketplaceAdapterCapability[];
+  importMode: "API" | "EXTENSION" | "NONE";
+  publishMode: "API" | "EXTENSION" | "NONE";
+  bulkImport: boolean;
+  bulkPublish: boolean;
+};
+
+export const extensionTaskCreateSchema = z.object({
+  inventoryItemId: z.string().min(1),
+  platform: z.enum(platforms),
+  action: z.enum(extensionTaskActions)
+});
+
+export const extensionTaskResultUpdateSchema = z.object({
+  state: z.enum(extensionTaskStates),
+  lastErrorCode: z.enum(extensionTaskFailureCodes).optional().nullable(),
+  lastErrorMessage: z.string().trim().max(500).optional().nullable(),
+  result: z.record(z.string(), z.any()).optional().nullable()
+});
+
+export const extensionEbayImportSchema = z.object({
+  externalListingId: z.string().trim().min(1).max(160),
+  externalUrl: z.string().url(),
+  title: z.string().trim().min(2).max(180),
+  description: z.string().trim().max(5000).optional().nullable(),
+  price: z.number().nonnegative().optional().nullable(),
+  category: z.string().trim().max(160).optional().nullable(),
+  condition: z.string().trim().max(120).optional().nullable(),
+  brand: z.string().trim().max(120).optional().nullable(),
+  quantity: z.number().int().positive().default(1),
+  photos: z.array(universalListingPhotoSchema).max(24).default([]),
+  sourceUrl: z.string().url().optional().nullable(),
+  sourceListingState: z.enum(["DRAFT", "PUBLISHED", "SOLD", "ENDED"]).default("PUBLISHED"),
+  attributes: z.record(z.string(), z.any()).default({})
+});
+
+export type ExtensionEbayImportPayload = z.infer<typeof extensionEbayImportSchema>;
+
+export type ExtensionTaskView = {
+  id: string;
+  workspaceId: string;
+  inventoryItemId?: string | null;
+  inventoryImportRunId?: string | null;
+  marketplaceAccountId?: string | null;
+  platform: Platform;
+  action: ExtensionTaskAction;
+  state: ExtensionTaskState;
+  lastErrorCode?: ExtensionTaskFailureCode | null;
+  lastErrorMessage?: string | null;
+  payload: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ExtensionStatusView = {
+  connectionState: ExtensionConnectionState;
+  browserName: string;
+  latestTask?: ExtensionTaskView | null;
+  capabilitySummary: MarketplaceCapabilitySummary[];
+};
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 

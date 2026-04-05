@@ -4,6 +4,7 @@ import { registerAuthRoutes } from "./auth.js";
 import { registerCatalogRoutes } from "./catalog.js";
 import { registerDraftRoutes } from "./drafts.js";
 import { registerEbayNotificationRoutes } from "./ebay-notifications.js";
+import { registerExtensionRoutes } from "./extension.js";
 import { registerHealthRoutes } from "./health.js";
 import { registerImportRoutes } from "./imports.js";
 import { registerInventoryRoutes } from "./inventory.js";
@@ -19,6 +20,7 @@ export function registerApiRoutes(app: ApiApp, context: ApiRouteContext) {
   registerEbayNotificationRoutes(app);
   registerAuthRoutes(app, context);
   registerWorkspaceRoutes(app, context);
+  registerExtensionRoutes(app, context);
   registerCatalogRoutes(app, context);
   registerMarketplaceAccountRoutes(app, context);
   registerSourceLotRoutes(app, context);

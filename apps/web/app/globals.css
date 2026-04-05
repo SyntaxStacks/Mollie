@@ -1083,7 +1083,10 @@ body {
 .detail-page-stack,
 .detail-meta-list,
 .detail-snapshot-copy,
-.detail-sell-grid {
+.detail-sell-grid,
+.extension-task-card,
+.extension-status-card,
+.extension-status-copy {
   display: grid;
   gap: 1rem;
 }
@@ -1293,6 +1296,25 @@ body {
   display: grid;
   gap: 0.9rem;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.extension-status-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.extension-task-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.extension-task-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
 }
 
 .sell-queue-summary-card,

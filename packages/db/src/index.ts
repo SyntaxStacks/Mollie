@@ -242,6 +242,9 @@ export async function listWorkspaceInventory(workspaceId: string) {
       sourceLot: true,
       listingDrafts: true,
       platformListings: true,
+      extensionTasks: {
+        orderBy: { createdAt: "desc" }
+      },
       sales: true
     },
     orderBy: { updatedAt: "desc" }
@@ -807,8 +810,91 @@ export async function findInventoryItemDetailForWorkspace(workspaceId: string, i
       sourceLot: true,
       listingDrafts: true,
       platformListings: true,
+      extensionTasks: {
+        orderBy: { createdAt: "desc" }
+      },
       sales: true
     }
+  });
+}
+
+export async function createExtensionTaskForWorkspace(
+  workspaceId: string,
+  input: {
+    inventoryItemId?: string | null;
+    inventoryImportRunId?: string | null;
+    marketplaceAccountId?: string | null;
+    platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT";
+    action:
+      | "IMPORT_LISTING"
+      | "PREPARE_DRAFT"
+      | "PUBLISH_LISTING"
+      | "UPDATE_LISTING"
+      | "DELIST_LISTING"
+      | "RELIST_LISTING";
+    state?: "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
+    payload?: Prisma.InputJsonValue;
+    result?: Prisma.InputJsonValue;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+    startedAt?: Date | null;
+    completedAt?: Date | null;
+  }
+) {
+  return db.extensionTask.create({
+    data: {
+      workspaceId,
+      inventoryItemId: input.inventoryItemId ?? null,
+      inventoryImportRunId: input.inventoryImportRunId ?? null,
+      marketplaceAccountId: input.marketplaceAccountId ?? null,
+      platform: input.platform,
+      action: input.action,
+      state: input.state ?? "QUEUED",
+      payloadJson: input.payload,
+      resultJson: input.result,
+      lastErrorCode: input.lastErrorCode ?? null,
+      lastErrorMessage: input.lastErrorMessage ?? null,
+      startedAt: input.startedAt ?? null,
+      completedAt: input.completedAt ?? null
+    }
+  });
+}
+
+export async function findExtensionTaskForWorkspace(workspaceId: string, taskId: string) {
+  return db.extensionTask.findFirst({
+    where: {
+      id: taskId,
+      workspaceId
+    }
+  });
+}
+
+export async function listExtensionTasksForWorkspace(
+  workspaceId: string,
+  filters?: {
+    inventoryItemId?: string;
+    platform?: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT";
+    state?: "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
+  }
+) {
+  return db.extensionTask.findMany({
+    where: {
+      workspaceId,
+      inventoryItemId: filters?.inventoryItemId,
+      platform: filters?.platform,
+      state: filters?.state
+    },
+    orderBy: { createdAt: "desc" }
+  });
+}
+
+export async function updateExtensionTask(
+  taskId: string,
+  data: Prisma.ExtensionTaskUpdateInput
+) {
+  return db.extensionTask.update({
+    where: { id: taskId },
+    data
   });
 }
 

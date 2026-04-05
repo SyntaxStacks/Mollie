@@ -145,6 +145,24 @@ enum InventoryImportItemStatus {
   FAILED
 }
 
+enum ExtensionTaskAction {
+  IMPORT_LISTING
+  PREPARE_DRAFT
+  PUBLISH_LISTING
+  UPDATE_LISTING
+  DELIST_LISTING
+  RELIST_LISTING
+}
+
+enum ExtensionTaskState {
+  QUEUED
+  RUNNING
+  NEEDS_INPUT
+  FAILED
+  SUCCEEDED
+  CANCELED
+}
+
 model User {
   id               String                @id @default(cuid())
   email            String                @unique
@@ -200,6 +218,7 @@ model Workspace {
   marketplaceConnectAttempts MarketplaceConnectAttempt[]
   marketplaceAccounts MarketplaceAccount[]
   inventoryImportRuns InventoryImportRun[]
+  extensionTasks     ExtensionTask[]
   sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
   catalogWorkspaceObservations WorkspaceCatalogObservation[]
@@ -243,6 +262,7 @@ model MarketplaceAccount {
   workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   connectAttempts MarketplaceConnectAttempt[]
   importRuns      InventoryImportRun[]
+  extensionTasks  ExtensionTask[]
   platformListings PlatformListing[]
 
   @@index([workspaceId, platform])
@@ -324,6 +344,7 @@ model InventoryItem {
   platformListings     PlatformListing[]
   sales                Sale[]
   executionLogs        ExecutionLog[]
+  extensionTasks       ExtensionTask[]
   importedFrom         InventoryImportItem[]
 
   @@index([workspaceId, status])
@@ -356,6 +377,7 @@ model InventoryImportRun {
   workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   marketplaceAccount MarketplaceAccount?        @relation(fields: [marketplaceAccountId], references: [id], onDelete: SetNull)
   items              InventoryImportItem[]
+  extensionTasks     ExtensionTask[]
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, status, createdAt])
@@ -381,6 +403,34 @@ model InventoryImportItem {
   @@index([runId, createdAt])
   @@index([runId, status, createdAt])
   @@index([dedupeKey])
+}
+
+model ExtensionTask {
+  id                  String             @id @default(cuid())
+  workspaceId         String
+  inventoryItemId     String?
+  inventoryImportRunId String?
+  marketplaceAccountId String?
+  platform            MarketplacePlatform
+  action              ExtensionTaskAction
+  state               ExtensionTaskState @default(QUEUED)
+  payloadJson         Json?
+  resultJson          Json?
+  lastErrorCode       String?
+  lastErrorMessage    String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  workspace           Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inventoryItem       InventoryItem?     @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
+  inventoryImportRun  InventoryImportRun? @relation(fields: [inventoryImportRunId], references: [id], onDelete: SetNull)
+  marketplaceAccount  MarketplaceAccount? @relation(fields: [marketplaceAccountId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, state, createdAt])
+  @@index([inventoryItemId, platform, createdAt])
+  @@index([inventoryImportRunId, platform, createdAt])
 }
 
 model CatalogIdentifier {

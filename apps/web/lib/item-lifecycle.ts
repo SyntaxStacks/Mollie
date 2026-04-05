@@ -54,6 +54,14 @@ export type InventoryListLikeItem = {
     status?: string | null;
     externalUrl?: string | null;
   }>;
+  extensionTasks?: Array<{
+    id: string;
+    platform: string;
+    action: string;
+    state: string;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
+  }>;
   sales?: Array<{ id: string; soldPrice: number; soldAt?: string | Date | null }>;
   createdAt?: string | Date | null;
   updatedAt?: string | Date | null;
@@ -147,6 +155,8 @@ export function getMarketplaceStatusSummaries(item: InventoryListLikeItem): Mark
   return platforms.map((platform) => {
     const listing = item.platformListings?.find((candidate) => candidate.platform === platform) ?? null;
     const draft = item.listingDrafts?.find((candidate) => candidate.platform === platform) ?? null;
+    const extensionTask =
+      item.extensionTasks?.find((candidate) => candidate.platform === platform) ?? null;
     const listingState = listing ? getMarketplaceListingState(listing.status) : draft ? "draft" : "not_started";
     const missingRequirements = [...flags];
 
@@ -187,6 +197,36 @@ export function getMarketplaceStatusSummaries(item: InventoryListLikeItem): Mark
         missingRequirements,
         actionLabel: flags.length === 0 ? "Publish" : "Edit",
         summary: draft.reviewStatus === "APPROVED" ? "Draft approved and waiting" : "Draft exists and needs review"
+      };
+    }
+
+    if (extensionTask?.state === "FAILED" || extensionTask?.state === "NEEDS_INPUT") {
+      return {
+        platform,
+        state: "failed",
+        missingRequirements,
+        actionLabel: "Retry in extension",
+        summary: extensionTask.lastErrorMessage ?? "Browser extension work needs attention"
+      };
+    }
+
+    if (extensionTask?.state === "RUNNING") {
+      return {
+        platform,
+        state: "publishing",
+        missingRequirements: [],
+        actionLabel: "Watch extension",
+        summary: "Browser extension is working this listing"
+      };
+    }
+
+    if (extensionTask?.state === "QUEUED") {
+      return {
+        platform,
+        state: "queued",
+        missingRequirements: [],
+        actionLabel: "Open extension",
+        summary: "Queued for browser extension work"
       };
     }
 
