@@ -151,6 +151,11 @@ function buildUniversalListing(item: Awaited<ReturnType<typeof findInventoryItem
     "";
   const tags = Array.isArray(approvedDraft?.generatedTagsJson)
     ? approvedDraft?.generatedTagsJson.filter((value): value is string => typeof value === "string")
+    : Array.isArray(itemAttributes.tags)
+      ? itemAttributes.tags.filter((value): value is string => typeof value === "string")
+      : [];
+  const labels = Array.isArray(itemAttributes.labels)
+    ? itemAttributes.labels.filter((value): value is string => typeof value === "string")
     : [];
 
   return {
@@ -166,6 +171,8 @@ function buildUniversalListing(item: Awaited<ReturnType<typeof findInventoryItem
     size: item.size ?? null,
     color: item.color ?? null,
     tags,
+    labels,
+    freeShipping: itemAttributes.freeShipping === true,
     photos: item.images.map((image, index) => ({
       url: image.url,
       kind: index === 0 ? "PRIMARY" : "GALLERY",

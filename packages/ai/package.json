@@ -12,7 +12,6 @@
   "dependencies": {
     "@reselleros/config": "workspace:*",
     "@reselleros/types": "workspace:*",
-    "openai": "^4.86.1",
     "zod": "^3.24.1"
   }
 }

@@ -31,18 +31,32 @@ function toneForConnection(tone: MarketplaceStatusSummary["connectionTone"]) {
 
 export function MarketplaceStatusRow({
   state,
+  selectable = false,
+  selected = false,
+  onToggle,
   onAction,
   onSecondaryAction
 }: {
   state: MarketplaceStatusSummary;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggle?: ((checked: boolean) => void) | null;
   onAction?: (() => void) | null;
   onSecondaryAction?: (() => void) | null;
 }) {
   return (
-    <div className="marketplace-status-row marketplace-status-row-rich">
+    <div className={`marketplace-status-row marketplace-status-row-rich${selected ? " marketplace-status-row-selected" : ""}`}>
       <div className="marketplace-status-main">
         <div className="marketplace-status-topline">
-          <strong>{state.platform}</strong>
+          <div className="marketplace-status-topline-main">
+            {selectable ? (
+              <label className="marketplace-selection-toggle">
+                <input checked={selected} onChange={(event) => onToggle?.(event.target.checked)} type="checkbox" />
+                <span />
+              </label>
+            ) : null}
+            <strong>{state.platform}</strong>
+          </div>
           <StatusPill label={state.state.replace(/_/g, " ")} tone={toneForState(state.state)} />
         </div>
         <div className="marketplace-status-copy">{state.summary}</div>
@@ -72,7 +86,7 @@ export function MarketplaceStatusRow({
       </div>
       <div className="marketplace-status-actions">
         {onSecondaryAction && state.secondaryActionLabel ? (
-          <Button kind="secondary" onClick={onSecondaryAction}>
+          <Button kind="ghost" onClick={onSecondaryAction}>
             <RefreshCw size={14} /> {state.secondaryActionLabel}
           </Button>
         ) : null}

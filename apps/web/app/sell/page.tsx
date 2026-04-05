@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { CheckCircle2, Clock3, AlertTriangle, Sparkles } from "lucide-react";
 
-import type { MarketplaceCapabilitySummary } from "@reselleros/types";
+import type { MarketplaceCapabilitySummary, Platform } from "@reselleros/types";
 import { Button } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
@@ -16,7 +16,7 @@ import { QueueHeader } from "../../components/queue-header";
 import { SectionCard } from "../../components/section-card";
 import { useAuth } from "../../components/auth-provider";
 import { useBrowserExtension } from "../../components/use-browser-extension";
-import { useAuthedResource } from "../../lib/api";
+import { currency, useAuthedResource } from "../../lib/api";
 import {
   getListingReadinessFlags,
   getMarketplaceStatusSummaries,
@@ -83,6 +83,9 @@ export default function SellPage() {
   const [activeQueue, setActiveQueue] = useState<(typeof sellQueues)[number]>("Ready to List");
   const [pending, startTransition] = useTransition();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [platformFilter, setPlatformFilter] = useState<"ALL" | Platform>("ALL");
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const items = data?.items ?? [];
 
   const grouped = useMemo(() => {
@@ -138,6 +141,36 @@ export default function SellPage() {
     });
   }
 
+  async function bulkPostSelected() {
+    const selected = items.filter((item) => selectedItemIds.includes(item.id));
+
+    if (selected.length === 0) {
+      setActionMessage("Select at least one listing first.");
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        await Promise.all(
+          selected.map((item) =>
+            fetch(`${API_BASE_URL}/api/inventory/${item.id}/publish-linked`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${auth.token}`,
+                "Content-Type": "application/json"
+              }
+            })
+          )
+        );
+        setActionMessage(`Queued publish for ${selected.length} listings.`);
+        setSelectedItemIds([]);
+        await refresh();
+      } catch {
+        setActionMessage("Could not queue bulk post.");
+      }
+    });
+  }
+
   function handleMarketplaceAction(itemId: string, platform: string, action: MarketplaceActionKind) {
     if (action === "connect_account") {
       window.location.assign("/marketplaces");
@@ -147,6 +180,16 @@ export default function SellPage() {
     if (action === "check_extension") {
       void extension.refresh();
       void extensionStatus.refresh();
+      void marketplaceAccounts.refresh();
+      void refresh();
+      return;
+    }
+
+    if (action === "check_again") {
+      void extension.refresh();
+      void extensionStatus.refresh();
+      void marketplaceAccounts.refresh();
+      void refresh();
       return;
     }
 
@@ -175,6 +218,24 @@ export default function SellPage() {
       return;
     }
   }
+
+  const filteredListings = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return items.filter((item) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        item.title.toLowerCase().includes(normalizedQuery) ||
+        item.sku.toLowerCase().includes(normalizedQuery) ||
+        String(item.attributesJson?.importSource ?? "").toLowerCase().includes(normalizedQuery);
+      const matchesPlatform =
+        platformFilter === "ALL" ||
+        item.platformListings?.some((listing) => listing.platform === platformFilter) ||
+        item.listingDrafts?.some((draft) => draft.platform === platformFilter);
+
+      return matchesQuery && matchesPlatform;
+    });
+  }, [items, platformFilter, searchQuery]);
 
   return (
     <ProtectedView>
@@ -241,6 +302,75 @@ export default function SellPage() {
 
           {error ? <div className="notice">{error}</div> : null}
           {actionMessage ? <div className="notice success">{actionMessage}</div> : null}
+
+          <SectionCard eyebrow="My listings" title="Desktop listing management">
+            <div className="listing-management-toolbar">
+              <div className="scan-import-grid">
+                <label className="label">
+                  Search
+                  <input className="field inventory-search" placeholder="Search SKU, title, or origin" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} />
+                </label>
+                <label className="label">
+                  Marketplace
+                  <select className="field" value={platformFilter} onChange={(event) => setPlatformFilter(event.target.value as "ALL" | Platform)}>
+                    <option value="ALL">All marketplaces</option>
+                    <option value="EBAY">eBay</option>
+                    <option value="DEPOP">Depop</option>
+                    <option value="POSHMARK">Poshmark</option>
+                    <option value="WHATNOT">Whatnot</option>
+                  </select>
+                </label>
+              </div>
+              <div className="actions">
+                <Button kind="secondary" onClick={() => window.location.assign("/inventory?compose=manual")}>Create</Button>
+                <Button kind="secondary" onClick={() => window.location.assign("/imports")}>Import</Button>
+                <Button disabled={pending || selectedItemIds.length === 0} onClick={() => void bulkPostSelected()}>{pending ? "Working..." : "Bulk post"}</Button>
+                <Button kind="secondary" onClick={() => setActionMessage("Bulk delist is not live yet.")}>Bulk delist</Button>
+              </div>
+            </div>
+            <div className="listing-table-shell">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Select</th>
+                    <th>SKU</th>
+                    <th>Title</th>
+                    <th>Price</th>
+                    <th>Created</th>
+                    <th>Origin</th>
+                    <th>Listed on</th>
+                    <th>Sold</th>
+                    <th>Labels</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredListings.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        <input
+                          checked={selectedItemIds.includes(item.id)}
+                          onChange={(event) =>
+                            setSelectedItemIds((current) =>
+                              event.target.checked ? [...new Set([...current, item.id])] : current.filter((entry) => entry !== item.id)
+                            )
+                          }
+                          type="checkbox"
+                        />
+                      </td>
+                      <td>{item.sku}</td>
+                      <td><a href={`/inventory/${item.id}`}>{item.title}</a></td>
+                      <td>{currency(item.priceRecommendation)}</td>
+                      <td>{item.createdAt ? new Date(item.createdAt).toLocaleDateString() : "n/a"}</td>
+                      <td>{String(item.attributesJson?.importSource ?? "MANUAL_ENTRY").replace(/_/g, " ")}</td>
+                      <td>{item.platformListings?.map((listing) => listing.platform).join(", ") || "Not listed"}</td>
+                      <td>{item.sales?.length ? "Sold" : "Available"}</td>
+                      <td>{Array.isArray(item.attributesJson?.labels) ? item.attributesJson.labels.join(", ") : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </SectionCard>
 
           {activeGroup ? (
             <SectionCard eyebrow="Queue focus" title={queuePrimaryAction(activeGroup.queue)}>

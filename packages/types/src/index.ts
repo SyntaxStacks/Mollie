@@ -248,6 +248,10 @@ export type ExtensionConnectionState = (typeof extensionConnectionStates)[number
 
 export const extensionBridgeTargets = ["MOLLIE_APP", "MOLLIE_EXTENSION"] as const;
 export type ExtensionBridgeTarget = (typeof extensionBridgeTargets)[number];
+export const aiProviders = ["null", "ollama"] as const;
+export type AiProviderName = (typeof aiProviders)[number];
+export const aiAssistOperations = ["title", "description", "price"] as const;
+export type AiAssistOperation = (typeof aiAssistOperations)[number];
 
 export const universalListingPhotoSchema = z.object({
   url: z.string().url(),
@@ -262,7 +266,7 @@ export const universalListingMarketplaceOverrideSchema = z.object({
   description: z.string().trim().min(2).max(5000).optional(),
   category: z.string().trim().min(2).max(160).optional(),
   price: z.number().nonnegative().optional(),
-  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+  attributes: z.record(z.string(), z.any()).default({})
 });
 
 export const universalListingSchema = z.object({
@@ -278,6 +282,8 @@ export const universalListingSchema = z.object({
   size: z.string().trim().max(80).optional().nullable(),
   color: z.string().trim().max(80).optional().nullable(),
   tags: z.array(z.string().trim().min(1).max(40)).max(24).default([]),
+  labels: z.array(z.string().trim().min(1).max(40)).max(24).default([]),
+  freeShipping: z.boolean().default(false),
   dimensions: z
     .object({
       length: z.number().positive().optional().nullable(),
@@ -547,7 +553,31 @@ export const inventoryInputSchema = z.object({
   estimatedResaleMin: z.number().nonnegative().optional().nullable(),
   estimatedResaleMax: z.number().nonnegative().optional().nullable(),
   priceRecommendation: z.number().nonnegative().optional().nullable(),
-  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+  attributes: z.record(z.string(), z.any()).default({})
+});
+
+export const aiStatusResponseSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.enum(aiProviders),
+  remainingDailyQuota: z.number().int().nonnegative(),
+  dailyQuota: z.number().int().nonnegative(),
+  message: z.string().trim().max(240).optional().nullable()
+});
+
+export const aiListingAssistRequestSchema = z.object({
+  operation: z.enum(aiAssistOperations),
+  platform: z.enum(platforms).optional().nullable(),
+  item: universalListingSchema
+});
+
+export const aiListingAssistResponseSchema = z.object({
+  enabled: z.boolean(),
+  provider: z.enum(aiProviders),
+  operation: z.enum(aiAssistOperations),
+  suggestion: z.union([z.string(), z.number(), z.null()]),
+  remainingDailyQuota: z.number().int().nonnegative(),
+  dailyQuota: z.number().int().nonnegative(),
+  message: z.string().trim().max(240).optional().nullable()
 });
 
 export const draftUpdateSchema = z.object({
@@ -555,7 +585,7 @@ export const draftUpdateSchema = z.object({
   generatedDescription: z.string().min(2).max(5000).optional(),
   generatedPrice: z.number().nonnegative().optional(),
   generatedTags: z.array(z.string().min(1).max(32)).max(12).optional(),
-  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  attributes: z.record(z.string(), z.any()).optional(),
   reviewStatus: z.enum(draftReviewStatuses).optional()
 });
 
@@ -698,7 +728,7 @@ export const inventoryImportCandidateSchema = z.object({
   sourceUrl: z.string().url().optional().nullable(),
   externalItemId: z.string().trim().min(1).max(160).optional().nullable(),
   imageUrls: z.array(z.string().url()).max(12).default([]),
-  attributes: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({})
+  attributes: z.record(z.string(), z.any()).default({})
 });
 
 export const inventoryImportAccountStartSchema = z.object({
@@ -855,6 +885,10 @@ export type ListingDraftOutput = {
   tags: string[];
   attributes: Record<string, string | number | boolean>;
 };
+
+export type AiStatusResponse = z.infer<typeof aiStatusResponseSchema>;
+export type AiListingAssistRequest = z.infer<typeof aiListingAssistRequestSchema>;
+export type AiListingAssistResponse = z.infer<typeof aiListingAssistResponseSchema>;
 
 export type PublishResult = {
   externalListingId: string;

@@ -711,13 +711,19 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = z
+      .object({
+        platforms: z.array(z.enum(platforms)).min(1).optional()
+      })
+      .parse(request.body ?? {});
     const item = await findInventoryItemForWorkspace(workspace.id, params.id);
 
     if (!item) {
       throw app.httpErrors.notFound("Inventory item not found");
     }
 
-    const targets = await getLinkedPublishTargets(workspace.id);
+    const allowedPlatforms = body.platforms ?? [...platforms];
+    const targets = (await getLinkedPublishTargets(workspace.id)).filter((target) => allowedPlatforms.includes(target.platform));
     const readyPlatforms = targets.filter((target) => target.ready).map((target) => target.platform);
 
     if (readyPlatforms.length > 0) {
@@ -770,13 +776,19 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = z
+      .object({
+        platforms: z.array(z.enum(platforms)).min(1).optional()
+      })
+      .parse(request.body ?? {});
     const item = await findInventoryItemForWorkspace(workspace.id, params.id);
 
     if (!item) {
       throw app.httpErrors.notFound("Inventory item not found");
     }
 
-    const targets = await getLinkedPublishTargets(workspace.id);
+    const allowedPlatforms = body.platforms ?? [...platforms];
+    const targets = (await getLinkedPublishTargets(workspace.id)).filter((target) => allowedPlatforms.includes(target.platform));
     const results: LinkedPublishPlatformResult[] = [];
 
     for (const target of targets) {

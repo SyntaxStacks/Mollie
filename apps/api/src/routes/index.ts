@@ -1,4 +1,5 @@
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+import { registerAiRoutes } from "./ai.js";
 import { registerAnalyticsRoutes } from "./analytics.js";
 import { registerAuthRoutes } from "./auth.js";
 import { registerCatalogRoutes } from "./catalog.js";
@@ -20,6 +21,7 @@ export function registerApiRoutes(app: ApiApp, context: ApiRouteContext) {
   registerEbayNotificationRoutes(app);
   registerAuthRoutes(app, context);
   registerWorkspaceRoutes(app, context);
+  registerAiRoutes(app, context);
   registerExtensionRoutes(app, context);
   registerCatalogRoutes(app, context);
   registerMarketplaceAccountRoutes(app, context);

@@ -206,10 +206,10 @@ model AuthChallenge {
 }
 
 model Workspace {
-  id                 String               @id @default(cuid())
-  ownerUserId        String
-  name               String
-  plan               String               @default("pilot")
+    id                 String               @id @default(cuid())
+    ownerUserId        String
+    name               String
+    plan               String               @default("pilot")
   billingCustomerId  String?
   connectorAutomationEnabled Boolean      @default(true)
   createdAt          DateTime             @default(now())
@@ -218,13 +218,27 @@ model Workspace {
   marketplaceConnectAttempts MarketplaceConnectAttempt[]
   marketplaceAccounts MarketplaceAccount[]
   inventoryImportRuns InventoryImportRun[]
-  extensionTasks     ExtensionTask[]
-  sourceLots         SourceLot[]
+    extensionTasks     ExtensionTask[]
+    aiUsageDaily       WorkspaceAiUsageDaily[]
+    sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
   catalogWorkspaceObservations WorkspaceCatalogObservation[]
   catalogWorkspaceOverrides WorkspaceCatalogOverride[]
   executionLogs      ExecutionLog[]
   auditLogs          AuditLog[]
+}
+
+model WorkspaceAiUsageDaily {
+    id            String    @id @default(cuid())
+    workspaceId   String
+    day           String
+    requestCount  Int       @default(0)
+    createdAt     DateTime  @default(now())
+    updatedAt     DateTime  @updatedAt
+    workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+    @@unique([workspaceId, day])
+    @@index([workspaceId, day])
 }
 
 model WorkspaceMembership {

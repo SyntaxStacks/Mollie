@@ -17,6 +17,15 @@ if (process.env.NODE_ENV !== "production") {
 
 export type { Prisma };
 
+function isMissingTableError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === "P2021"
+  );
+}
+
 function nextSku() {
   return `SKU-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
 }
@@ -1288,4 +1297,59 @@ export async function addInventoryImage(inventoryItemId: string, input: {
       position: input.position
     }
   });
+}
+
+export async function getWorkspaceAiUsageForDay(workspaceId: string, day: string) {
+  try {
+    return await db.workspaceAiUsageDaily.findUnique({
+      where: {
+        workspaceId_day: {
+          workspaceId,
+          day
+        }
+      }
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+export async function incrementWorkspaceAiUsageForDay(workspaceId: string, day: string) {
+  try {
+    return await db.workspaceAiUsageDaily.upsert({
+      where: {
+        workspaceId_day: {
+          workspaceId,
+          day
+        }
+      },
+      update: {
+        requestCount: {
+          increment: 1
+        }
+      },
+      create: {
+        workspaceId,
+        day,
+        requestCount: 1
+      }
+    });
+  } catch (error) {
+    if (isMissingTableError(error)) {
+      return {
+        id: `missing-table-${workspaceId}-${day}`,
+        workspaceId,
+        day,
+        requestCount: 1,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+    }
+
+    throw error;
+  }
 }

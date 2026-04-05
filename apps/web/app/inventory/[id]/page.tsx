@@ -3,10 +3,11 @@
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
-import type { MarketplaceCapabilitySummary } from "@reselleros/types";
+import type { AiStatusResponse, MarketplaceCapabilitySummary, Platform, UniversalListing } from "@reselleros/types";
 import { AppShell } from "../../../components/app-shell";
 import {
   InventoryDetailView,
+  type InventoryItemFormState,
   type InventoryDetailRecord,
   type InventoryPreflightRecord
 } from "../../../components/inventory-detail-view";
@@ -51,7 +52,7 @@ export default function InventoryDetailPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [extensionActionStatus, setExtensionActionStatus] = useState<string | null>(null);
-  const [itemForm, setItemForm] = useState({
+  const [itemForm, setItemForm] = useState<InventoryItemFormState>({
     title: "",
     brand: "",
     category: "",
@@ -62,8 +63,25 @@ export default function InventoryDetailPage() {
     costBasis: "0",
     estimatedResaleMin: "",
     estimatedResaleMax: "",
-    priceRecommendation: ""
+    priceRecommendation: "",
+    description: "",
+    tags: "",
+    labels: "",
+    shippingWeightValue: "",
+    shippingWeightUnit: "oz",
+    shippingLength: "",
+    shippingWidth: "",
+    shippingHeight: "",
+    shippingDimensionUnit: "in",
+    freeShipping: false,
+    ebayPrice: "",
+    depopPrice: "",
+    poshmarkPrice: "",
+    whatnotPrice: ""
   });
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["EBAY"]);
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
+  const [aiPendingOperation, setAiPendingOperation] = useState<"title" | "description" | "price" | null>(null);
   const [handoffUrl, setHandoffUrl] = useState("");
   const [ebayDraftForm, setEbayDraftForm] = useState({
     generatedTitle: "",
@@ -75,6 +93,7 @@ export default function InventoryDetailPage() {
   const ebayPreflight = useAuthedResource<EbayPreflightResponse>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
   const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
   const marketplaceAccounts = useAuthedResource<MarketplaceAccountsResponse>("/api/marketplace-accounts", auth.token);
+  const aiStatus = useAuthedResource<AiStatusResponse>("/api/ai/status", auth.token);
   const extension = useBrowserExtension();
   const ebayDraft =
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY" && draft.reviewStatus === "APPROVED") ??
@@ -131,9 +150,70 @@ export default function InventoryDetailPage() {
       costBasis: String(data.item.costBasis ?? 0),
       estimatedResaleMin: data.item.estimatedResaleMin == null ? "" : String(data.item.estimatedResaleMin),
       estimatedResaleMax: data.item.estimatedResaleMax == null ? "" : String(data.item.estimatedResaleMax),
-      priceRecommendation: data.item.priceRecommendation == null ? "" : String(data.item.priceRecommendation)
+      priceRecommendation: data.item.priceRecommendation == null ? "" : String(data.item.priceRecommendation),
+      description: typeof data.item.attributesJson?.description === "string" ? data.item.attributesJson.description : "",
+      tags: Array.isArray(data.item.attributesJson?.tags) ? data.item.attributesJson.tags.join(", ") : "",
+      labels: Array.isArray(data.item.attributesJson?.labels) ? data.item.attributesJson.labels.join(", ") : "",
+      shippingWeightValue:
+        typeof data.item.attributesJson?.shippingWeightValue === "number" || typeof data.item.attributesJson?.shippingWeightValue === "string"
+          ? String(data.item.attributesJson.shippingWeightValue)
+          : "",
+      shippingWeightUnit:
+        typeof data.item.attributesJson?.shippingWeightUnit === "string" ? data.item.attributesJson.shippingWeightUnit : "oz",
+      shippingLength:
+        typeof data.item.attributesJson?.shippingLength === "number" || typeof data.item.attributesJson?.shippingLength === "string"
+          ? String(data.item.attributesJson.shippingLength)
+          : "",
+      shippingWidth:
+        typeof data.item.attributesJson?.shippingWidth === "number" || typeof data.item.attributesJson?.shippingWidth === "string"
+          ? String(data.item.attributesJson.shippingWidth)
+          : "",
+      shippingHeight:
+        typeof data.item.attributesJson?.shippingHeight === "number" || typeof data.item.attributesJson?.shippingHeight === "string"
+          ? String(data.item.attributesJson.shippingHeight)
+          : "",
+      shippingDimensionUnit:
+        typeof data.item.attributesJson?.shippingDimensionUnit === "string" ? data.item.attributesJson.shippingDimensionUnit : "in",
+      freeShipping: data.item.attributesJson?.freeShipping === true,
+      ebayPrice:
+        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
+        data.item.attributesJson?.marketplacePriceOverrides &&
+        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).EBAY === "number"
+          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).EBAY)
+          : "",
+      depopPrice:
+        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
+        data.item.attributesJson?.marketplacePriceOverrides &&
+        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).DEPOP === "number"
+          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).DEPOP)
+          : "",
+      poshmarkPrice:
+        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
+        data.item.attributesJson?.marketplacePriceOverrides &&
+        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).POSHMARK === "number"
+          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).POSHMARK)
+          : "",
+      whatnotPrice:
+        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
+        data.item.attributesJson?.marketplacePriceOverrides &&
+        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).WHATNOT === "number"
+          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).WHATNOT)
+          : ""
     });
   }, [data?.item]);
+
+  useEffect(() => {
+    const connectedPlatforms = (marketplaceAccounts.data?.accounts ?? [])
+      .filter((account) => account.status === "CONNECTED")
+      .map((account) => account.platform as Platform);
+
+    if (connectedPlatforms.length > 0) {
+      setSelectedPlatforms((current) => (current.length > 0 ? current.filter((platform) => connectedPlatforms.includes(platform)) : connectedPlatforms));
+      return;
+    }
+
+    setSelectedPlatforms((current) => (current.length > 0 ? current : ["EBAY"]));
+  }, [marketplaceAccounts.data?.accounts]);
 
   const continuityFingerprint = useMemo(() => {
     if (!data?.item) {
@@ -357,6 +437,127 @@ export default function InventoryDetailPage() {
     });
   }
 
+  function buildUniversalListing(): UniversalListing | null {
+    if (!data?.item) {
+      return null;
+    }
+
+    const normalizeCsv = (value: string) =>
+      value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    const attributes = data.item.attributesJson ?? {};
+    const marketplaceOverrides: UniversalListing["marketplaceOverrides"] = {};
+    const priceOverrides = {
+      EBAY: itemForm.ebayPrice.trim() ? Number(itemForm.ebayPrice) : undefined,
+      DEPOP: itemForm.depopPrice.trim() ? Number(itemForm.depopPrice) : undefined,
+      POSHMARK: itemForm.poshmarkPrice.trim() ? Number(itemForm.poshmarkPrice) : undefined,
+      WHATNOT: itemForm.whatnotPrice.trim() ? Number(itemForm.whatnotPrice) : undefined
+    };
+
+    (Object.entries(priceOverrides) as Array<[Platform, number | undefined]>).forEach(([platform, value]) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        marketplaceOverrides[platform] = {
+          price: value,
+          attributes: {}
+        };
+      }
+    });
+
+    return {
+      inventoryItemId: data.item.id,
+      sku: data.item.sku,
+      title: itemForm.title.trim(),
+      description: itemForm.description.trim(),
+      category: itemForm.category.trim(),
+      brand: itemForm.brand.trim() || null,
+      condition: itemForm.condition.trim(),
+      price: itemForm.priceRecommendation.trim() ? Number(itemForm.priceRecommendation) : null,
+      quantity: Math.max(1, Number(itemForm.quantity || 1)),
+      size: itemForm.size.trim() || null,
+      color: itemForm.color.trim() || null,
+      tags: normalizeCsv(itemForm.tags),
+      labels: normalizeCsv(itemForm.labels),
+      freeShipping: itemForm.freeShipping,
+      dimensions:
+        itemForm.shippingLength.trim() || itemForm.shippingWidth.trim() || itemForm.shippingHeight.trim()
+          ? {
+              length: itemForm.shippingLength.trim() ? Number(itemForm.shippingLength) : null,
+              width: itemForm.shippingWidth.trim() ? Number(itemForm.shippingWidth) : null,
+              height: itemForm.shippingHeight.trim() ? Number(itemForm.shippingHeight) : null,
+              unit: itemForm.shippingDimensionUnit as "in" | "cm"
+            }
+          : null,
+      weight: itemForm.shippingWeightValue.trim()
+        ? {
+            value: Number(itemForm.shippingWeightValue),
+            unit: itemForm.shippingWeightUnit as "oz" | "lb" | "g" | "kg"
+          }
+        : null,
+      photos: data.item.images.map((image, index) => ({
+        url: image.url,
+        kind: index === 0 ? ("PRIMARY" as const) : ("GALLERY" as const),
+        alt: itemForm.title.trim()
+      })),
+      marketplaceOverrides,
+      metadata: {
+        ...attributes,
+        selectedPlatforms,
+        sourceAttributes: attributes.sourceAttributes ?? null
+      }
+    };
+  }
+
+  async function runAiAssist(operation: "title" | "description" | "price") {
+    const listing = buildUniversalListing();
+
+    if (!listing) {
+      return;
+    }
+
+    setAiPendingOperation(operation);
+    setAiMessage(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/ai/listing-assist`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          operation,
+          platform: selectedPlatforms[0] ?? "EBAY",
+          item: listing
+        })
+      });
+      const payload = (await response.json()) as { error?: string; suggestion?: string | number | null; message?: string | null };
+
+      if (!response.ok) {
+        throw new Error(payload.error ?? "AI suggestion failed");
+      }
+
+      if (operation === "title" && typeof payload.suggestion === "string") {
+        const suggestion = payload.suggestion;
+        setItemForm((current) => ({ ...current, title: suggestion }));
+      } else if (operation === "description" && typeof payload.suggestion === "string") {
+        const suggestion = payload.suggestion;
+        setItemForm((current) => ({ ...current, description: suggestion }));
+      } else if (operation === "price" && typeof payload.suggestion === "number") {
+        const suggestion = payload.suggestion;
+        setItemForm((current) => ({ ...current, priceRecommendation: String(suggestion) }));
+      }
+
+      setAiMessage(payload.message ?? "AI suggestion applied.");
+      await aiStatus.refresh();
+    } catch (caughtError) {
+      setAiMessage(caughtError instanceof Error ? caughtError.message : "AI suggestion failed");
+    } finally {
+      setAiPendingOperation(null);
+    }
+  }
+
   async function sendToExtension() {
     if (!auth.token || !auth.workspace) {
       return;
@@ -432,7 +633,17 @@ export default function InventoryDetailPage() {
       return;
     }
 
-    if (action === "check_extension" || action === "open_extension") {
+    if (action === "check_again") {
+      void Promise.all([refresh(), ebayPreflight.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh()]);
+      return;
+    }
+
+    if (action === "check_extension") {
+      void Promise.all([extension.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh(), refresh(), ebayPreflight.refresh()]);
+      return;
+    }
+
+    if (action === "open_extension") {
       void sendToExtension();
       return;
     }
@@ -494,17 +705,46 @@ export default function InventoryDetailPage() {
             Authorization: `Bearer ${auth.token}`
           },
           body: JSON.stringify({
-            title: itemForm.title.trim(),
-            brand: itemForm.brand.trim() || null,
-            category: itemForm.category.trim(),
-            condition: itemForm.condition.trim(),
+      title: itemForm.title.trim(),
+      brand: itemForm.brand.trim() || null,
+      category: itemForm.category.trim(),
+      condition: itemForm.condition.trim(),
             size: itemForm.size.trim() || null,
             color: itemForm.color.trim() || null,
             quantity: Math.max(1, Number(itemForm.quantity || 1)),
             costBasis: Number(itemForm.costBasis || 0),
             estimatedResaleMin: itemForm.estimatedResaleMin.trim() ? Number(itemForm.estimatedResaleMin) : null,
             estimatedResaleMax: itemForm.estimatedResaleMax.trim() ? Number(itemForm.estimatedResaleMax) : null,
-            priceRecommendation: itemForm.priceRecommendation.trim() ? Number(itemForm.priceRecommendation) : null
+            priceRecommendation: itemForm.priceRecommendation.trim() ? Number(itemForm.priceRecommendation) : null,
+            attributes: {
+              ...(data?.item.attributesJson ?? {}),
+              description: itemForm.description.trim(),
+              tags: itemForm.tags
+                .split(",")
+                .map((entry) => entry.trim())
+                .filter(Boolean),
+              labels: itemForm.labels
+                .split(",")
+                .map((entry) => entry.trim())
+                .filter(Boolean),
+              shippingWeightValue: itemForm.shippingWeightValue.trim() ? Number(itemForm.shippingWeightValue) : null,
+              shippingWeightUnit: itemForm.shippingWeightUnit,
+              shippingLength: itemForm.shippingLength.trim() ? Number(itemForm.shippingLength) : null,
+              shippingWidth: itemForm.shippingWidth.trim() ? Number(itemForm.shippingWidth) : null,
+              shippingHeight: itemForm.shippingHeight.trim() ? Number(itemForm.shippingHeight) : null,
+              shippingDimensionUnit: itemForm.shippingDimensionUnit,
+              freeShipping: itemForm.freeShipping,
+              marketplacePriceOverrides: {
+                ...(typeof data?.item.attributesJson?.marketplacePriceOverrides === "object" &&
+                data?.item.attributesJson?.marketplacePriceOverrides
+                  ? (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>)
+                  : {}),
+                ...(itemForm.ebayPrice.trim() ? { EBAY: Number(itemForm.ebayPrice) } : {}),
+                ...(itemForm.depopPrice.trim() ? { DEPOP: Number(itemForm.depopPrice) } : {}),
+                ...(itemForm.poshmarkPrice.trim() ? { POSHMARK: Number(itemForm.poshmarkPrice) } : {}),
+                ...(itemForm.whatnotPrice.trim() ? { WHATNOT: Number(itemForm.whatnotPrice) } : {})
+              }
+            }
           })
         });
         const payload = (await response.json()) as { error?: string };
@@ -578,14 +818,18 @@ export default function InventoryDetailPage() {
                 [field]: value
               }))
             }
-            onGenerateDrafts={() =>
+            aiMessage={aiMessage}
+            aiPendingOperation={aiPendingOperation}
+            aiStatus={aiStatus.data ?? null}
+            onAiAssist={(operation) => void runAiAssist(operation)}
+            onGenerateDrafts={(platforms) =>
               void runMutation(`/api/inventory/${data.item.id}/generate-drafts`, {
-                platforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
+                platforms
               })
             }
             extensionCapabilities={extensionStatus.data?.capabilitySummary ?? []}
             onMoveImage={(imageId, direction) => moveImage(imageId, direction)}
-            onPublishLinked={() => void runMutation(`/api/inventory/${data.item.id}/publish-linked`)}
+            onPublishLinked={(platforms) => void runMutation(`/api/inventory/${data.item.id}/publish-linked`, { platforms })}
             onSaveEbayDraft={saveEbayDraft}
             onSaveItemDetails={saveItemDetails}
             extensionActionStatus={extensionActionStatus}
@@ -603,6 +847,12 @@ export default function InventoryDetailPage() {
             }}
             onSendToExtension={() => void sendToExtension()}
             itemForm={itemForm}
+            selectedPlatforms={selectedPlatforms}
+            onTogglePlatform={(platform, checked) =>
+              setSelectedPlatforms((current) =>
+                checked ? [...new Set([...current, platform])] : current.filter((entry) => entry !== platform)
+              )
+            }
             pending={pending}
             submitError={submitError}
             uploadStatus={uploadStatus}

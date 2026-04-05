@@ -37,6 +37,7 @@ export type MarketplaceActionKind =
   | "open_listing"
   | "review_sale"
   | "connect_account"
+  | "check_again"
   | "check_extension"
   | "fix_details"
   | "retry"
@@ -511,14 +512,17 @@ export function getMarketplaceStatusSummaries(
     let secondaryActionKind: MarketplaceActionKind | null = null;
 
     if (!account) {
-      secondaryActionLabel = "Check accounts";
+      secondaryActionLabel = "Check again";
       secondaryActionKind = "connect_account";
     } else if (capabilityDetail.extensionRequired && !options.extensionConnected) {
-      secondaryActionLabel = "Refresh extension";
+      secondaryActionLabel = "Check again";
       secondaryActionKind = "check_extension";
     } else if (capability?.importMode === "EXTENSION" && platform === "EBAY" && action.actionKind !== "open_extension") {
       secondaryActionLabel = "Open in extension";
       secondaryActionKind = "open_extension";
+    } else if (account || capabilityDetail.extensionRequired) {
+      secondaryActionLabel = "Check again";
+      secondaryActionKind = "check_again";
     }
 
     return {

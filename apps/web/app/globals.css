@@ -1502,9 +1502,83 @@ body {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.marketplace-status-row-selected {
+  border-color: rgba(15, 118, 110, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.1), transparent 32%),
+    rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 28px rgba(15, 118, 110, 0.08);
+}
+
+.marketplace-status-topline,
+.marketplace-status-topline-main,
+.listing-form-toolbar,
+.listing-rail-summary,
+.listing-ai-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.marketplace-status-topline-main {
+  justify-content: flex-start;
+}
+
+.marketplace-selection-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.marketplace-selection-toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.marketplace-selection-toggle span {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(16, 34, 24, 0.18);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.marketplace-selection-toggle input:checked + span {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 .marketplace-status-main {
   display: grid;
   gap: 0.3rem;
+}
+
+.marketplace-status-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.marketplace-meta-pill,
+.listing-marketplace-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: var(--text);
+  font-size: 0.82rem;
+}
+
+.marketplace-blocker-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #991b1b;
 }
 
 .marketplace-status-copy,
@@ -1746,6 +1820,104 @@ body {
   background: rgba(255, 255, 255, 0.74);
 }
 
+.listing-workbench-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1.22fr);
+  align-items: start;
+}
+
+.listing-marketplace-rail,
+.listing-universal-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.listing-marketplace-rail {
+  position: sticky;
+  top: 1rem;
+}
+
+.listing-rail-summary,
+.listing-form-toolbar,
+.listing-form-section,
+.listing-table-shell {
+  padding: 1rem;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.listing-form-toolbar {
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 32%),
+    rgba(255, 255, 255, 0.88);
+}
+
+.listing-form-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.listing-form-section-heading {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.listing-form-section-heading h3 {
+  margin: 0;
+}
+
+.listing-form-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.listing-dimension-grid,
+.listing-price-override-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.listing-dimension-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.listing-price-override-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.listing-management-toolbar {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.listing-template-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.listing-template-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  width: 100%;
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.82);
+  text-align: left;
+}
+
+.listing-template-card p {
+  margin: 0.35rem 0 0;
+}
+
 @media (max-width: 1100px) {
   .layout,
   .hero-grid,
@@ -1764,6 +1936,7 @@ body {
   .detail-snapshot-layout,
   .detail-metric-grid,
   .detail-section-grid,
+  .listing-workbench-layout,
   .scan-pulse-grid,
   .activity-grid {
     grid-template-columns: 1fr;
@@ -1881,6 +2054,8 @@ body {
   .detail-snapshot-topline,
   .marketplace-status-row,
   .marketplace-status-actions,
+  .listing-form-footer,
+  .listing-ai-label-row,
   .item-card-topline,
   .item-card-footer,
   .detail-meta-row,
@@ -1919,6 +2094,11 @@ body {
   }
 
   .scan-import-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .listing-dimension-grid,
+  .listing-price-override-grid {
     grid-template-columns: 1fr;
   }
 

@@ -112,6 +112,27 @@ Existing routes remain available where needed, but the shell and screen hierarch
   - Needs Details
 - Marketplace rows show state, missing requirements, and action
 
+### My listings management
+- Add or refactor a desktop-friendly management surface that complements mobile inventory
+- Table-first for desktop listing operations
+- Columns:
+  - SKU
+  - Title
+  - Price
+  - Created
+  - Origin
+  - Listed on
+  - Sold
+  - Labels
+- Include:
+  - search
+  - sorting
+  - filters by origin and marketplace
+  - Create
+  - Import
+  - Bulk post
+  - Bulk delist
+
 ### Activity
 - Lightweight feed of:
   - recent scans
@@ -122,14 +143,78 @@ Existing routes remain available where needed, but the shell and screen hierarch
 
 ### Item detail
 - Lifecycle-oriented detail page
+- Two-pane listing workspace on desktop:
+  - left: marketplace selection rail
+  - right: universal listing form
 - Sections:
   - Snapshot
   - Identification
-  - Inventory Info
-  - Selling Setup
-  - Marketplace Status
+  - Listing Workspace
+  - Marketplace Draft Controls
+  - Browser Extension
   - History
 - Sticky action rail on mobile and compact action header on larger screens
+
+## Crosslist-style sell workflow
+The sell-side flow should mirror the operator pattern that works in Crosslist:
+
+`select marketplaces -> fill one universal listing form -> save or post -> manage per-marketplace execution`
+
+Rules:
+- Marketplace selection comes before posting.
+- The marketplace rail is the primary control plane, not a secondary status panel.
+- The universal listing form is the canonical place to prepare listing data.
+- Old generic publish buttons should be demoted where they conflict with marketplace-row actions.
+- Marketplace rows must stay honest about execution mode, blockers, and extension requirements.
+
+### Marketplace rail
+The left-side marketplace rail should list each real repo-supported marketplace and show:
+- checkbox/select target
+- listing state
+- execution mode:
+  - `API`
+  - `Extension`
+- extension required or not
+- marketplace account/session health
+- blocker summary
+- `Check again`
+- primary CTA driven by real capability/state
+
+Row copy should remain operationally honest:
+- `Queued in browser extension`
+- `Needs extension session`
+- `Ready via API`
+- `Missing shipping weight`
+- `Generate draft first`
+
+### Universal listing form
+The right-side listing form should consolidate listing preparation into one editable workspace:
+- photos
+- title
+- description
+- category
+- brand
+- condition
+- size
+- color
+- tags
+- labels
+- base price
+- per-marketplace price overrides
+- shipping weight
+- shipping dimensions
+- free-shipping toggle
+- marketplace-specific override areas only when required
+
+The form should also support:
+- templates modal for prefill
+- source-driven prefills from scan/import/manual lookup
+- AI actions when enabled:
+  - `Generate with AI` for title
+  - `Generate with AI` for description
+  - `Suggest price`
+
+AI suggestions must only prefill fields. They must never auto-save or auto-post.
 
 ## Lifecycle model
 The UI should normalize existing backend data into an explicit lifecycle:
@@ -207,3 +292,4 @@ The interface should avoid:
 - Keep loading, empty, and error states polished
 - Do not present fake marketplace readiness in production
 - Do not imply Mollie has a full manual text-search backend if the current API only supports barcode identification; use honest source-search handoffs where needed
+- Hide AI actions entirely when AI is disabled for the current environment or workspace

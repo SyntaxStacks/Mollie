@@ -27,7 +27,14 @@ Mollie already has the core reseller workflow primitives needed for a browser-ex
     - `InventoryImportItem`
     - `ExecutionLog`
 
-There is no Chrome extension app yet, no extension install detection in the Mollie UI, and no extension-to-app handoff model.
+The repo now has:
+- `apps/extension`
+  - Manifest V3 browser extension
+  - Mollie web-to-extension bridge
+  - extension task runner
+  - eBay import and draft-prep execution slice
+- `ExtensionTask`
+  - queue-backed browser execution state that complements listings and imports
 
 ## Product Role of the Extension
 
@@ -139,7 +146,54 @@ The extension must:
 - require explicit user-triggered actions for publish-like flows
 - keep Mollie as source of truth for task and listing state
 
-For the first pass, extension auth should reuse the current Mollie operator bearer token through an explicit user-approved bridge initiated from Mollie. That avoids inventing a second login system before the extension flow proves out.
+For the current pass, extension auth reuses the current Mollie operator bearer token through an explicit user-approved bridge initiated from Mollie. The UI must still distinguish:
+- extension installed
+- extension connected to Mollie
+- marketplace session/account ready for execution
+
+Those are different states and should not be collapsed into a single “connected” message.
+
+## Crosslist-style UI alignment
+
+The extension should not live behind a detached global status card alone. Crosslist’s better pattern is per-marketplace workflow visibility on the item page.
+
+Mollie should therefore surface extension state inside marketplace rows:
+- execution mode:
+  - `API`
+  - `Extension`
+- extension required or not
+- extension installed/connected state
+- marketplace account/session health
+- task lifecycle:
+  - `QUEUED`
+  - `RUNNING`
+  - `NEEDS_INPUT`
+  - `FAILED`
+  - `SUCCEEDED`
+- row-level actions:
+  - `Open in extension`
+  - `Check again`
+  - `Reconnect`
+  - `Generate draft`
+  - `Publish`
+
+The extension status card remains useful, but secondary. The marketplace row is the primary operator control surface.
+
+## Honest queue behavior
+
+The extension task lifecycle must stay operationally honest:
+- `QUEUED`
+  - Mollie has created the work and handed it to the browser extension
+- `RUNNING`
+  - the extension has claimed the work and started marketplace-side execution
+- `NEEDS_INPUT`
+  - execution is paused waiting on the operator, marketplace session, or other browser-only input
+- `FAILED`
+  - execution ended with a structured actionable error
+- `SUCCEEDED`
+  - execution finished and reported results back into Mollie
+
+Queued in the browser extension is not the same as actively running. Mollie’s UI must keep that distinction visible.
 
 ## Why This Fits Mollie
 

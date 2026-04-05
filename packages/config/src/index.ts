@@ -5,6 +5,11 @@ const baseEnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   DIRECT_URL: z.string().min(1).optional(),
   REDIS_URL: z.string().min(1),
+  AI_ENABLED: z.coerce.boolean().default(false),
+  AI_PROVIDER: z.enum(["null", "ollama"]).default("null"),
+  AI_DAILY_LIMIT_PER_WORKSPACE: z.coerce.number().int().positive().default(50),
+  OLLAMA_BASE_URL: z.string().url().optional(),
+  OLLAMA_MODEL: z.string().default("llama3.1:8b"),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-4.1-mini"),
   SESSION_SECRET: z.string().min(8),
@@ -54,6 +59,7 @@ const connectorEnvSchema = baseEnvSchema.extend({
 const webEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   NEXT_PUBLIC_API_BASE_URL: z.string().url(),
+  NEXT_PUBLIC_AI_ENABLED: z.coerce.boolean().default(false),
   WEB_PORT: z.coerce.number().int().positive().default(3000)
 });
 
