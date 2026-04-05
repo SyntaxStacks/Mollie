@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
+import type { MarketplaceCapabilitySummary } from "@reselleros/types";
 import { AppShell } from "../../../components/app-shell";
 import {
   InventoryDetailView,
@@ -11,10 +12,11 @@ import {
 } from "../../../components/inventory-detail-view";
 import { ProtectedView } from "../../../components/protected-view";
 import { useAuth } from "../../../components/auth-provider";
-import { useDesktopExtension } from "../../../components/use-desktop-extension";
+import { useBrowserExtension } from "../../../components/use-browser-extension";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
 import { useAuthedResource } from "../../../lib/api";
 import { handoffExtensionTask } from "../../../lib/extension-bridge";
+import type { MarketplaceAccountLike, MarketplaceActionKind } from "../../../lib/item-lifecycle";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
@@ -27,6 +29,7 @@ type EbayPreflightResponse = {
 };
 
 type ExtensionStatusResponse = {
+  capabilitySummary: MarketplaceCapabilitySummary[];
   tasks: Array<{
     id: string;
     inventoryItemId?: string | null;
@@ -34,6 +37,10 @@ type ExtensionStatusResponse = {
     action: string;
     state: string;
   }>;
+};
+
+type MarketplaceAccountsResponse = {
+  accounts: MarketplaceAccountLike[];
 };
 
 export default function InventoryDetailPage() {
@@ -67,7 +74,8 @@ export default function InventoryDetailPage() {
   const { data, error, refresh } = useAuthedResource<InventoryItemResponse>(`/api/inventory/${params.id}`, auth.token, [params.id]);
   const ebayPreflight = useAuthedResource<EbayPreflightResponse>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
   const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
-  const extension = useDesktopExtension();
+  const marketplaceAccounts = useAuthedResource<MarketplaceAccountsResponse>("/api/marketplace-accounts", auth.token);
+  const extension = useBrowserExtension();
   const ebayDraft =
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY" && draft.reviewStatus === "APPROVED") ??
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY") ??
@@ -405,6 +413,75 @@ export default function InventoryDetailPage() {
     });
   }
 
+  function handleMarketplaceAction(platform: string, action: MarketplaceActionKind) {
+    if (action === "open_listing") {
+      const listing = data?.item.platformListings.find((entry) => entry.platform === platform);
+
+      if (listing?.externalUrl) {
+        window.open(listing.externalUrl, "_blank", "noopener,noreferrer");
+      }
+      return;
+    }
+
+    if (action === "review_sale" || action === "watch") {
+      return;
+    }
+
+    if (action === "connect_account") {
+      router.push("/marketplaces");
+      return;
+    }
+
+    if (action === "check_extension" || action === "open_extension") {
+      void sendToExtension();
+      return;
+    }
+
+    if (action === "fix_details") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    if (action === "publish_api" || action === "retry") {
+      if (platform === "EBAY") {
+        void runMutation(`/api/inventory/${data?.item.id}/publish/ebay`);
+      } else if (platform === "DEPOP") {
+        void runMutation(`/api/inventory/${data?.item.id}/publish/depop`);
+      } else if (platform === "POSHMARK") {
+        void runMutation(`/api/inventory/${data?.item.id}/publish/poshmark`);
+      } else if (platform === "WHATNOT") {
+        void runMutation(`/api/inventory/${data?.item.id}/publish/whatnot`);
+      }
+      return;
+    }
+
+    if (action === "generate_draft") {
+      void runMutation(`/api/inventory/${data?.item.id}/generate-drafts`, {
+        platforms: [platform]
+      });
+    }
+  }
+
+  function handleMarketplaceSecondaryAction(platform: string, action: MarketplaceActionKind) {
+    if (action === "connect_account") {
+      router.push("/marketplaces");
+      return;
+    }
+
+    if (action === "check_extension") {
+      void extension.refresh();
+      void extensionStatus.refresh();
+      return;
+    }
+
+    if (action === "open_extension") {
+      void sendToExtension();
+      return;
+    }
+
+    handleMarketplaceAction(platform, action);
+  }
+
   async function saveItemDetails(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -506,19 +583,20 @@ export default function InventoryDetailPage() {
                 platforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
               })
             }
+            extensionCapabilities={extensionStatus.data?.capabilitySummary ?? []}
             onMoveImage={(imageId, direction) => moveImage(imageId, direction)}
-            onPublishDepop={() => void runMutation(`/api/inventory/${data.item.id}/publish/depop`)}
-            onPublishEbay={() => void runMutation(`/api/inventory/${data.item.id}/publish/ebay`)}
             onPublishLinked={() => void runMutation(`/api/inventory/${data.item.id}/publish-linked`)}
-            onPublishPoshmark={() => void runMutation(`/api/inventory/${data.item.id}/publish/poshmark`)}
             onSaveEbayDraft={saveEbayDraft}
             onSaveItemDetails={saveItemDetails}
-            onPublishWhatnot={() => void runMutation(`/api/inventory/${data.item.id}/publish/whatnot`)}
             extensionActionStatus={extensionActionStatus}
             extensionConnected={extension.connected}
             extensionInstalled={extension.installed}
             extensionLoading={extension.loading}
             extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
+            marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
+            onMarketplaceAction={handleMarketplaceAction}
+            onMarketplaceSecondaryAction={handleMarketplaceSecondaryAction}
+            onOpenMarketplaces={() => router.push("/marketplaces")}
             onRefreshExtension={() => {
               void extension.refresh();
               void extensionStatus.refresh();

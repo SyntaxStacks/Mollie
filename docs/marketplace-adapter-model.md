@@ -63,6 +63,9 @@ Owns browser-only marketplace behavior:
 - `submitDraft()`
 - `submitPublish()`
 - `readPageState()`
+- `claimTask()`
+- `heartbeatTask()`
+- `reportNeedsInput()`
 
 ## Adapter Capability Shape
 
@@ -85,6 +88,7 @@ That capability map should drive:
 - task creation rules
 - operator hints
 - extension permissions and page matching
+- whether the primary action is `Publish via API`, `Open in extension`, `Generate draft`, or `Unavailable`
 
 ## Universal Listing Model
 
@@ -133,6 +137,7 @@ These should map cleanly into Mollie operator hints and task states.
   - extension import
   - extension task handoff
   - universal listing payload mapping
+  - extension-driven draft preparation on the seller flow
 
 ### Scaffolded
 
@@ -141,3 +146,20 @@ These should map cleanly into Mollie operator hints and task states.
 - `WHATNOT`
 
 The repo already has these platforms as current marketplaces, so scaffolding should align with the current enum and adapter model rather than inventing unrelated marketplaces first.
+
+## Extension Task Execution Contract
+
+The extension-side marketplace executor is now expected to be explicit about lifecycle:
+
+- `QUEUED`
+  - Mollie has accepted the task and the extension may pick it up later
+- `RUNNING`
+  - the extension has claimed the task and marketplace-side work actually started
+- `NEEDS_INPUT`
+  - the extension reached a real browser-side blocker and needs the operator to intervene
+- `FAILED`
+  - the executor stopped and retained the failure reason
+- `SUCCEEDED`
+  - marketplace-side work completed and reported results back into Mollie
+
+This contract is what the per-marketplace UI should reflect. The row state must come from real capability, connection health, and task state, not optimistic assumptions.

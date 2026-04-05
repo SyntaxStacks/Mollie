@@ -414,6 +414,13 @@ model ExtensionTask {
   platform            MarketplacePlatform
   action              ExtensionTaskAction
   state               ExtensionTaskState @default(QUEUED)
+  queuedAt            DateTime           @default(now())
+  attemptCount        Int                @default(0)
+  runnerInstanceId    String?
+  claimedAt           DateTime?
+  lastHeartbeatAt     DateTime?
+  retryAfter          DateTime?
+  needsInputReason    String?
   payloadJson         Json?
   resultJson          Json?
   lastErrorCode       String?
@@ -429,6 +436,7 @@ model ExtensionTask {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, state, createdAt])
+  @@index([workspaceId, state, retryAfter, createdAt])
   @@index([inventoryItemId, platform, createdAt])
   @@index([inventoryImportRunId, platform, createdAt])
 }

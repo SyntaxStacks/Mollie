@@ -12,6 +12,20 @@ type BridgeMessageType =
   | "MOLLIE_EXTENSION_AUTH_SESSION"
   | "MOLLIE_EXTENSION_TASK_HANDOFF";
 
+function isBridgeResponse(value: unknown, requestId: string) {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.source === "MOLLIE_EXTENSION" &&
+    candidate.target === "MOLLIE_APP" &&
+    candidate.requestId === requestId &&
+    typeof candidate.response === "object"
+  );
+}
+
 function postExtensionMessage(type: BridgeMessageType, payload?: Record<string, unknown>, timeoutMs = 1_500) {
   if (typeof window === "undefined") {
     return Promise.resolve<BridgeResponse>({
@@ -21,6 +35,7 @@ function postExtensionMessage(type: BridgeMessageType, payload?: Record<string, 
   }
 
   const requestId = crypto.randomUUID();
+  const targetOrigin = window.location.origin;
 
   return new Promise<BridgeResponse>((resolve) => {
     let settled = false;
@@ -38,9 +53,7 @@ function postExtensionMessage(type: BridgeMessageType, payload?: Record<string, 
     }, timeoutMs);
 
     function handleResponse(event: MessageEvent) {
-      const data = event.data as { target?: string; requestId?: string; response?: BridgeResponse } | null;
-
-      if (event.source !== window || !data || data.target !== "MOLLIE_APP" || data.requestId !== requestId) {
+      if (event.origin !== targetOrigin || event.source !== window || !isBridgeResponse(event.data, requestId)) {
         return;
       }
 
@@ -51,18 +64,19 @@ function postExtensionMessage(type: BridgeMessageType, payload?: Record<string, 
       settled = true;
       window.clearTimeout(timeout);
       window.removeEventListener("message", handleResponse);
-      resolve(data.response ?? { ok: false, error: "No response from extension" });
+      resolve((event.data as { response: BridgeResponse }).response ?? { ok: false, error: "No response from extension" });
     }
 
     window.addEventListener("message", handleResponse);
     window.postMessage(
       {
+        source: "MOLLIE_WEB_APP",
         target: "MOLLIE_EXTENSION",
         requestId,
         type,
         payload
       },
-      "*"
+      targetOrigin
     );
   });
 }

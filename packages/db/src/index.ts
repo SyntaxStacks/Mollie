@@ -835,6 +835,13 @@ export async function createExtensionTaskForWorkspace(
     state?: "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
     payload?: Prisma.InputJsonValue;
     result?: Prisma.InputJsonValue;
+    queuedAt?: Date | null;
+    attemptCount?: number;
+    runnerInstanceId?: string | null;
+    claimedAt?: Date | null;
+    lastHeartbeatAt?: Date | null;
+    retryAfter?: Date | null;
+    needsInputReason?: string | null;
     lastErrorCode?: string | null;
     lastErrorMessage?: string | null;
     startedAt?: Date | null;
@@ -850,6 +857,13 @@ export async function createExtensionTaskForWorkspace(
       platform: input.platform,
       action: input.action,
       state: input.state ?? "QUEUED",
+      queuedAt: input.queuedAt ?? new Date(),
+      attemptCount: input.attemptCount ?? 0,
+      runnerInstanceId: input.runnerInstanceId ?? null,
+      claimedAt: input.claimedAt ?? null,
+      lastHeartbeatAt: input.lastHeartbeatAt ?? null,
+      retryAfter: input.retryAfter ?? null,
+      needsInputReason: input.needsInputReason ?? null,
       payloadJson: input.payload,
       resultJson: input.result,
       lastErrorCode: input.lastErrorCode ?? null,
@@ -895,6 +909,102 @@ export async function updateExtensionTask(
   return db.extensionTask.update({
     where: { id: taskId },
     data
+  });
+}
+
+export async function claimExtensionTaskForWorkspace(
+  workspaceId: string,
+  taskId: string,
+  input: {
+    runnerInstanceId: string;
+    now?: Date;
+    staleBefore?: Date;
+  }
+) {
+  const now = input.now ?? new Date();
+  const staleBefore =
+    input.staleBefore ??
+    new Date(now.getTime() - 2 * 60 * 1000);
+
+  const claimResult = await db.extensionTask.updateMany({
+    where: {
+      id: taskId,
+      workspaceId,
+      OR: [
+        {
+          state: "QUEUED",
+          OR: [
+            { retryAfter: null },
+            { retryAfter: { lte: now } }
+          ]
+        },
+        {
+          state: "RUNNING",
+          lastHeartbeatAt: {
+            lt: staleBefore
+          }
+        }
+      ]
+    },
+    data: {
+      state: "RUNNING",
+      attemptCount: {
+        increment: 1
+      },
+      runnerInstanceId: input.runnerInstanceId,
+      claimedAt: now,
+      lastHeartbeatAt: now,
+      startedAt: now,
+      completedAt: null,
+      retryAfter: null,
+      needsInputReason: null
+    }
+  });
+
+  if (claimResult.count === 0) {
+    return null;
+  }
+
+  return db.extensionTask.findFirst({
+    where: {
+      id: taskId,
+      workspaceId
+    }
+  });
+}
+
+export async function heartbeatExtensionTaskForWorkspace(
+  workspaceId: string,
+  taskId: string,
+  runnerInstanceId: string,
+  input?: {
+    result?: Prisma.InputJsonValue;
+    now?: Date;
+  }
+) {
+  const now = input?.now ?? new Date();
+  const updateResult = await db.extensionTask.updateMany({
+    where: {
+      id: taskId,
+      workspaceId,
+      state: "RUNNING",
+      runnerInstanceId
+    },
+    data: {
+      lastHeartbeatAt: now,
+      ...(input?.result !== undefined ? { resultJson: input.result } : {})
+    }
+  });
+
+  if (updateResult.count === 0) {
+    return null;
+  }
+
+  return db.extensionTask.findFirst({
+    where: {
+      id: taskId,
+      workspaceId
+    }
   });
 }
 

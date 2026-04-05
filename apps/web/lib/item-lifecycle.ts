@@ -1,3 +1,5 @@
+import type { MarketplaceCapabilitySummary, OperatorHint } from "@reselleros/types";
+
 export type ItemLifecycleState =
   | "scanned"
   | "review"
@@ -27,6 +29,19 @@ export type MarketplaceListingState =
   | "failed"
   | "ended"
   | "sold";
+
+export type MarketplaceActionKind =
+  | "publish_api"
+  | "generate_draft"
+  | "open_extension"
+  | "open_listing"
+  | "review_sale"
+  | "connect_account"
+  | "check_extension"
+  | "fix_details"
+  | "retry"
+  | "watch"
+  | "unavailable";
 
 export type InventoryListLikeItem = {
   id: string;
@@ -59,6 +74,8 @@ export type InventoryListLikeItem = {
     platform: string;
     action: string;
     state: string;
+    attemptCount?: number | null;
+    needsInputReason?: string | null;
     lastErrorCode?: string | null;
     lastErrorMessage?: string | null;
   }>;
@@ -67,12 +84,45 @@ export type InventoryListLikeItem = {
   updatedAt?: string | Date | null;
 };
 
+export type MarketplaceAccountLike = {
+  id: string;
+  platform: string;
+  displayName: string;
+  status: string;
+  validationStatus?: string | null;
+  readiness?: {
+    state: string;
+    status: string;
+    summary: string;
+    detail: string;
+    hint?: OperatorHint | null;
+  } | null;
+};
+
 export type MarketplaceStatusSummary = {
   platform: string;
   state: MarketplaceListingState;
   missingRequirements: string[];
   actionLabel: string;
+  actionKind: MarketplaceActionKind;
+  secondaryActionLabel?: string | null;
+  secondaryActionKind?: MarketplaceActionKind | null;
   summary: string;
+  executionMode: string;
+  capabilitySummary: string;
+  extensionRequired: boolean;
+  extensionSummary: string;
+  connectionSummary: string;
+  connectionTone: "success" | "warning" | "neutral" | "danger";
+  blocker: string | null;
+  listingUrl?: string | null;
+};
+
+export type MarketplaceStatusOptions = {
+  marketplaceAccounts?: MarketplaceAccountLike[];
+  capabilitySummary?: MarketplaceCapabilitySummary[];
+  extensionInstalled?: boolean;
+  extensionConnected?: boolean;
 };
 
 export function getItemPrimaryImage(item: InventoryListLikeItem) {
@@ -148,7 +198,238 @@ export function getMarketplaceListingState(status: string | null | undefined): M
   return "not_started";
 }
 
-export function getMarketplaceStatusSummaries(item: InventoryListLikeItem): MarketplaceStatusSummary[] {
+function describeCapabilities(platform: string, capability?: MarketplaceCapabilitySummary | null) {
+  if (!capability) {
+    return {
+      executionMode: "Unavailable",
+      capabilitySummary: "No live marketplace workflow",
+      extensionRequired: false
+    };
+  }
+
+  if (capability.publishMode === "API" && capability.importMode === "EXTENSION") {
+    return {
+      executionMode: "API publish + browser import",
+      capabilitySummary: "Publish via Mollie API, import through the browser extension",
+      extensionRequired: false
+    };
+  }
+
+  if (capability.publishMode === "API") {
+    return {
+      executionMode: "API",
+      capabilitySummary: "Publish through Mollie",
+      extensionRequired: false
+    };
+  }
+
+  if (capability.publishMode === "EXTENSION") {
+    return {
+      executionMode: "Browser extension",
+      capabilitySummary: "Marketplace work runs in your browser extension",
+      extensionRequired: true
+    };
+  }
+
+  if (capability.importMode === "EXTENSION") {
+    return {
+      executionMode: "Browser assist",
+      capabilitySummary: "Import or draft prep is available in the browser extension",
+      extensionRequired: false
+    };
+  }
+
+  return {
+    executionMode: "Unavailable",
+    capabilitySummary: "No live marketplace workflow",
+    extensionRequired: false
+  };
+}
+
+function describeConnection(account?: MarketplaceAccountLike | null) {
+  if (!account) {
+    return {
+      connectionSummary: "No connected marketplace account",
+      connectionTone: "warning" as const,
+      blocker: "Connect a marketplace account first."
+    };
+  }
+
+  if (account.readiness?.status === "READY") {
+    return {
+      connectionSummary: account.readiness.summary,
+      connectionTone: "success" as const,
+      blocker: null
+    };
+  }
+
+  if (account.readiness) {
+    return {
+      connectionSummary: account.readiness.summary,
+      connectionTone: account.readiness.status === "BLOCKED" ? ("danger" as const) : ("warning" as const),
+      blocker: account.readiness.detail
+    };
+  }
+
+  if (account.status === "CONNECTED") {
+    return {
+      connectionSummary: "Connected account",
+      connectionTone: "success" as const,
+      blocker: null
+    };
+  }
+
+  return {
+    connectionSummary: account.status.replace(/_/g, " "),
+    connectionTone: "warning" as const,
+    blocker: "Reconnect this marketplace account before listing."
+  };
+}
+
+function describeExtensionState(options: MarketplaceStatusOptions, extensionRequired: boolean) {
+  if (!extensionRequired) {
+    return {
+      extensionSummary: options.extensionConnected
+        ? "Browser extension is connected for optional browser-side work"
+        : options.extensionInstalled
+          ? "Browser extension is installed but not connected to Mollie"
+          : "Browser extension is optional for this marketplace",
+      extensionBlocker: null
+    };
+  }
+
+  if (options.extensionConnected) {
+    return {
+      extensionSummary: "Browser extension connected and ready",
+      extensionBlocker: null
+    };
+  }
+
+  if (options.extensionInstalled) {
+    return {
+      extensionSummary: "Browser extension installed but not connected",
+      extensionBlocker: "Refresh the browser extension connection."
+    };
+  }
+
+  return {
+    extensionSummary: "Browser extension not installed in this browser",
+    extensionBlocker: "Install the Mollie browser extension."
+  };
+}
+
+function actionForState(input: {
+  platform: string;
+  listingState: MarketplaceListingState;
+  hasDraft: boolean;
+  hasBlockingFields: boolean;
+  capability?: MarketplaceCapabilitySummary | null;
+  extensionRequired: boolean;
+  extensionConnected?: boolean;
+  account?: MarketplaceAccountLike | null;
+  blocker: string | null;
+}) {
+  if (input.listingState === "published") {
+    return {
+      actionLabel: "Open listing",
+      actionKind: "open_listing" as const
+    };
+  }
+
+  if (input.listingState === "sold") {
+    return {
+      actionLabel: "Review sale",
+      actionKind: "review_sale" as const
+    };
+  }
+
+  if (input.listingState === "queued" || input.listingState === "publishing") {
+    return {
+      actionLabel: "Watch progress",
+      actionKind: "watch" as const
+    };
+  }
+
+  if (input.blocker) {
+    if (!input.account) {
+      return {
+        actionLabel: "Connect account",
+        actionKind: "connect_account" as const
+      };
+    }
+
+    if (input.extensionRequired && !input.extensionConnected) {
+      return {
+        actionLabel: "Check extension",
+        actionKind: "check_extension" as const
+      };
+    }
+
+    if (input.hasBlockingFields) {
+      return {
+        actionLabel: "Fix details",
+        actionKind: "fix_details" as const
+      };
+    }
+
+    return {
+      actionLabel: "Retry",
+      actionKind: "retry" as const
+    };
+  }
+
+  if (input.hasDraft || input.listingState === "draft") {
+    if (input.capability?.publishMode === "API") {
+      return {
+        actionLabel: "Publish via API",
+        actionKind: "publish_api" as const
+      };
+    }
+
+    return {
+      actionLabel: "Open in extension",
+      actionKind: "open_extension" as const
+    };
+  }
+
+  if (!input.hasDraft && input.capability?.publishMode !== "NONE" && !input.hasBlockingFields) {
+    return {
+      actionLabel: "Generate draft",
+      actionKind: "generate_draft" as const
+    };
+  }
+
+  if (input.capability?.publishMode === "API") {
+    return {
+      actionLabel: "Publish via API",
+      actionKind: "publish_api" as const
+    };
+  }
+
+  if (input.capability?.importMode === "EXTENSION" || input.capability?.publishMode === "EXTENSION") {
+    return {
+      actionLabel: "Open in extension",
+      actionKind: "open_extension" as const
+    };
+  }
+
+  if (input.hasBlockingFields) {
+    return {
+      actionLabel: "Fix details",
+      actionKind: "fix_details" as const
+    };
+  }
+
+  return {
+    actionLabel: "Unavailable",
+    actionKind: "unavailable" as const
+  };
+}
+
+export function getMarketplaceStatusSummaries(
+  item: InventoryListLikeItem,
+  options: MarketplaceStatusOptions = {}
+): MarketplaceStatusSummary[] {
   const flags = getListingReadinessFlags(item);
   const platforms = ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"] as const;
 
@@ -159,83 +440,107 @@ export function getMarketplaceStatusSummaries(item: InventoryListLikeItem): Mark
       item.extensionTasks?.find((candidate) => candidate.platform === platform) ?? null;
     const listingState = listing ? getMarketplaceListingState(listing.status) : draft ? "draft" : "not_started";
     const missingRequirements = [...flags];
+    const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
+    const account =
+      options.marketplaceAccounts?.find((candidate) => candidate.platform === platform && candidate.status === "CONNECTED") ??
+      options.marketplaceAccounts?.find((candidate) => candidate.platform === platform) ??
+      null;
+    const capabilityDetail = describeCapabilities(platform, capability);
+    const connectionDetail = describeConnection(account);
+    const extensionDetail = describeExtensionState(options, capabilityDetail.extensionRequired);
+
+    let summary = "Needs more item setup";
+    let blocker =
+      missingRequirements.length > 0
+        ? `Missing ${missingRequirements.map((value) => value.replace(/_/g, " ")).join(", ")}.`
+        : null;
 
     if (listingState === "published" || listingState === "sold") {
-      return {
-        platform,
-        state: listingState,
-        missingRequirements: [],
-        actionLabel: listingState === "sold" ? "Review sale" : "Open listing",
-        summary: listingState === "sold" ? "Sold on marketplace" : "Published and live"
-      };
+      summary = listingState === "sold" ? "Sold on marketplace" : "Published and live";
+      blocker = null;
+    } else if (listingState === "queued" || listingState === "publishing") {
+      summary =
+        extensionTask?.state === "QUEUED"
+          ? "Queued in the browser extension"
+          : extensionTask?.state === "RUNNING"
+            ? "Browser extension execution is active"
+            : "Marketplace work is in flight";
+      blocker = null;
+    } else if (listingState === "failed") {
+      summary = extensionTask?.lastErrorMessage ?? "Marketplace work failed and needs attention";
+      blocker = extensionTask?.needsInputReason ?? extensionTask?.lastErrorMessage ?? connectionDetail.blocker ?? blocker;
+    } else if (draft) {
+      summary = draft.reviewStatus === "APPROVED" ? "Draft approved and waiting" : "Draft exists and needs review";
+      blocker = missingRequirements.length > 0 ? blocker : connectionDetail.blocker ?? extensionDetail.extensionBlocker;
+    } else if (capability?.publishMode !== "NONE" && missingRequirements.length === 0) {
+      summary = "Draft not created yet";
+      blocker = "Generate a marketplace draft before publishing.";
+    } else if (extensionTask?.state === "NEEDS_INPUT") {
+      summary = extensionTask.lastErrorMessage ?? "Browser extension needs help to continue";
+      blocker = extensionTask.needsInputReason ?? extensionTask.lastErrorMessage ?? "Finish the browser-side marketplace step.";
+    } else if (extensionTask?.state === "QUEUED") {
+      summary = "Queued in the browser extension";
+      blocker = null;
+    } else if (extensionTask?.state === "RUNNING") {
+      summary = "Browser extension execution is active";
+      blocker = null;
+    } else if (missingRequirements.length === 0) {
+      summary = capability?.publishMode === "NONE" ? "Marketplace publish is not live yet" : "Ready for marketplace work";
+      blocker = connectionDetail.blocker ?? extensionDetail.extensionBlocker;
+    } else {
+      blocker = blocker ?? connectionDetail.blocker ?? extensionDetail.extensionBlocker;
     }
 
-    if (listingState === "failed") {
-      return {
-        platform,
-        state: listingState,
-        missingRequirements,
-        actionLabel: "Retry",
-        summary: "Publish failed and needs attention"
-      };
+    if (!blocker && (connectionDetail.blocker || extensionDetail.extensionBlocker) && listingState !== "published" && listingState !== "sold") {
+      blocker = connectionDetail.blocker ?? extensionDetail.extensionBlocker;
     }
 
-    if (listingState === "queued" || listingState === "publishing") {
-      return {
-        platform,
-        state: listingState,
-        missingRequirements: [],
-        actionLabel: "Watch",
-        summary: "Publish work is in flight"
-      };
-    }
+    const action = actionForState({
+      platform,
+      listingState,
+      hasDraft: Boolean(draft),
+      hasBlockingFields: missingRequirements.length > 0,
+      capability,
+      extensionRequired: capabilityDetail.extensionRequired,
+      extensionConnected: options.extensionConnected,
+      account,
+      blocker
+    });
 
-    if (draft) {
-      return {
-        platform,
-        state: "draft",
-        missingRequirements,
-        actionLabel: flags.length === 0 ? "Publish" : "Edit",
-        summary: draft.reviewStatus === "APPROVED" ? "Draft approved and waiting" : "Draft exists and needs review"
-      };
-    }
+    let secondaryActionLabel: string | null = null;
+    let secondaryActionKind: MarketplaceActionKind | null = null;
 
-    if (extensionTask?.state === "FAILED" || extensionTask?.state === "NEEDS_INPUT") {
-      return {
-        platform,
-        state: "failed",
-        missingRequirements,
-        actionLabel: "Retry in extension",
-        summary: extensionTask.lastErrorMessage ?? "Browser extension work needs attention"
-      };
-    }
-
-    if (extensionTask?.state === "RUNNING") {
-      return {
-        platform,
-        state: "publishing",
-        missingRequirements: [],
-        actionLabel: "Watch extension",
-        summary: "Browser extension is working this listing"
-      };
-    }
-
-    if (extensionTask?.state === "QUEUED") {
-      return {
-        platform,
-        state: "queued",
-        missingRequirements: [],
-        actionLabel: "Open extension",
-        summary: "Queued for browser extension work"
-      };
+    if (!account) {
+      secondaryActionLabel = "Check accounts";
+      secondaryActionKind = "connect_account";
+    } else if (capabilityDetail.extensionRequired && !options.extensionConnected) {
+      secondaryActionLabel = "Refresh extension";
+      secondaryActionKind = "check_extension";
+    } else if (capability?.importMode === "EXTENSION" && platform === "EBAY" && action.actionKind !== "open_extension") {
+      secondaryActionLabel = "Open in extension";
+      secondaryActionKind = "open_extension";
     }
 
     return {
       platform,
-      state: "not_started",
+      state:
+        extensionTask?.state === "NEEDS_INPUT"
+          ? "failed"
+          : listingState,
       missingRequirements,
-      actionLabel: flags.length === 0 ? "Queue" : "Fix",
-      summary: flags.length === 0 ? "Ready to start listing" : "Needs more item setup"
+      actionLabel: action.actionLabel,
+      actionKind: action.actionKind,
+      secondaryActionLabel,
+      secondaryActionKind,
+      summary,
+      executionMode: capabilityDetail.executionMode,
+      capabilitySummary: capabilityDetail.capabilitySummary,
+      extensionRequired: capabilityDetail.extensionRequired,
+      extensionSummary: extensionDetail.extensionSummary,
+      connectionSummary: connectionDetail.connectionSummary,
+      connectionTone: connectionDetail.connectionTone,
+      blocker,
+      listingUrl: listing?.externalUrl ?? null
     };
   });
 }

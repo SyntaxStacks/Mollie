@@ -81,6 +81,14 @@ Add a dedicated extension task model for browser-mediated work:
 
 This should not replace `ExecutionLog`; it should complement it.
 
+The current pass now treats task lifecycle honestly:
+
+- handoff creates `QUEUED`
+- the browser extension claims a task before it becomes `RUNNING`
+- running tasks heartbeat while the browser-side executor is active
+- incomplete browser-side execution can become `NEEDS_INPUT`
+- failures retain attempt/error metadata instead of looking like silent drops
+
 ### 3. Universal listing model
 
 Add shared listing-preparation contracts in `packages/types` for:
@@ -121,6 +129,7 @@ Extension results should update existing Mollie records:
   - Mollie item payload handoff
   - single listing import from eBay detail page
   - extension task result round-trip into Mollie
+  - extension-side eBay draft-prep execution that opens the seller flow and applies listing fields when the page supports it
 
 ### Scaffolded only
 
@@ -133,9 +142,9 @@ Extension results should update existing Mollie records:
 ### Web routes
 
 - `/sell`
-  - show extension queue status and handoff actions
+  - show extension queue status and marketplace-specific extension blockers
 - `/inventory/[id]`
-  - show per-marketplace extension task state and extension handoff action
+  - show per-marketplace extension task state, connection state, extension requirement, and handoff action
 - `/marketplaces`
   - show extension installed / connected status
 - `/imports`
@@ -157,6 +166,7 @@ Extension results should update existing Mollie records:
 - extension install status
 - extension browser connection status
 - extension task state
+- extension task claim / heartbeat / retry metadata
 - universal listing DTO
 - marketplace extension capability map
 
@@ -168,6 +178,13 @@ Extension results should update existing Mollie records:
   - platform
   - action
   - state
+  - `queuedAt`
+  - `attemptCount`
+  - `runnerInstanceId`
+  - `claimedAt`
+  - `lastHeartbeatAt`
+  - `retryAfter`
+  - `needsInputReason`
   - payload
   - result
   - failure code/message
@@ -210,15 +227,17 @@ Extension results should update existing Mollie records:
 
 ### Phase 2
 
-- [ ] implement eBay single listing import from extension
-- [ ] persist results into `InventoryImportRun` and `InventoryItem`
-- [ ] show extension task state in Mollie
+- [x] implement eBay single listing import from extension
+- [x] persist results into `InventoryImportRun` and `InventoryItem`
+- [x] show extension task state in Mollie
 
 ### Phase 3
 
-- [ ] add Mollie item payload handoff to extension
-- [ ] add extension-driven eBay listing draft assist
-- [ ] report publish/update failures back into Mollie
+- [x] add Mollie item payload handoff to extension
+- [x] add extension-driven eBay listing draft assist
+- [x] report publish/update failures back into Mollie
+- [x] add queue claim / heartbeat semantics
+- [x] make per-marketplace item workflow reflect extension and account state
 
 ### Phase 4
 

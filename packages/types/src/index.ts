@@ -317,10 +317,24 @@ export const extensionTaskCreateSchema = z.object({
   action: z.enum(extensionTaskActions)
 });
 
+export const extensionTaskClaimSchema = z.object({
+  runnerInstanceId: z.string().trim().min(8).max(120),
+  browserName: z.string().trim().max(80).optional().nullable()
+});
+
+export const extensionTaskHeartbeatSchema = z.object({
+  runnerInstanceId: z.string().trim().min(8).max(120),
+  message: z.string().trim().max(240).optional().nullable(),
+  result: z.record(z.string(), z.any()).optional().nullable()
+});
+
 export const extensionTaskResultUpdateSchema = z.object({
   state: z.enum(extensionTaskStates),
+  runnerInstanceId: z.string().trim().min(8).max(120).optional().nullable(),
   lastErrorCode: z.enum(extensionTaskFailureCodes).optional().nullable(),
   lastErrorMessage: z.string().trim().max(500).optional().nullable(),
+  needsInputReason: z.string().trim().max(240).optional().nullable(),
+  retryAfterSeconds: z.number().int().positive().max(86_400).optional().nullable(),
   result: z.record(z.string(), z.any()).optional().nullable()
 });
 
@@ -351,6 +365,13 @@ export type ExtensionTaskView = {
   platform: Platform;
   action: ExtensionTaskAction;
   state: ExtensionTaskState;
+  queuedAt: string;
+  attemptCount: number;
+  runnerInstanceId?: string | null;
+  claimedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  retryAfter?: string | null;
+  needsInputReason?: string | null;
   lastErrorCode?: ExtensionTaskFailureCode | null;
   lastErrorMessage?: string | null;
   payload: Record<string, unknown> | null;

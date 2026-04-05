@@ -14,6 +14,7 @@ import {
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { OperatorHint } from "@reselleros/types";
+import type { MarketplaceCapabilitySummary } from "@reselleros/types";
 import { Button } from "@reselleros/ui";
 
 import { currency, formatDate } from "../lib/api";
@@ -23,7 +24,9 @@ import {
   getMarketplaceStatusSummaries,
   getNextActionLabel,
   getProfitEstimate,
-  getItemPrimaryImage
+  getItemPrimaryImage,
+  type MarketplaceAccountLike,
+  type MarketplaceActionKind
 } from "../lib/item-lifecycle";
 import { ActionRail } from "./action-rail";
 import { MarketplaceStatusRow } from "./marketplace-status-row";
@@ -99,11 +102,10 @@ type InventoryDetailViewProps = {
   onDeleteItem: () => void;
   onMoveImage: (imageId: string, direction: -1 | 1) => void;
   onGenerateDrafts: () => void;
-  onPublishEbay: () => void;
-  onPublishDepop: () => void;
-  onPublishPoshmark: () => void;
-  onPublishWhatnot: () => void;
   onPublishLinked: () => void;
+  onOpenMarketplaces: () => void;
+  onMarketplaceAction: (platform: string, action: MarketplaceActionKind) => void;
+  onMarketplaceSecondaryAction: (platform: string, action: MarketplaceActionKind) => void;
   handoffUrl: string;
   continuityNotice: string | null;
   lastSyncedLabel: string | null;
@@ -144,6 +146,8 @@ type InventoryDetailViewProps = {
   onRefreshExtension: () => void;
   onSendToExtension: () => void;
   extensionActionStatus: string | null;
+  marketplaceAccounts: MarketplaceAccountLike[];
+  extensionCapabilities: MarketplaceCapabilitySummary[];
 };
 
 function ContinueOnMobileModal({
@@ -299,11 +303,10 @@ export function InventoryDetailView({
   onDeleteItem,
   onMoveImage,
   onGenerateDrafts,
-  onPublishEbay,
-  onPublishDepop,
-  onPublishPoshmark,
-  onPublishWhatnot,
   onPublishLinked,
+  onOpenMarketplaces,
+  onMarketplaceAction,
+  onMarketplaceSecondaryAction,
   handoffUrl,
   continuityNotice,
   lastSyncedLabel,
@@ -323,13 +326,20 @@ export function InventoryDetailView({
   extensionLoading,
   onRefreshExtension,
   onSendToExtension,
-  extensionActionStatus
+  extensionActionStatus,
+  marketplaceAccounts,
+  extensionCapabilities
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const image = getItemPrimaryImage(item);
   const readinessFlags = getListingReadinessFlags(item);
-  const marketStatuses = getMarketplaceStatusSummaries(item);
+  const marketStatuses = getMarketplaceStatusSummaries(item, {
+    marketplaceAccounts,
+    capabilitySummary: extensionCapabilities,
+    extensionInstalled,
+    extensionConnected
+  });
   const lifecycle = getItemLifecycleState(item);
   const profit = getProfitEstimate(item);
   const nextAction = getNextActionLabel(item);
@@ -563,24 +573,24 @@ export function InventoryDetailView({
               <div className="market-observation-card">
                 <div className="split">
                   <div>
-                    <p className="eyebrow">Marketplace work</p>
-                    <strong>Queue and publish</strong>
+                    <p className="eyebrow">Marketplace workflow</p>
+                    <strong>Sell from the marketplace rows</strong>
                   </div>
                   <div className="market-observation-value">{marketStatuses.filter((state) => state.state === "published").length} live</div>
                 </div>
-                <div className="actions wrap-actions">
-                  <Button disabled={pending} kind="secondary" onClick={onPublishEbay} type="button">
-                    Publish eBay
-                  </Button>
-                  <Button disabled={pending} kind="secondary" onClick={onPublishDepop} type="button">
-                    Publish Depop
-                  </Button>
-                  <Button disabled={pending} kind="secondary" onClick={onPublishPoshmark} type="button">
-                    Publish Poshmark
-                  </Button>
-                  <Button disabled={pending} kind="secondary" onClick={onPublishWhatnot} type="button">
-                    Publish Whatnot
-                  </Button>
+                <div className="stack">
+                  <div className="muted">
+                    Mollie now treats each marketplace as its own execution lane. Check the row for connection health,
+                    extension requirements, and the next honest action before you post.
+                  </div>
+                  <div className="actions wrap-actions">
+                    <Button disabled={pending} kind="secondary" onClick={onPublishLinked} type="button">
+                      Publish linked accounts
+                    </Button>
+                    <Button disabled={pending} kind="secondary" onClick={onOpenMarketplaces} type="button">
+                      Review accounts
+                    </Button>
+                  </div>
                 </div>
               </div>
 
@@ -659,23 +669,18 @@ export function InventoryDetailView({
           <SectionCard
             action={<StatusPill label={ebayPreflight?.state ?? (ebayPreflight?.ready ? "ready" : "blocked")} tone={ebayPreflight?.ready ? "success" : "warning"} />}
             eyebrow="Marketplace Status"
-            title="What is live, blocked, or waiting"
+            title="Run each marketplace from one control plane"
           >
             {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
             <div className="marketplace-status-stack">
               {marketStatuses.map((state) => (
                 <MarketplaceStatusRow
                   key={state.platform}
-                  onAction={
-                    state.platform === "EBAY"
-                      ? onPublishEbay
-                      : state.platform === "DEPOP"
-                        ? onPublishDepop
-                        : state.platform === "POSHMARK"
-                          ? onPublishPoshmark
-                          : state.platform === "WHATNOT"
-                            ? onPublishWhatnot
-                            : null
+                  onAction={state.actionKind === "unavailable" ? null : () => onMarketplaceAction(state.platform, state.actionKind)}
+                  onSecondaryAction={
+                    state.secondaryActionKind
+                      ? () => onMarketplaceSecondaryAction(state.platform, state.secondaryActionKind ?? "unavailable")
+                      : null
                   }
                   state={state}
                 />
@@ -718,15 +723,15 @@ export function InventoryDetailView({
                         : "Install the Mollie browser extension to import marketplace listings and accept Mollie handoff tasks."}
                   </p>
                 </div>
-                <div className="actions">
-                  <Button kind="secondary" onClick={onRefreshExtension} type="button">
-                    <RefreshCw size={16} /> Refresh
-                  </Button>
-                  <Button disabled={!extensionConnected || pending} onClick={onSendToExtension} type="button">
-                    Open in extension
-                  </Button>
+                  <div className="actions">
+                    <Button kind="secondary" onClick={onRefreshExtension} type="button">
+                      <RefreshCw size={16} /> Refresh
+                    </Button>
+                    <Button disabled={!extensionConnected || pending} onClick={onSendToExtension} type="button">
+                      Open in extension
+                    </Button>
+                  </div>
                 </div>
-              </div>
               <div className="inventory-preflight-meta">
                 <span>Pending tasks: {extensionPendingCount}</span>
                 <span>{extensionLoading ? "Checking extension…" : extensionConnected ? "Ready for handoff" : "Not ready for handoff"}</span>

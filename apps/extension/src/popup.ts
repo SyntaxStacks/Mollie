@@ -66,7 +66,7 @@ async function importActiveEbayListing() {
     importButton.disabled = true;
   }
 
-  setImportResult("Importing active eBay listing…");
+  setImportResult("Importing active eBay listing...");
   const result = (await chrome.runtime.sendMessage({
     type: "MOLLIE_EXTENSION_IMPORT_ACTIVE_EBAY"
   })) as { ok: boolean; error?: string; payload?: { duplicate?: boolean; inventoryItemId?: string } };

@@ -3,10 +3,11 @@
 import { useMemo, useState, useTransition } from "react";
 import { CheckCircle2, Clock3, AlertTriangle, Sparkles } from "lucide-react";
 
+import type { MarketplaceCapabilitySummary } from "@reselleros/types";
 import { Button } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
-import { DesktopExtensionStatusCard } from "../../components/desktop-extension-status-card";
+import { BrowserExtensionStatusCard } from "../../components/browser-extension-status-card";
 import { ItemCard } from "../../components/item-card";
 import { MarketplaceStatusRow } from "../../components/marketplace-status-row";
 import { MissingFieldsPanel } from "../../components/missing-fields-panel";
@@ -14,13 +15,15 @@ import { ProtectedView } from "../../components/protected-view";
 import { QueueHeader } from "../../components/queue-header";
 import { SectionCard } from "../../components/section-card";
 import { useAuth } from "../../components/auth-provider";
-import { useDesktopExtension } from "../../components/use-desktop-extension";
+import { useBrowserExtension } from "../../components/use-browser-extension";
 import { useAuthedResource } from "../../lib/api";
 import {
   getListingReadinessFlags,
   getMarketplaceStatusSummaries,
   getSellQueue,
-  type InventoryListLikeItem
+  type InventoryListLikeItem,
+  type MarketplaceAccountLike,
+  type MarketplaceActionKind
 } from "../../lib/item-lifecycle";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -29,7 +32,12 @@ const sellQueues = ["Ready to List", "Drafts", "Publishing", "Listed", "Failed",
 type SellItem = InventoryListLikeItem & { sku: string };
 
 type ExtensionStatusResponse = {
+  capabilitySummary: MarketplaceCapabilitySummary[];
   tasks: Array<{ id: string; state: string }>;
+};
+
+type MarketplaceAccountsResponse = {
+  accounts: MarketplaceAccountLike[];
 };
 
 function queueHeadline(queue: (typeof sellQueues)[number]) {
@@ -70,7 +78,8 @@ export default function SellPage() {
   const auth = useAuth();
   const { data, error, refresh } = useAuthedResource<{ items: SellItem[] }>("/api/inventory", auth.token);
   const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
-  const extension = useDesktopExtension();
+  const marketplaceAccounts = useAuthedResource<MarketplaceAccountsResponse>("/api/marketplace-accounts", auth.token);
+  const extension = useBrowserExtension();
   const [activeQueue, setActiveQueue] = useState<(typeof sellQueues)[number]>("Ready to List");
   const [pending, startTransition] = useTransition();
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -106,11 +115,72 @@ export default function SellPage() {
     });
   }
 
+  async function runPostWithBody(path: string, successMessage: string, body: Record<string, unknown>) {
+    startTransition(async () => {
+      const response = await fetch(`${API_BASE_URL}${path}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+
+      const payload = (await response.json().catch(() => ({ error: "Action failed" }))) as { error?: string };
+
+      if (!response.ok) {
+        setActionMessage(payload.error ?? "Action failed");
+        return;
+      }
+
+      setActionMessage(successMessage);
+      await refresh();
+    });
+  }
+
+  function handleMarketplaceAction(itemId: string, platform: string, action: MarketplaceActionKind) {
+    if (action === "connect_account") {
+      window.location.assign("/marketplaces");
+      return;
+    }
+
+    if (action === "check_extension") {
+      void extension.refresh();
+      void extensionStatus.refresh();
+      return;
+    }
+
+    if (action === "publish_api" || action === "retry") {
+      if (platform === "EBAY") {
+        void runPost(`/api/inventory/${itemId}/publish/ebay`, "Queued eBay publish.");
+      } else if (platform === "DEPOP") {
+        void runPost(`/api/inventory/${itemId}/publish/depop`, "Queued Depop publish.");
+      } else if (platform === "POSHMARK") {
+        void runPost(`/api/inventory/${itemId}/publish/poshmark`, "Queued Poshmark publish.");
+      } else if (platform === "WHATNOT") {
+        void runPost(`/api/inventory/${itemId}/publish/whatnot`, "Queued Whatnot publish.");
+      }
+      return;
+    }
+
+    if (action === "generate_draft") {
+      void runPostWithBody(`/api/inventory/${itemId}/generate-drafts`, "Queued marketplace draft generation.", {
+        platforms: [platform]
+      });
+      return;
+    }
+
+    if (action === "open_extension") {
+      window.location.assign(`/inventory/${itemId}`);
+      return;
+    }
+  }
+
   return (
     <ProtectedView>
       <AppShell title="Sell">
         <section className="page-stack">
-          <DesktopExtensionStatusCard
+          <BrowserExtensionStatusCard
             connected={extension.connected}
             installed={extension.installed}
             loading={extension.loading}
@@ -180,7 +250,12 @@ export default function SellPage() {
 
           {(activeGroup?.items ?? []).map((item) => {
             const readinessFlags = getListingReadinessFlags(item);
-            const marketStatuses = getMarketplaceStatusSummaries(item);
+            const marketStatuses = getMarketplaceStatusSummaries(item, {
+              marketplaceAccounts: marketplaceAccounts.data?.accounts ?? [],
+              capabilitySummary: extensionStatus.data?.capabilitySummary ?? [],
+              extensionInstalled: extension.installed,
+              extensionConnected: extension.connected
+            });
 
             return (
               <SectionCard eyebrow="Sell candidate" key={item.id} title={item.title}>
@@ -200,16 +275,11 @@ export default function SellPage() {
                     {marketStatuses.map((state) => (
                       <MarketplaceStatusRow
                         key={`${item.id}-${state.platform}`}
-                        onAction={
-                          state.platform === "EBAY"
-                            ? () => void runPost(`/api/inventory/${item.id}/publish/ebay`, "Queued eBay publish.")
-                            : state.platform === "DEPOP"
-                              ? () => void runPost(`/api/inventory/${item.id}/publish/depop`, "Queued Depop publish.")
-                              : state.platform === "POSHMARK"
-                                ? () => void runPost(`/api/inventory/${item.id}/publish/poshmark`, "Queued Poshmark publish.")
-                                : state.platform === "WHATNOT"
-                                  ? () => void runPost(`/api/inventory/${item.id}/publish/whatnot`, "Queued Whatnot publish.")
-                                  : null
+                        onAction={state.actionKind === "unavailable" ? null : () => handleMarketplaceAction(item.id, state.platform, state.actionKind)}
+                        onSecondaryAction={
+                          state.secondaryActionKind
+                            ? () => handleMarketplaceAction(item.id, state.platform, state.secondaryActionKind ?? "unavailable")
+                            : null
                         }
                         state={state}
                       />

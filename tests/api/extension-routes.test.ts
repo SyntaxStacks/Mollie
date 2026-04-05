@@ -146,20 +146,90 @@ test("extension handoff creates a universal listing task for an inventory item",
 
   assert.equal(response.statusCode, 200);
   const body = response.json() as {
-    task: { platform: string; action: string; state: string };
+    task: { platform: string; action: string; state: string; attemptCount: number; queuedAt: string };
     listing: { inventoryItemId: string; title: string; photos: Array<{ url: string }> };
   };
 
   assert.equal(body.task.platform, "EBAY");
   assert.equal(body.task.action, "PREPARE_DRAFT");
   assert.equal(body.task.state, "QUEUED");
+  assert.equal(body.task.attemptCount, 0);
+  assert.ok(body.task.queuedAt);
   assert.equal(body.listing.inventoryItemId, item.id);
   assert.equal(body.listing.title, "Vintage flannel shirt");
   assert.equal(body.listing.photos[0]?.url, "https://images.example.com/flannel.jpg");
 });
 
+test("extension task must be claimed before it becomes running", async () => {
+  const session = await createWorkspaceSession("extension-claim");
+  const item = await db.inventoryItem.create({
+    data: {
+      workspaceId: session.workspaceId,
+      sku: `SKU-${crypto.randomUUID().slice(0, 8)}`,
+      title: "Retro windbreaker",
+      brand: "Nike",
+      category: "Jackets",
+      condition: "Used",
+      quantity: 1,
+      costBasis: 8,
+      priceRecommendation: 48,
+      attributesJson: {},
+      imageManifestJson: []
+    }
+  });
+
+  const handoffResponse = await app.inject({
+    method: "POST",
+    url: "/api/extension/tasks/handoff",
+    headers: session.headers,
+    payload: {
+      inventoryItemId: item.id,
+      platform: "EBAY",
+      action: "PREPARE_DRAFT"
+    }
+  });
+
+  assert.equal(handoffResponse.statusCode, 200);
+  const handoffBody = handoffResponse.json() as { task: { id: string; state: string } };
+  assert.equal(handoffBody.task.state, "QUEUED");
+
+  const claimResponse = await app.inject({
+    method: "POST",
+    url: `/api/extension/tasks/${handoffBody.task.id}/claim`,
+    headers: session.headers,
+    payload: {
+      runnerInstanceId: "runner-test-1234"
+    }
+  });
+
+  assert.equal(claimResponse.statusCode, 200);
+  const claimBody = claimResponse.json() as { claimed: boolean; task: { state: string; attemptCount: number; runnerInstanceId: string | null } };
+  assert.equal(claimBody.claimed, true);
+  assert.equal(claimBody.task.state, "RUNNING");
+  assert.equal(claimBody.task.attemptCount, 1);
+  assert.equal(claimBody.task.runnerInstanceId, "runner-test-1234");
+});
+
 test("extension eBay import creates inventory and links a published listing", async () => {
   const session = await createWorkspaceSession("extension-ebay-import");
+
+  await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "EBAY",
+      displayName: "Broken eBay",
+      secretRef: "db-encrypted://marketplace-account/oauth-bad",
+      credentialType: "OAUTH_TOKEN_SET",
+      validationStatus: "INVALID",
+      status: "ERROR",
+      credentialMetadataJson: {
+        mode: "oauth"
+      },
+      credentialPayloadJson: {
+        scheme: "db-encrypted-v1"
+      }
+    }
+  });
 
   const ebayAccount = await db.marketplaceAccount.create({
     data: {

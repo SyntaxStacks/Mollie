@@ -40,10 +40,23 @@ export function DesktopExtensionStatusCard({
         <div className="extension-status-copy">
           <div className="extension-task-title">
             <Plug2 size={14} />
-            <StatusPill
-              label={connected ? "Connected" : installed ? "Detected" : "Missing"}
-              tone={connected ? "success" : installed ? "warning" : "neutral"}
-            />
+            <span>Browser extension state</span>
+          </div>
+          <div className="inventory-preflight-meta">
+            <span>
+              Installed{" "}
+              <StatusPill
+                label={installed ? "Yes" : "No"}
+                tone={installed ? "success" : "neutral"}
+              />
+            </span>
+            <span>
+              Mollie session{" "}
+              <StatusPill
+                label={connected ? "Connected" : installed ? "Needs reconnect" : "Missing"}
+                tone={connected ? "success" : installed ? "warning" : "neutral"}
+              />
+            </span>
           </div>
           <p className="muted">{detail}</p>
           <p className="muted">Pending extension tasks: {pendingTasks}</p>

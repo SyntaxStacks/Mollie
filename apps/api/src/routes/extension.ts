@@ -1,12 +1,14 @@
 import { z } from "zod";
 
 import {
+  claimExtensionTaskForWorkspace,
   addInventoryImage,
   createExtensionTaskForWorkspace,
   createInventoryImportItemForRun,
   createInventoryImportRunForWorkspace,
   createInventoryItem,
   db,
+  heartbeatExtensionTaskForWorkspace,
   findExtensionTaskForWorkspace,
   findInventoryItemDetailForWorkspace,
   listExtensionTasksForWorkspace,
@@ -16,7 +18,9 @@ import {
 } from "@reselleros/db";
 import {
   extensionEbayImportSchema,
+  extensionTaskClaimSchema,
   extensionTaskCreateSchema,
+  extensionTaskHeartbeatSchema,
   extensionTaskResultUpdateSchema,
   type ExtensionTaskView,
   type MarketplaceCapabilitySummary,
@@ -69,6 +73,13 @@ function serializeExtensionTask(task: {
   platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT";
   action: "IMPORT_LISTING" | "PREPARE_DRAFT" | "PUBLISH_LISTING" | "UPDATE_LISTING" | "DELIST_LISTING" | "RELIST_LISTING";
   state: "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
+  queuedAt: Date;
+  attemptCount: number;
+  runnerInstanceId: string | null;
+  claimedAt: Date | null;
+  lastHeartbeatAt: Date | null;
+  retryAfter: Date | null;
+  needsInputReason: string | null;
   payloadJson: unknown;
   resultJson: unknown;
   lastErrorCode: string | null;
@@ -87,6 +98,13 @@ function serializeExtensionTask(task: {
     platform: task.platform,
     action: task.action,
     state: task.state,
+    queuedAt: task.queuedAt.toISOString(),
+    attemptCount: task.attemptCount,
+    runnerInstanceId: task.runnerInstanceId ?? null,
+    claimedAt: task.claimedAt?.toISOString() ?? null,
+    lastHeartbeatAt: task.lastHeartbeatAt?.toISOString() ?? null,
+    retryAfter: task.retryAfter?.toISOString() ?? null,
+    needsInputReason: task.needsInputReason ?? null,
     lastErrorCode: task.lastErrorCode as ExtensionTaskView["lastErrorCode"],
     lastErrorMessage: task.lastErrorMessage,
     payload: (task.payloadJson ?? null) as Record<string, unknown> | null,
@@ -275,14 +293,30 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
       throw app.httpErrors.notFound("Extension task not found");
     }
 
+    if (body.runnerInstanceId && task.runnerInstanceId && task.runnerInstanceId !== body.runnerInstanceId) {
+      throw app.httpErrors.conflict("Extension task is owned by a different runner.");
+    }
+
+    const now = new Date();
+    const nextRetryAt =
+      body.retryAfterSeconds && body.state === "QUEUED"
+        ? new Date(now.getTime() + body.retryAfterSeconds * 1000)
+        : null;
+
     const updated = await updateExtensionTask(task.id, {
       state: body.state,
+      runnerInstanceId: body.state === "QUEUED" ? null : body.runnerInstanceId ?? task.runnerInstanceId ?? null,
+      claimedAt: body.state === "QUEUED" ? null : task.claimedAt ?? now,
+      lastHeartbeatAt: now,
+      retryAfter: nextRetryAt,
+      needsInputReason: body.state === "NEEDS_INPUT" ? body.needsInputReason ?? null : null,
       lastErrorCode: body.lastErrorCode ?? null,
       lastErrorMessage: body.lastErrorMessage ?? null,
       ...(body.result && body.result !== null ? { resultJson: body.result } : {}),
-      ...(body.state === "RUNNING" && !task.startedAt ? { startedAt: new Date() } : {}),
+      ...(body.state === "RUNNING" && !task.startedAt ? { startedAt: now } : {}),
+      ...(body.state === "QUEUED" ? { startedAt: null, completedAt: null } : {}),
       ...(body.state === "FAILED" || body.state === "SUCCEEDED" || body.state === "CANCELED"
-        ? { completedAt: new Date() }
+        ? { completedAt: now }
         : {})
     });
 
@@ -297,6 +331,71 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
         lastErrorCode: body.lastErrorCode ?? null
       }
     });
+
+    return {
+      task: serializeExtensionTask(updated)
+    };
+  });
+
+  app.post("/api/extension/tasks/:id/claim", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = extensionTaskClaimSchema.parse(request.body);
+    const claimed = await claimExtensionTaskForWorkspace(workspace.id, params.id, {
+      runnerInstanceId: body.runnerInstanceId
+    });
+
+    if (!claimed) {
+      const current = await findExtensionTaskForWorkspace(workspace.id, params.id);
+
+      if (!current) {
+        throw app.httpErrors.notFound("Extension task not found");
+      }
+
+      return {
+        claimed: false,
+        task: serializeExtensionTask(current)
+      };
+    }
+
+    await recordAuditLog({
+      workspaceId: workspace.id,
+      actorUserId: auth.userId,
+      action: "extension.task.claimed",
+      targetType: "extension_task",
+      targetId: claimed.id,
+      metadata: {
+        runnerInstanceId: body.runnerInstanceId,
+        browserName: body.browserName ?? null
+      }
+    });
+
+    return {
+      claimed: true,
+      task: serializeExtensionTask(claimed)
+    };
+  });
+
+  app.post("/api/extension/tasks/:id/heartbeat", async (request) => {
+    const auth = await context.requireAuth(request);
+    const workspace = await context.requireWorkspace(auth);
+    const params = z.object({ id: z.string().min(1) }).parse(request.params);
+    const body = extensionTaskHeartbeatSchema.parse(request.body);
+    const updated = await heartbeatExtensionTaskForWorkspace(workspace.id, params.id, body.runnerInstanceId, {
+      result:
+        body.result && body.message
+          ? {
+              ...body.result,
+              heartbeatMessage: body.message,
+              heartbeatAt: new Date().toISOString()
+            }
+          : body.result ?? (body.message ? { heartbeatMessage: body.message, heartbeatAt: new Date().toISOString() } : undefined)
+    });
+
+    if (!updated) {
+      throw app.httpErrors.conflict("Extension task is not owned by this runner anymore.");
+    }
 
     return {
       task: serializeExtensionTask(updated)
@@ -435,24 +534,23 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
       }
     });
 
-    const firstEbayAccount = await db.marketplaceAccount.findFirst({
+    const firstHealthyEbayAccount = await db.marketplaceAccount.findFirst({
       where: {
         workspaceId: workspace.id,
         platform: "EBAY",
-        status: {
-          in: ["CONNECTED", "ERROR"]
-        }
+        status: "CONNECTED"
       },
       orderBy: { createdAt: "asc" }
     });
 
     let listingId: string | null = null;
+    let linkageWarning: string | null = null;
 
-    if (firstEbayAccount) {
+    if (firstHealthyEbayAccount) {
       const listing = await db.platformListing.create({
         data: {
           inventoryItemId: item.id,
-          marketplaceAccountId: firstEbayAccount.id,
+          marketplaceAccountId: firstHealthyEbayAccount.id,
           platform: "EBAY",
           externalListingId: body.externalListingId,
           status: mapSourceListingStateToPlatformStatus(body.sourceListingState),
@@ -462,6 +560,8 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
         }
       });
       listingId = listing.id;
+    } else {
+      linkageWarning = "Imported listing data was saved without linking to an unhealthy or missing eBay account.";
     }
 
     await createInventoryImportItemForRun(run.id, {
@@ -498,7 +598,7 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
     const task = await createExtensionTaskForWorkspace(workspace.id, {
       inventoryItemId: item.id,
       inventoryImportRunId: run.id,
-      marketplaceAccountId: firstEbayAccount?.id ?? null,
+      marketplaceAccountId: firstHealthyEbayAccount?.id ?? null,
       platform: "EBAY",
       action: "IMPORT_LISTING",
       state: "SUCCEEDED",
@@ -507,7 +607,8 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
         duplicate: false,
         inventoryItemId: item.id,
         platformListingId: listingId,
-        importRunId: run.id
+        importRunId: run.id,
+        linkageWarning
       },
       startedAt: new Date(),
       completedAt: new Date()
@@ -531,6 +632,7 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
       importRunId: run.id,
       inventoryItemId: item.id,
       platformListingId: listingId,
+      linkageWarning,
       task: serializeExtensionTask(task)
     };
   });

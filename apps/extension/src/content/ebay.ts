@@ -105,6 +105,115 @@ function extractExternalListingId() {
   return match?.[1] ?? null;
 }
 
+function setNativeValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLElement, value: string) {
+  if ("value" in element) {
+    const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+    descriptor?.set?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
+
+  if (element.isContentEditable) {
+    element.textContent = value;
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, data: value, inputType: "insertText" }));
+  }
+}
+
+function findFormField<T extends Element>(selectors: string[]) {
+  for (const selector of selectors) {
+    const element = document.querySelector(selector);
+    if (element) {
+      return element as T;
+    }
+  }
+
+  return null;
+}
+
+function applyEbayDraft(payload: { listing?: Record<string, unknown> | null }) {
+  const listing = payload.listing ?? {};
+  const fieldsApplied: string[] = [];
+  const missingFields: string[] = [];
+
+  const title = typeof listing.title === "string" ? listing.title.trim() : "";
+  const description = typeof listing.description === "string" ? listing.description.trim() : "";
+  const price =
+    typeof listing.price === "number"
+      ? listing.price
+      : typeof listing.price === "string" && listing.price.trim()
+        ? Number(listing.price)
+        : null;
+
+  const titleField = findFormField<HTMLInputElement>([
+    "input[aria-label*='Title']",
+    "input[name*='title']",
+    "input[id*='title']",
+    "input[data-testid*='title']"
+  ]);
+  const priceField = findFormField<HTMLInputElement>([
+    "input[aria-label*='price']",
+    "input[aria-label*='Price']",
+    "input[name*='price']",
+    "input[id*='price']",
+    "input[inputmode='decimal']"
+  ]);
+  const descriptionField =
+    findFormField<HTMLTextAreaElement>([
+      "textarea[aria-label*='Description']",
+      "textarea[name*='description']",
+      "textarea[id*='description']"
+    ]) ??
+    findFormField<HTMLElement>([
+      "[contenteditable='true'][aria-label*='Description']",
+      "[contenteditable='true'][role='textbox']"
+    ]);
+
+  if (title && titleField) {
+    setNativeValue(titleField, title);
+    fieldsApplied.push("title");
+  } else {
+    missingFields.push("title");
+  }
+
+  if (price != null && Number.isFinite(price) && priceField) {
+    setNativeValue(priceField, price.toFixed(2));
+    fieldsApplied.push("price");
+  } else {
+    missingFields.push("price");
+  }
+
+  if (description && descriptionField) {
+    setNativeValue(descriptionField, description);
+    fieldsApplied.push("description");
+  } else {
+    missingFields.push("description");
+  }
+
+  if (fieldsApplied.length === 0) {
+    return {
+      ok: false,
+      needsInput: true,
+      error: "eBay loaded, but this page variant does not expose the listing fields Mollie expects yet.",
+      result: {
+        fieldsApplied,
+        missingFields,
+        tabUrl: window.location.href
+      }
+    };
+  }
+
+  return {
+    ok: true,
+    result: {
+      fieldsApplied,
+      missingFields,
+      tabUrl: window.location.href
+    }
+  };
+}
+
 function extractListing() {
   const externalListingId = extractExternalListingId();
 
@@ -161,6 +270,11 @@ function extractListing() {
 chrome.runtime.onMessage.addListener((message: Record<string, unknown>, _sender: unknown, sendResponse: (response?: unknown) => void) => {
   if (message.type === "MOLLIE_EXTENSION_EXTRACT_EBAY") {
     sendResponse(extractListing());
+    return true;
+  }
+
+  if (message.type === "MOLLIE_EXTENSION_APPLY_EBAY_DRAFT") {
+    sendResponse(applyEbayDraft((message.payload ?? {}) as { listing?: Record<string, unknown> | null }));
     return true;
   }
 
