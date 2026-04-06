@@ -431,7 +431,7 @@ export function createAutomationVendorConnectAdapter(config: {
 export type AutomationMarketplaceReadiness = {
   state: AutomationOperationalState;
   status: "READY" | "BLOCKED";
-  publishMode: "automation";
+  publishMode: "automation" | "extension";
   summary: string;
   detail: string;
   hint: OperatorHint;
@@ -536,6 +536,18 @@ export function getAutomationAccountReadiness(input: {
   lastErrorMessage?: string | null;
 }) {
   const accountStatus = input.accountStatus ?? input.account.status ?? "CONNECTED";
+  const credentialMetadata = (input.account.credentialMetadata ?? {}) as Record<string, unknown>;
+  const vendorSessionArtifact =
+    credentialMetadata.vendorSessionArtifact && typeof credentialMetadata.vendorSessionArtifact === "object"
+      ? (credentialMetadata.vendorSessionArtifact as Record<string, unknown>)
+      : null;
+  const captureMode =
+    typeof vendorSessionArtifact?.captureMode === "string"
+      ? vendorSessionArtifact.captureMode
+      : typeof credentialMetadata.captureMode === "string"
+        ? credentialMetadata.captureMode
+        : null;
+  const extensionDraftPrepReady = input.account.platform === "DEPOP" && captureMode === "EXTENSION_BROWSER";
   const platformLabel =
     input.account.platform === "DEPOP"
       ? "Depop"
@@ -544,6 +556,95 @@ export function getAutomationAccountReadiness(input: {
         : input.account.platform === "WHATNOT"
           ? "Whatnot"
           : input.account.platform;
+
+  if (accountStatus === "ERROR") {
+    return {
+      state: "AUTOMATION_ERROR",
+      status: "BLOCKED",
+      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      summary: input.lastErrorMessage?.trim() || `${platformLabel} automation is in an error state.`,
+      detail: "Reconnect or repair the automation session before publishing again.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} needs attention before it can publish again.`,
+        explanation: input.lastErrorMessage?.trim() || "The last automation run failed and the connector is currently blocked.",
+        severity: "ERROR",
+        nextActions: [
+          `Reconnect the ${platformLabel} session or secret reference.`,
+          "Open Executions to inspect the last failure details and artifacts.",
+          "Use manual handling if this publish cannot wait."
+        ],
+        canContinue: false
+      })
+    };
+  }
+
+  if (accountStatus === "DISABLED") {
+    return {
+      state: "AUTOMATION_BLOCKED",
+      status: "BLOCKED",
+      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      summary: `${platformLabel} automation is disabled for this account.`,
+      detail: "Reconnect or re-enable the account before publishing.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} is disabled for this account.`,
+        explanation: "Mollie will not send automation jobs to this account until it is re-enabled or reconnected.",
+        severity: "ERROR",
+        nextActions: [`Reconnect the ${platformLabel} account.`, "Return here to confirm the account is ready before publishing."],
+        canContinue: false
+      })
+    };
+  }
+
+  if (input.account.validationStatus !== "VALID") {
+    return {
+      state: "AUTOMATION_BLOCKED",
+      status: "BLOCKED",
+      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      summary: `${platformLabel} session needs attention before automation can run.`,
+      detail:
+        input.account.validationStatus === "NEEDS_REFRESH"
+          ? "Refresh the stored session secret before publishing."
+          : "Reconnect the automation session before publishing.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} session needs to be refreshed before it can publish.`,
+        explanation:
+          input.account.validationStatus === "NEEDS_REFRESH"
+            ? "The saved automation session is stale and needs a fresh secret or session reference."
+            : "The saved automation session is not valid enough to run publish jobs.",
+        severity: "WARNING",
+        nextActions: [
+          `Refresh or replace the saved ${platformLabel} session reference.`,
+          "Retry the publish after the account shows ready again."
+        ],
+        canContinue: false
+      })
+    };
+  }
+
+  if (extensionDraftPrepReady) {
+    return {
+      state: "AUTOMATION_READY",
+      status: "READY",
+      publishMode: "extension" as const,
+      summary: `${platformLabel} browser session is ready for extension draft prep.`,
+      detail: "This account can prepare marketplace drafts through the Mollie browser extension in your current browser.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} is ready for browser-extension draft prep.`,
+        explanation: "Mollie can open the live Depop listing flow in your browser and apply the supported draft fields there.",
+        severity: "SUCCESS",
+        nextActions: ["Return to an inventory item and choose Open in extension.", "Use Recheck login later if the browser session expires."],
+        canContinue: true
+      })
+    };
+  }
 
   if (!simulatedMarketplacePathsAllowed()) {
     return {
@@ -582,76 +683,6 @@ export function getAutomationAccountReadiness(input: {
         explanation: "This account cannot publish until connector automation is re-enabled for the workspace.",
         severity: "ERROR",
         nextActions: ["Re-enable connector automation in Workspace settings.", "Retry publish after automation is enabled."],
-        canContinue: false
-      })
-    };
-  }
-
-  if (accountStatus === "ERROR") {
-    return {
-      state: "AUTOMATION_ERROR",
-      status: "BLOCKED",
-      publishMode: "automation" as const,
-      summary: input.lastErrorMessage?.trim() || `${platformLabel} automation is in an error state.`,
-      detail: "Reconnect or repair the automation session before publishing again.",
-      hint: buildAutomationHint({
-        platform: input.account.platform,
-        platformLabel,
-        title: `${platformLabel} needs attention before it can publish again.`,
-        explanation: input.lastErrorMessage?.trim() || "The last automation run failed and the connector is currently blocked.",
-        severity: "ERROR",
-        nextActions: [
-          `Reconnect the ${platformLabel} session or secret reference.`,
-          "Open Executions to inspect the last failure details and artifacts.",
-          "Use manual handling if this publish cannot wait."
-        ],
-        canContinue: false
-      })
-    };
-  }
-
-  if (accountStatus === "DISABLED") {
-    return {
-      state: "AUTOMATION_BLOCKED",
-      status: "BLOCKED",
-      publishMode: "automation" as const,
-      summary: `${platformLabel} automation is disabled for this account.`,
-      detail: "Reconnect or re-enable the account before publishing.",
-      hint: buildAutomationHint({
-        platform: input.account.platform,
-        platformLabel,
-        title: `${platformLabel} is disabled for this account.`,
-        explanation: "Mollie will not send automation jobs to this account until it is re-enabled or reconnected.",
-        severity: "ERROR",
-        nextActions: [`Reconnect the ${platformLabel} account.`, "Return here to confirm the account is ready before publishing."],
-        canContinue: false
-      })
-    };
-  }
-
-  if (input.account.validationStatus !== "VALID") {
-    return {
-      state: "AUTOMATION_BLOCKED",
-      status: "BLOCKED",
-      publishMode: "automation" as const,
-      summary: `${platformLabel} session needs attention before automation can run.`,
-      detail:
-        input.account.validationStatus === "NEEDS_REFRESH"
-          ? "Refresh the stored session secret before publishing."
-          : "Reconnect the automation session before publishing.",
-      hint: buildAutomationHint({
-        platform: input.account.platform,
-        platformLabel,
-        title: `${platformLabel} session needs to be refreshed before it can publish.`,
-        explanation:
-          input.account.validationStatus === "NEEDS_REFRESH"
-            ? "The saved automation session is stale and needs a fresh secret or session reference."
-            : "The saved automation session is not valid enough to run publish jobs.",
-        severity: "WARNING",
-        nextActions: [
-          `Refresh or replace the saved ${platformLabel} session reference.`,
-          "Retry the publish after the account shows ready again."
-        ],
         canContinue: false
       })
     };

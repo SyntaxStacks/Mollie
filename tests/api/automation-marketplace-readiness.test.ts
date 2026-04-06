@@ -184,21 +184,36 @@ after(async () => {
 test("automation marketplace accounts surface ready and error readiness states", async () => {
   const session = await createWorkspaceSession("automation-readiness");
 
-  const [poshmarkResponse, whatnotResponse] = await Promise.all([
+  await Promise.all([
     connectAutomationMarketplace(session, "POSHMARK", {
       displayName: "Main Poshmark closet",
       accountHandle: "main-poshmark-closet"
-    }),
-    connectAutomationMarketplace(session, "WHATNOT", {
-      displayName: "Main Whatnot account",
-      accountHandle: "main-whatnot-account"
     })
   ]);
 
-  const whatnotAccountId = whatnotResponse.account?.id;
-  assert.ok(whatnotAccountId);
+  const whatnotAccount = await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "WHATNOT",
+      displayName: "Main Whatnot account",
+      secretRef: "db-session://whatnot/test/attempt",
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      status: "CONNECTED",
+      credentialMetadataJson: {
+        mode: "helper-session-artifact",
+        publishMode: "automation",
+        accountHandle: "main-whatnot-account"
+      }
+    },
+    select: {
+      id: true
+    }
+  });
+
+  assert.ok(whatnotAccount.id);
   await db.marketplaceAccount.update({
-    where: { id: whatnotAccountId! },
+    where: { id: whatnotAccount.id },
     data: {
       status: "ERROR",
       lastErrorCode: "AUTOMATION_FAILED",
@@ -390,6 +405,87 @@ test("production blocks automation marketplace readiness when the connector is s
     assert.match(depop.readiness.detail, /simulated publish behavior/i);
     assert.equal(depop.readiness.hint?.severity, "ERROR");
     assert.equal(depop.readiness.hint?.canContinue, false);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+    if (originalAllow === undefined) {
+      delete process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+    } else {
+      process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = originalAllow;
+    }
+    if (originalExpose === undefined) {
+      delete process.env.AUTH_EXPOSE_DEV_CODE;
+    } else {
+      process.env.AUTH_EXPOSE_DEV_CODE = originalExpose;
+    }
+  }
+});
+
+test("production allows Depop extension-browser sessions to surface as extension-ready", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllow = process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
+  const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
+  process.env.NODE_ENV = "production";
+  process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS = "false";
+  process.env.AUTH_EXPOSE_DEV_CODE = "true";
+
+  try {
+    const session = await createWorkspaceSession("automation-production-extension-ready");
+
+    await db.marketplaceAccount.create({
+      data: {
+        workspaceId: session.workspaceId,
+        platform: "DEPOP",
+        displayName: "Main Depop account",
+        secretRef: "db-session://depop/test/attempt",
+        credentialType: "SECRET_REF",
+        validationStatus: "VALID",
+        status: "CONNECTED",
+        credentialMetadataJson: {
+          mode: "helper-session-artifact",
+          publishMode: "automation",
+          accountHandle: "main-depop-shop",
+          vendorSessionArtifact: {
+            captureMode: "EXTENSION_BROWSER"
+          }
+        }
+      }
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/marketplace-accounts",
+      headers: session.headers
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json() as {
+      accounts: Array<{
+        platform: string;
+        readiness: {
+          state: string;
+          status: string;
+          publishMode: string;
+          summary: string;
+          detail: string;
+          hint?: {
+            title: string;
+            explanation: string;
+            severity: string;
+            canContinue?: boolean;
+          } | null;
+        } | null;
+      }>;
+    };
+
+    const depop = body.accounts.find((account) => account.platform === "DEPOP");
+    assert.ok(depop?.readiness);
+    assert.equal(depop.readiness.state, "AUTOMATION_READY");
+    assert.equal(depop.readiness.status, "READY");
+    assert.equal(depop.readiness.publishMode, "extension");
+    assert.match(depop.readiness.summary, /browser session is ready/i);
+    assert.match(depop.readiness.detail, /browser extension/i);
+    assert.equal(depop.readiness.hint?.severity, "SUCCESS");
+    assert.equal(depop.readiness.hint?.canContinue, true);
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
     if (originalAllow === undefined) {
