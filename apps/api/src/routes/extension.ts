@@ -40,9 +40,9 @@ const capabilitySummary: MarketplaceCapabilitySummary[] = [
   },
   {
     platform: "DEPOP",
-    capabilities: [],
+    capabilities: ["EXTENSION_PUBLISH"],
     importMode: "NONE",
-    publishMode: "NONE",
+    publishMode: "EXTENSION",
     bulkImport: false,
     bulkPublish: false
   },

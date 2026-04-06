@@ -247,12 +247,30 @@ function describeCapabilities(platform: string, capability?: MarketplaceCapabili
   };
 }
 
-function describeConnection(account?: MarketplaceAccountLike | null) {
+function describeConnection(input: {
+  platform: string;
+  capability?: MarketplaceCapabilitySummary | null;
+  account?: MarketplaceAccountLike | null;
+}) {
+  const account = input.account;
+
   if (!account) {
     return {
       connectionSummary: "No connected marketplace account",
       connectionTone: "warning" as const,
       blocker: "Open the marketplace in another tab, finish login there, then recheck it from Mollie."
+    };
+  }
+
+  if (
+    input.capability?.publishMode === "EXTENSION" &&
+    account.status === "CONNECTED" &&
+    account.validationStatus === "VALID"
+  ) {
+    return {
+      connectionSummary: `Browser session ready${account.displayName ? ` - ${account.displayName}` : ""}`,
+      connectionTone: "success" as const,
+      blocker: null
     };
   }
 
@@ -329,6 +347,7 @@ function actionForState(input: {
   extensionConnected?: boolean;
   account?: MarketplaceAccountLike | null;
   blocker: string | null;
+  needsBrowserInput: boolean;
 }) {
   if (input.listingState === "published") {
     return {
@@ -348,6 +367,13 @@ function actionForState(input: {
     return {
       actionLabel: "Watch progress",
       actionKind: "watch" as const
+    };
+  }
+
+  if (input.needsBrowserInput) {
+    return {
+      actionLabel: input.platform === "DEPOP" ? "Finish in Depop tab" : "Finish in browser",
+      actionKind: "open_extension" as const
     };
   }
 
@@ -439,7 +465,15 @@ export function getMarketplaceStatusSummaries(
     const draft = item.listingDrafts?.find((candidate) => candidate.platform === platform) ?? null;
     const extensionTask =
       item.extensionTasks?.find((candidate) => candidate.platform === platform) ?? null;
-    const listingState = listing ? getMarketplaceListingState(listing.status) : draft ? "draft" : "not_started";
+    const baseListingState = listing ? getMarketplaceListingState(listing.status) : draft ? "draft" : "not_started";
+    const listingState =
+      extensionTask?.state === "QUEUED"
+        ? "queued"
+        : extensionTask?.state === "RUNNING"
+          ? "publishing"
+          : extensionTask?.state === "FAILED"
+            ? "failed"
+            : baseListingState;
     const missingRequirements = [...flags];
     const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
     const account =
@@ -447,8 +481,13 @@ export function getMarketplaceStatusSummaries(
       options.marketplaceAccounts?.find((candidate) => candidate.platform === platform) ??
       null;
     const capabilityDetail = describeCapabilities(platform, capability);
-    const connectionDetail = describeConnection(account);
+    const connectionDetail = describeConnection({
+      platform,
+      capability,
+      account
+    });
     const extensionDetail = describeExtensionState(options, capabilityDetail.extensionRequired);
+    const needsBrowserInput = extensionTask?.state === "NEEDS_INPUT";
 
     let summary = "Needs more item setup";
     let blocker =
@@ -467,6 +506,9 @@ export function getMarketplaceStatusSummaries(
             ? "Browser extension execution is active"
             : "Marketplace work is in flight";
       blocker = null;
+    } else if (needsBrowserInput) {
+      summary = extensionTask?.lastErrorMessage ?? "Finish the marketplace draft in the browser tab.";
+      blocker = extensionTask?.needsInputReason ?? "The browser extension applied what it could. Finish the remaining fields in the marketplace tab.";
     } else if (listingState === "failed") {
       summary = extensionTask?.lastErrorMessage ?? "Marketplace work failed and needs attention";
       blocker = extensionTask?.needsInputReason ?? extensionTask?.lastErrorMessage ?? connectionDetail.blocker ?? blocker;
@@ -474,11 +516,8 @@ export function getMarketplaceStatusSummaries(
       summary = draft.reviewStatus === "APPROVED" ? "Draft approved and waiting" : "Draft exists and needs review";
       blocker = missingRequirements.length > 0 ? blocker : connectionDetail.blocker ?? extensionDetail.extensionBlocker;
     } else if (capability?.publishMode !== "NONE" && missingRequirements.length === 0) {
-      summary = "Draft not created yet";
-      blocker = "Generate a marketplace draft before publishing.";
-    } else if (extensionTask?.state === "NEEDS_INPUT") {
-      summary = extensionTask.lastErrorMessage ?? "Browser extension needs help to continue";
-      blocker = extensionTask.needsInputReason ?? extensionTask.lastErrorMessage ?? "Finish the browser-side marketplace step.";
+      summary = capability?.publishMode === "EXTENSION" ? "Ready for browser-side draft prep" : "Draft not created yet";
+      blocker = capability?.publishMode === "EXTENSION" ? connectionDetail.blocker ?? extensionDetail.extensionBlocker : "Generate a marketplace draft before publishing.";
     } else if (extensionTask?.state === "QUEUED") {
       summary = "Queued in the browser extension";
       blocker = null;
@@ -505,7 +544,8 @@ export function getMarketplaceStatusSummaries(
       extensionRequired: capabilityDetail.extensionRequired,
       extensionConnected: options.extensionConnected,
       account,
-      blocker
+      blocker,
+      needsBrowserInput
     });
 
     let secondaryActionLabel: string | null = null;
@@ -528,9 +568,7 @@ export function getMarketplaceStatusSummaries(
     return {
       platform,
       state:
-        extensionTask?.state === "NEEDS_INPUT"
-          ? "failed"
-          : listingState,
+        needsBrowserInput ? baseListingState : listingState,
       missingRequirements,
       actionLabel: action.actionLabel,
       actionKind: action.actionKind,

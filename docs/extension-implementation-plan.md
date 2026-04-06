@@ -133,9 +133,15 @@ Extension results should update existing Mollie records:
 
 ### Scaffolded only
 
-- `DEPOP`
 - `POSHMARK`
 - `WHATNOT`
+
+### Implemented next
+
+- `DEPOP`
+  - extension-native `PREPARE_DRAFT`
+  - browser-session-aware row state
+  - honest `NEEDS_INPUT` handling for browser-side completion
 
 ## Routes and Screens Affected
 
@@ -241,6 +247,7 @@ Extension results should update existing Mollie records:
 
 ### Phase 4
 
+- [x] add the first non-eBay browser marketplace slice with Depop draft prep
 - [ ] add additional marketplace adapters
 - [ ] bulk import
 - [ ] relist/delist/update flows

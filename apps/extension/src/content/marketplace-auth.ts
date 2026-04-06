@@ -1,3 +1,4 @@
+(() => {
 type MarketplaceVendor = "DEPOP" | "POSHMARK" | "WHATNOT";
 
 type SessionDetection = {
@@ -159,5 +160,4 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, _sender:
     }
   );
 });
-
-export {};
+})();

@@ -1,3 +1,4 @@
+(() => {
 function textContent(selectors: string[]) {
   for (const selector of selectors) {
     const value = document.querySelector(selector)?.textContent?.trim();
@@ -280,5 +281,4 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, _sender:
 
   return false;
 });
-
-export {};
+})();

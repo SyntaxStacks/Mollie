@@ -33,6 +33,7 @@ The repo now has:
   - Mollie web-to-extension bridge
   - extension task runner
   - eBay import and draft-prep execution slice
+  - Depop browser-session draft-prep execution slice
 - `ExtensionTask`
   - queue-backed browser execution state that complements listings and imports
 
@@ -125,9 +126,15 @@ Implemented end-to-end first:
 
 Scaffolded only:
 
-- `DEPOP`
 - `POSHMARK`
 - `WHATNOT`
+
+Implemented narrowly next:
+
+- `DEPOP`
+  - browser-tab login recheck
+  - extension-native draft prep
+  - browser-session-aware item-row UX
 
 Not added yet:
 
@@ -176,6 +183,7 @@ Mollie should therefore surface extension state inside marketplace rows:
   - `SUCCEEDED`
 - row-level actions:
   - `Open in extension`
+  - `Finish in Depop tab`
   - `Check again`
   - `Reconnect`
   - `Generate draft`

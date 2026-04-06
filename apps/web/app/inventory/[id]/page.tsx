@@ -563,7 +563,16 @@ export default function InventoryDetailPage() {
     }
   }
 
-  async function sendToExtension() {
+  function getPreferredExtensionPlatform() {
+    const extensionFirst = selectedPlatforms.find((platform) => {
+      const capability = extensionStatus.data?.capabilitySummary.find((entry) => entry.platform === platform);
+      return capability?.publishMode === "EXTENSION" || capability?.importMode === "EXTENSION";
+    });
+
+    return extensionFirst ?? selectedPlatforms[0] ?? "EBAY";
+  }
+
+  async function sendToExtension(platform: Platform = getPreferredExtensionPlatform()) {
     if (!auth.token || !auth.workspace) {
       return;
     }
@@ -582,14 +591,14 @@ export default function InventoryDetailPage() {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${auth.token}`,
-            "x-workspace-id": workspaceId
-          },
-          body: JSON.stringify({
-            inventoryItemId: params.id,
-            platform: "EBAY",
-            action: "PREPARE_DRAFT"
-          })
-        });
+          "x-workspace-id": workspaceId
+        },
+        body: JSON.stringify({
+          inventoryItemId: params.id,
+          platform,
+          action: "PREPARE_DRAFT"
+        })
+      });
         const payload = (await response.json().catch(() => ({ error: "Could not create extension handoff" }))) as {
           error?: string;
           task?: { id: string; platform: string; action: string };
@@ -611,7 +620,10 @@ export default function InventoryDetailPage() {
           throw new Error(handoff.error ?? "Extension did not accept the task");
         }
 
-        setExtensionActionStatus("Queued in the browser extension.");
+        const platformLabel =
+          platform === "EBAY" ? "eBay" : platform === "DEPOP" ? "Depop" : platform === "POSHMARK" ? "Poshmark" : "Whatnot";
+
+        setExtensionActionStatus(`Queued ${platformLabel} draft prep in the browser extension.`);
         await Promise.all([refresh(), extensionStatus.refresh()]);
       } catch (caughtError) {
         setExtensionActionStatus(caughtError instanceof Error ? caughtError.message : "Could not send item to extension");
@@ -727,7 +739,7 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "open_extension") {
-      void sendToExtension();
+      void sendToExtension(platform as Platform);
       return;
     }
 
@@ -769,7 +781,7 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "open_extension") {
-      void sendToExtension();
+      void sendToExtension(platform as Platform);
       return;
     }
 

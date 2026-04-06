@@ -81,6 +81,26 @@ type ClaimResponse = {
   error?: string;
 };
 
+type BrowserDraftApplyResult =
+  | {
+      ok: true;
+      result: {
+        fieldsApplied: string[];
+        missingFields: string[];
+        tabUrl: string | null;
+      };
+    }
+  | {
+      ok: false;
+      needsInput?: boolean;
+      error?: string;
+      result?: {
+        fieldsApplied?: string[];
+        missingFields?: string[];
+        tabUrl?: string | null;
+      };
+    };
+
 type MarketplaceSessionDetection = {
   ok: boolean;
   vendor: MarketplaceVendor;
@@ -489,6 +509,28 @@ async function waitForTabComplete(tabId: number, timeoutMs = 30_000) {
   });
 }
 
+async function sendTabMessageWithRetry<TResponse>(
+  tabId: number,
+  message: Record<string, unknown>,
+  attempts = 5,
+  delayMs = 400
+) {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return (await chrome.tabs.sendMessage(tabId, message)) as TResponse;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Could not communicate with the marketplace tab.");
+}
+
 async function runEbayPrepareDraftTask(task: StoredExtensionTask, runnerInstanceId: string) {
   const listing = task.listing;
 
@@ -526,31 +568,13 @@ async function runEbayPrepareDraftTask(task: StoredExtensionTask, runnerInstance
     }
   });
 
-  const applied = (await chrome.tabs.sendMessage(tab.id, {
+  const applied = (await sendTabMessageWithRetry<BrowserDraftApplyResult>(tab.id, {
     type: "MOLLIE_EXTENSION_APPLY_EBAY_DRAFT",
     payload: {
       taskId: task.taskId,
       listing
     }
-  })) as
-    | {
-        ok: true;
-        result: {
-          fieldsApplied: string[];
-          missingFields: string[];
-          tabUrl: string | null;
-        };
-      }
-    | {
-        ok: false;
-        needsInput?: boolean;
-        error?: string;
-        result?: {
-          fieldsApplied?: string[];
-          missingFields?: string[];
-          tabUrl?: string | null;
-        };
-      };
+  })) as BrowserDraftApplyResult;
 
   if (applied?.ok) {
     return {
@@ -595,9 +619,132 @@ async function runEbayPrepareDraftTask(task: StoredExtensionTask, runnerInstance
   };
 }
 
+async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanceId: string) {
+  const listing = task.listing;
+
+  await heartbeatMollieTask(task.taskId, runnerInstanceId, {
+    message: "Opening Depop draft flow",
+    result: {
+      phase: "open_tab"
+    }
+  });
+
+  const tab = await chrome.tabs.create({
+    url: "https://www.depop.com/products/create/",
+    active: true
+  });
+
+  if (!tab.id) {
+    return {
+      state: "FAILED" as const,
+      lastErrorCode: "UNKNOWN" as const,
+      lastErrorMessage: "Could not open the Depop listing flow.",
+      result: {
+        phase: "open_tab"
+      }
+    };
+  }
+
+  const readyTab = await waitForTabComplete(tab.id);
+
+  if (readyTab.url && /\/login\b/i.test(readyTab.url)) {
+    return {
+      state: "FAILED" as const,
+      lastErrorCode: "AUTH_REQUIRED" as const,
+      lastErrorMessage: "Depop session missing. Log in to Depop in another tab, then recheck login in Mollie.",
+      result: {
+        browserExecution: "DEPOP_PREPARE_DRAFT",
+        tabId: tab.id,
+        tabUrl: readyTab.url
+      }
+    };
+  }
+
+  await heartbeatMollieTask(task.taskId, runnerInstanceId, {
+    message: "Applying listing fields on Depop",
+    result: {
+      phase: "fill_form",
+      tabId: tab.id,
+      tabUrl: readyTab.url ?? null
+    }
+  });
+
+  let applied: BrowserDraftApplyResult;
+
+  try {
+    applied = (await sendTabMessageWithRetry<BrowserDraftApplyResult>(tab.id, {
+      type: "MOLLIE_EXTENSION_APPLY_DEPOP_DRAFT",
+      payload: {
+        taskId: task.taskId,
+        listing
+      }
+    })) as BrowserDraftApplyResult;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not talk to the Depop browser tab.";
+    return {
+      state: "FAILED" as const,
+      lastErrorCode: "SELECTOR_FAILED" as const,
+      lastErrorMessage: message,
+      result: {
+        browserExecution: "DEPOP_PREPARE_DRAFT",
+        tabId: tab.id,
+        tabUrl: readyTab.url ?? null,
+        fieldsApplied: [],
+        missingFields: []
+      }
+    };
+  }
+
+  if (applied?.ok) {
+    return {
+      state: "SUCCEEDED" as const,
+      result: {
+        browserExecution: "DEPOP_PREPARE_DRAFT",
+        tabId: tab.id,
+        tabUrl: applied.result.tabUrl,
+        fieldsApplied: applied.result.fieldsApplied,
+        missingFields: applied.result.missingFields
+      }
+    };
+  }
+
+  if (applied?.needsInput) {
+    return {
+      state: "NEEDS_INPUT" as const,
+      lastErrorCode: "MISSING_REQUIRED_FIELD" as const,
+      lastErrorMessage: applied.error ?? "Depop needs a little more input before the draft is ready.",
+      needsInputReason: applied.error ?? "Finish the Depop draft in the current browser tab.",
+      result: {
+        browserExecution: "DEPOP_PREPARE_DRAFT",
+        tabId: tab.id,
+        tabUrl: applied.result?.tabUrl ?? readyTab.url ?? null,
+        fieldsApplied: applied.result?.fieldsApplied ?? [],
+        missingFields: applied.result?.missingFields ?? []
+      }
+    };
+  }
+
+  return {
+    state: "FAILED" as const,
+    lastErrorCode: "SELECTOR_FAILED" as const,
+    lastErrorMessage: applied?.error ?? "Could not apply the Depop draft fields in the browser.",
+    result: {
+      browserExecution: "DEPOP_PREPARE_DRAFT",
+      tabId: tab.id,
+      tabUrl: readyTab.url ?? null,
+      fieldsApplied: applied?.result?.fieldsApplied ?? [],
+      missingFields: applied?.result?.missingFields ?? []
+    }
+  };
+}
+
 async function runTask(task: StoredExtensionTask, runnerInstanceId: string) {
   if (task.platform === "EBAY" && task.action === "PREPARE_DRAFT") {
     return runEbayPrepareDraftTask(task, runnerInstanceId);
+  }
+
+  if (task.platform === "DEPOP" && task.action === "PREPARE_DRAFT") {
+    return runDepopPrepareDraftTask(task, runnerInstanceId);
   }
 
   return {

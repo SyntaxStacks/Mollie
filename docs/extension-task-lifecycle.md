@@ -68,6 +68,8 @@ Examples:
 - opening the eBay seller flow
 - waiting for the marketplace page to finish loading
 - applying listing fields on the page
+- opening the Depop create-listing flow
+- applying the reliable subset of Depop draft fields before handing control back to the operator
 
 ### 5. Needs input
 
@@ -80,6 +82,7 @@ Examples:
 - marketplace page variant did not expose the expected fields
 - operator attention is required to finish the browser-side step
 - the browser extension can continue only after the operator fixes a marketplace-side issue
+- Depop accepted the applied fields, but the operator still needs to finish photos, category, or other browser-only inputs in the live tab
 
 `needsInputReason` should tell the operator exactly what to do next.
 

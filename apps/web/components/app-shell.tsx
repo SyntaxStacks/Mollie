@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  ChevronDown,
   Camera,
   Download,
   Factory,
@@ -43,6 +45,29 @@ export function AppShell({
   const pathname = usePathname();
   const auth = useAuth();
   const activePrimary = primaryNavItems.find((item) => item.match(pathname))?.href ?? "/";
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!settingsMenuRef.current?.contains(event.target as Node)) {
+        setSettingsOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSettingsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
 
   return (
     <div className={`app-shell${chrome === "immersive" ? " app-shell-immersive" : ""}`}>
@@ -57,21 +82,55 @@ export function AppShell({
         </div>
 
         <div className="app-topbar-actions">
-          <nav className="app-utility-nav" aria-label="Utilities">
-            {utilityNavItems.map((item) => {
-              const Icon = item.icon;
-              const active = pathname.startsWith(item.href);
-              return (
-                <Link className={`app-utility-link${active ? " active" : ""}`} href={item.href} key={item.href}>
-                  <Icon size={16} />
-                  <span>{item.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-          <Button kind="ghost" onClick={auth.logout}>
-            Sign out
-          </Button>
+          <div className="app-settings-menu" ref={settingsMenuRef}>
+            <button
+              aria-expanded={settingsOpen}
+              aria-haspopup="menu"
+              className={`app-utility-link app-settings-toggle${settingsOpen ? " active" : ""}`}
+              onClick={() => setSettingsOpen((current) => !current)}
+              type="button"
+            >
+              <Settings size={16} />
+              <span>Settings</span>
+              <ChevronDown className={`app-settings-chevron${settingsOpen ? " open" : ""}`} size={16} />
+            </button>
+
+            {settingsOpen ? (
+              <div className="app-settings-dropdown" role="menu">
+                <nav className="app-settings-links" aria-label="Settings navigation">
+                  {utilityNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const active = pathname.startsWith(item.href);
+                    return (
+                      <Link
+                        className={`app-settings-link${active ? " active" : ""}`}
+                        href={item.href}
+                        key={item.href}
+                        onClick={() => setSettingsOpen(false)}
+                        role="menuitem"
+                      >
+                        <Icon size={16} />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+                <div className="app-settings-footer">
+                  <Button
+                    className="app-settings-signout"
+                    kind="ghost"
+                    onClick={() => {
+                      setSettingsOpen(false);
+                      auth.logout();
+                    }}
+                    type="button"
+                  >
+                    Sign out
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 

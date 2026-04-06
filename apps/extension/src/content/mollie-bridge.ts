@@ -1,3 +1,4 @@
+(() => {
 function isBridgeRequest(value: unknown): value is {
   source: "MOLLIE_WEB_APP";
   target: "MOLLIE_EXTENSION";
@@ -50,5 +51,4 @@ window.addEventListener("message", (event) => {
     );
   });
 });
-
-export {};
+})();

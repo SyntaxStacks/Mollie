@@ -160,6 +160,32 @@ test("extension handoff creates a universal listing task for an inventory item",
   assert.equal(body.listing.photos[0]?.url, "https://images.example.com/flannel.jpg");
 });
 
+test("extension status exposes Depop as an extension draft-prep marketplace", async () => {
+  const session = await createWorkspaceSession("extension-capabilities");
+
+  const response = await app.inject({
+    method: "GET",
+    url: "/api/extension/status",
+    headers: session.headers
+  });
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json() as {
+    capabilitySummary: Array<{
+      platform: string;
+      capabilities: string[];
+      publishMode: string;
+      importMode: string;
+    }>;
+  };
+  const depop = body.capabilitySummary.find((entry) => entry.platform === "DEPOP");
+
+  assert.ok(depop);
+  assert.equal(depop?.publishMode, "EXTENSION");
+  assert.equal(depop?.importMode, "NONE");
+  assert.ok(depop?.capabilities.includes("EXTENSION_PUBLISH"));
+});
+
 test("extension task must be claimed before it becomes running", async () => {
   const session = await createWorkspaceSession("extension-claim");
   const item = await db.inventoryItem.create({
