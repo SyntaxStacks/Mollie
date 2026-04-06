@@ -84,7 +84,7 @@ function buildWhatnotInvalidHint(explanation: string, nextActions: string[]) {
     severity: "ERROR",
     nextActions,
     canContinue: false,
-    helpText: "Whatnot sign-in should be captured with the Mollie desktop companion so Mollie can validate the real browser session."
+    helpText: "Whatnot should be opened in a normal browser tab, then rechecked through the Mollie browser extension so the signed-in session can be validated."
   });
 }
 
@@ -96,31 +96,32 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
       prompts: [
         {
           kind: "LOGIN",
-          label: "Launch the Whatnot desktop companion",
-          detail: `Launch the Mollie desktop companion, complete Whatnot sign-in there, and let Mollie capture the real browser session for ${displayName}.`,
+          label: "Open Whatnot in another tab",
+          detail: `Open Whatnot in another tab, finish sign-in there, and then ask Mollie to recheck the signed-in browser session for ${displayName}.`,
           required: true
         }
       ],
       hint: buildAutomationConnectHint({
         platform: "WHATNOT",
         platformLabel: "Whatnot",
-        title: "Whatnot sign-in starts in the desktop companion.",
+        title: "Whatnot sign-in starts in another browser tab.",
         explanation:
-          "Whatnot sessions should be captured from a real desktop browser context, especially when the account uses Google sign-in. Mollie will validate the captured session before marking the account ready.",
+          "Whatnot sessions should be completed in the operator's own browser tab, especially when the account uses Google sign-in. Mollie will recheck that signed-in tab through the browser extension before marking the account ready.",
         severity: "INFO",
         nextActions: [
-          "Open the Whatnot secure sign-in bridge on desktop.",
-          "If you use Google sign-in, complete the Google handoff in the companion browser before returning to Mollie."
+          "Open Whatnot in another tab and finish login there.",
+          "If you use Google sign-in, finish that handoff in the same browser.",
+          "Return to Mollie and click recheck login."
         ],
         canContinue: true,
-        helpText: "The popup bridge can explain the flow, but the desktop companion is the preferred capture path for Whatnot."
+        helpText: "The browser extension is the supported Whatnot recheck path."
       }),
       helperPath: "/marketplaces/connect-helper?vendor=whatnot",
       expiresInSeconds: 15 * 60,
       metadata: {
         loginUrl: "https://www.whatnot.com/login",
         summaryLabel: "Whatnot seller account",
-        requiresLocalBridge: true
+        requiresLocalBridge: false
       }
     };
   },
@@ -131,20 +132,20 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
       sessionLabel: input.sessionLabel
     });
 
-    if (input.captureMode !== "LOCAL_BRIDGE") {
+    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "EXTENSION_BROWSER") {
       return {
         state: "FAILED",
         prompts: [
           {
             kind: "LOGIN",
-            label: "Use the desktop companion for Whatnot",
-            detail: "Whatnot sign-in should be captured through the desktop companion so the real browser session can be validated.",
+            label: "Use the browser extension recheck for Whatnot",
+            detail: "Whatnot sign-in should be rechecked through the Mollie browser extension so the real browser session can be validated.",
             required: true
           }
         ],
         hint: buildWhatnotInvalidHint(
-          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Use the desktop companion and complete sign-in there instead.",
-          ["Launch the desktop companion.", "Finish the Whatnot or Google sign-in in that companion browser."]
+          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Open Whatnot in another tab and recheck it through the browser extension instead.",
+          ["Open Whatnot in another tab.", "Finish the Whatnot or Google sign-in there.", "Return to Mollie and click recheck login."]
         ),
         metadata: {
           pendingSession: null
@@ -159,7 +160,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         hint: buildWhatnotInvalidHint(
           `Mollie captured ${summary.accountHandle}, but the storage state did not contain a usable Whatnot session yet.`,
           [
-            "Finish sign-in fully in the desktop companion browser.",
+            "Finish sign-in fully in the Whatnot browser tab.",
             "Make sure you reach a signed-in Whatnot page before completing capture."
           ]
         ),
@@ -185,7 +186,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
           platform: "WHATNOT",
           platformLabel: "Whatnot",
           title: "Whatnot still needs one verification step.",
-          explanation: `Mollie captured a signed-in browser context for ${summary.accountHandle}, but Whatnot still requires a verification code before the session can be trusted.`,
+        explanation: `Mollie captured a signed-in browser context for ${summary.accountHandle}, but Whatnot still requires a verification code before the session can be trusted.`,
           severity: "WARNING",
           nextActions: ["Enter the verification code in Mollie.", "Wait for the account to switch to connected and ready."],
           canContinue: true
@@ -217,7 +218,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
             ? `Mollie captured the Whatnot browser session for ${summary.accountHandle}, including the Google sign-in handoff, and is validating it now.`
             : `Mollie captured the Whatnot browser session for ${summary.accountHandle} and is validating it now.`,
         severity: "INFO",
-        nextActions: ["Wait for validation to finish.", "Keep the helper open until Mollie confirms the account is ready."],
+        nextActions: ["Wait for validation to finish.", "Keep the Whatnot tab open until Mollie confirms the account is ready."],
         canContinue: true
       }),
       metadata: {
@@ -280,21 +281,21 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         detail: "The captured browser context did not look safe enough to reuse for automation.",
         operatorHint: buildWhatnotInvalidHint(
           "Mollie could not validate the Whatnot session from the captured browser context.",
-          ["Restart the Whatnot desktop companion flow.", "Make sure the correct seller account finishes sign-in."]
+          ["Restart the Whatnot login flow in a browser tab.", "Make sure the correct seller account finishes sign-in."]
         )
       };
     }
 
-    if (input.captureMode !== "LOCAL_BRIDGE") {
+    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "EXTENSION_BROWSER") {
       return {
         validationStatus: "INVALID",
         accountHandle: normalizedHandle,
         externalAccountId: input.externalAccountId ?? null,
-        summary: "Whatnot sign-in requires the desktop companion.",
+        summary: "Whatnot sign-in requires the browser extension recheck.",
         detail: "The popup flow did not provide a reusable browser session artifact for Whatnot.",
         operatorHint: buildWhatnotInvalidHint(
-          "Whatnot should be connected through the desktop companion so Mollie can validate the real browser session.",
-          ["Launch the desktop companion.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow."]
+          "Whatnot should be connected through the browser extension recheck so Mollie can validate the real browser session.",
+          ["Open Whatnot in another tab.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow.", "Return to Mollie and click recheck login."]
         )
       };
     }
@@ -305,11 +306,11 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         accountHandle: normalizedHandle,
         externalAccountId: input.externalAccountId ?? null,
         summary: "Whatnot session capture was incomplete.",
-        detail: "The helper did not return a Whatnot storage state with usable session data.",
+        detail: "The browser tab did not expose a Whatnot session with usable account data yet.",
         operatorHint: buildWhatnotInvalidHint(
-          "Mollie needs a signed-in Whatnot storage state from the helper browser before this account can connect.",
+          "Mollie needs a signed-in Whatnot browser tab before this account can connect.",
           [
-            "Finish login fully in the helper browser.",
+            "Finish login fully in the Whatnot browser tab.",
             "Wait until you reach a signed-in Whatnot page, then complete capture again."
           ]
         )
@@ -339,7 +340,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
           "Mollie validated the helper-captured Whatnot browser session and stored the workspace session artifact. The next step is exercising the real Whatnot automation runtime against this account.",
         severity: "SUCCESS",
         nextActions: [
-          "Return to inventory and use this account for runtime testing.",
+          "Return to inventory and use this account from the marketplace rail.",
           "Reconnect the account later if Whatnot expires or challenges the session again."
         ],
         canContinue: true
@@ -362,12 +363,12 @@ export const whatnotAdapter: MarketplaceAdapter = {
       {
         capability: "CONNECT_ACCOUNT",
         support: "SUPPORTED",
-        detail: "Operators connect Whatnot through the desktop companion so Mollie can capture a real browser session."
+        detail: "Operators connect Whatnot by signing in on another tab and rechecking that browser session through the Mollie extension."
       },
       {
         capability: "VALIDATE_AUTH",
         support: "SUPPORTED",
-        detail: "Whatnot sessions are validated against helper-captured storage state before the account is marked ready."
+        detail: "Whatnot sessions are validated against extension-rechecked browser state before the account is marked ready."
       },
       {
         capability: "REFRESH_AUTH",

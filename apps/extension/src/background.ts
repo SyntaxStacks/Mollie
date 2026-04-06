@@ -20,6 +20,15 @@ type ExtensionTaskPayload = {
   listing: Record<string, unknown>;
 };
 
+type MarketplaceVendor = "DEPOP" | "POSHMARK" | "WHATNOT";
+
+type MarketplaceSessionRecheckPayload = {
+  vendor: MarketplaceVendor;
+  attemptId: string;
+  helperNonce: string;
+  displayName: string;
+};
+
 type StoredTaskState = "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
 
 type StoredExtensionTask = ExtensionTaskPayload & {
@@ -72,7 +81,47 @@ type ClaimResponse = {
   error?: string;
 };
 
+type MarketplaceSessionDetection = {
+  ok: boolean;
+  vendor: MarketplaceVendor;
+  loggedIn: boolean;
+  accountHandle: string | null;
+  externalAccountId: string | null;
+  pageUrl: string;
+  pageTitle: string | null;
+  reason: string;
+};
+
 let queuePump: Promise<void> | null = null;
+
+const MARKETPLACE_SESSION_CONFIG: Record<
+  MarketplaceVendor,
+  {
+    label: string;
+    loginUrl: string;
+    tabPatterns: string[];
+    cookieUrl: string;
+  }
+> = {
+  DEPOP: {
+    label: "Depop",
+    loginUrl: "https://www.depop.com/login/",
+    tabPatterns: ["https://www.depop.com/*"],
+    cookieUrl: "https://www.depop.com/"
+  },
+  POSHMARK: {
+    label: "Poshmark",
+    loginUrl: "https://poshmark.com/login",
+    tabPatterns: ["https://poshmark.com/*"],
+    cookieUrl: "https://poshmark.com/"
+  },
+  WHATNOT: {
+    label: "Whatnot",
+    loginUrl: "https://www.whatnot.com/login",
+    tabPatterns: ["https://www.whatnot.com/*"],
+    cookieUrl: "https://www.whatnot.com/"
+  }
+};
 
 function nowIso() {
   return new Date().toISOString();
@@ -255,6 +304,162 @@ async function importActiveEbayListing() {
   return {
     ok: true,
     payload: (await response.json()) as Record<string, unknown>
+  };
+}
+
+async function getMarketplaceCookieCount(vendor: MarketplaceVendor) {
+  const cookies = await chrome.cookies.getAll({
+    url: MARKETPLACE_SESSION_CONFIG[vendor].cookieUrl
+  });
+  return cookies.length;
+}
+
+function urlMatchesPatterns(url: string, patterns: string[]) {
+  return patterns.some((pattern) => {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+    return new RegExp(`^${escaped}$`, "i").test(url);
+  });
+}
+
+async function findOrOpenMarketplaceTab(vendor: MarketplaceVendor) {
+  const config = MARKETPLACE_SESSION_CONFIG[vendor];
+  const [activeTab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true
+  });
+
+  if (activeTab?.id && activeTab.url && urlMatchesPatterns(activeTab.url, config.tabPatterns)) {
+    return {
+      tab: activeTab,
+      openedNewTab: false
+    };
+  }
+
+  const existingTabs = await chrome.tabs.query({
+    url: config.tabPatterns
+  });
+  const reusableTab = existingTabs.find((tab: { id?: number | null }) => typeof tab.id === "number");
+
+  if (reusableTab?.id) {
+    await chrome.tabs.update(reusableTab.id, { active: true });
+    return {
+      tab: reusableTab,
+      openedNewTab: false
+    };
+  }
+
+  const tab = await chrome.tabs.create({
+    url: config.loginUrl,
+    active: true
+  });
+
+  return {
+    tab,
+    openedNewTab: true
+  };
+}
+
+async function detectMarketplaceSessionInTab(tabId: number) {
+  try {
+    return (await chrome.tabs.sendMessage(tabId, {
+      type: "MOLLIE_EXTENSION_DETECT_MARKETPLACE_SESSION"
+    })) as MarketplaceSessionDetection;
+  } catch {
+    return null;
+  }
+}
+
+async function recheckMarketplaceSession(payload: MarketplaceSessionRecheckPayload) {
+  const auth = await getStoredAuth();
+
+  if (!auth) {
+    return {
+      ok: false,
+      error: "Open Mollie in this browser first so the extension can connect."
+    };
+  }
+
+  const config = MARKETPLACE_SESSION_CONFIG[payload.vendor];
+  const { tab, openedNewTab } = await findOrOpenMarketplaceTab(payload.vendor);
+
+  if (!tab.id) {
+    return {
+      ok: false,
+      error: `Could not open ${config.label} in a browser tab.`
+    };
+  }
+
+  const readyTab = await waitForTabComplete(tab.id);
+  const detection = await detectMarketplaceSessionInTab(tab.id);
+  const cookieCount = await getMarketplaceCookieCount(payload.vendor);
+  const pageUrl = detection?.pageUrl ?? readyTab.url ?? config.loginUrl;
+  const pageOrigin = (() => {
+    try {
+      return new URL(pageUrl).origin;
+    } catch {
+      return new URL(config.cookieUrl).origin;
+    }
+  })();
+  const looksLoggedIn = Boolean(detection?.loggedIn) || (cookieCount > 0 && !/\/login\b/i.test(pageUrl));
+
+  if (!looksLoggedIn) {
+    return {
+      ok: false,
+      needsLogin: true,
+      vendor: payload.vendor,
+      openedNewTab,
+      tabUrl: pageUrl,
+      error: `Log in to ${config.label} in the opened tab, then click recheck login again.`
+    };
+  }
+
+  const response = await fetch(`${auth.apiBaseUrl}/api/marketplace-accounts/${payload.vendor}/connect/${payload.attemptId}/session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${auth.token}`,
+      "x-workspace-id": auth.workspaceId
+    },
+    body: JSON.stringify({
+      helperNonce: payload.helperNonce,
+      accountHandle: detection?.accountHandle ?? payload.displayName,
+      externalAccountId: detection?.externalAccountId ?? null,
+      sessionLabel: payload.displayName,
+      captureMode: "EXTENSION_BROWSER",
+      challengeRequired: false,
+      cookieCount,
+      origin: pageOrigin,
+      storageStateJson: {
+        origins: [{ origin: pageOrigin }],
+        detectedBy: "browser-extension",
+        pageTitle: detection?.pageTitle ?? null
+      }
+    })
+  });
+
+  const body = (await response.json().catch(() => ({ error: `Could not recheck ${config.label} login.` }))) as {
+    error?: string;
+    attempt?: { state?: string };
+    account?: { displayName?: string | null };
+  };
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: body.error ?? `Could not recheck ${config.label} login.`
+    };
+  }
+
+  return {
+    ok: true,
+    vendor: payload.vendor,
+    state: body.attempt?.state ?? "UNKNOWN",
+    accountHandle: detection?.accountHandle ?? payload.displayName,
+    accountDisplayName: body.account?.displayName ?? payload.displayName,
+    message:
+      body.attempt?.state === "CONNECTED"
+        ? `${config.label} is connected and saved to this workspace.`
+        : `${config.label} login moved to ${body.attempt?.state ?? "UNKNOWN"}.`
   };
 }
 
@@ -675,6 +880,21 @@ chrome.runtime.onMessage.addListener((message: Record<string, unknown>, _sender:
 
     if (type === "MOLLIE_EXTENSION_IMPORT_ACTIVE_EBAY") {
       sendResponse(await importActiveEbayListing());
+      return;
+    }
+
+    if (type === "MOLLIE_EXTENSION_RECHECK_MARKETPLACE_AUTH") {
+      const payload = message.payload as MarketplaceSessionRecheckPayload | undefined;
+
+      if (!payload?.vendor || !payload.attemptId || !payload.helperNonce || !payload.displayName) {
+        sendResponse({
+          ok: false,
+          error: "Missing marketplace recheck payload."
+        });
+        return;
+      }
+
+      sendResponse(await recheckMarketplaceSession(payload));
       return;
     }
 

@@ -176,6 +176,10 @@ The left-side marketplace rail should list each real repo-supported marketplace 
   - `Extension`
 - extension required or not
 - marketplace account/session health
+- login-in-tab flow:
+  - open marketplace in another tab
+  - recheck login from Mollie
+  - save the connected account back into the workspace
 - blocker summary
 - `Check again`
 - primary CTA driven by real capability/state

@@ -25,7 +25,7 @@ const primaryNavItems = [
 ] as const;
 
 const utilityNavItems = [
-  { href: "/marketplaces", label: "Accounts", icon: Store },
+  { href: "/marketplaces", label: "Marketplaces", icon: Store },
   { href: "/imports", label: "Imports", icon: Download },
   { href: "/workspace", label: "Workspace", icon: Factory },
   { href: "/settings", label: "Settings", icon: Settings }

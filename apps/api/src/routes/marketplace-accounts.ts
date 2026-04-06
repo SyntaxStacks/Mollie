@@ -74,7 +74,7 @@ function simulatedMarketplacePathsAllowed() {
 }
 
 function productionAutomationConnectAllowed(vendor: AutomationVendor) {
-  return simulatedMarketplacePathsAllowed() || vendor === "WHATNOT";
+  return simulatedMarketplacePathsAllowed() || vendor === "DEPOP" || vendor === "POSHMARK" || vendor === "WHATNOT";
 }
 
 function buildAttemptHint(input: {
@@ -98,7 +98,7 @@ function buildAttemptHint(input: {
           ? "POSHMARK_SOCIAL"
           : "WHATNOT_LIVE_SELLING",
     canContinue: input.canContinue,
-    helpText: `${automationVendorLabels[input.vendor]} is handled through a helper-assisted automation sign-in flow.`
+    helpText: `${automationVendorLabels[input.vendor]} is handled by signing in on another browser tab and rechecking that session through the Mollie browser extension.`
   } satisfies OperatorHint;
 }
 
@@ -256,7 +256,7 @@ async function completeAutomationAttempt(input: {
   accountHandle: string;
   externalAccountId?: string | null;
   sessionLabel?: string | null;
-  captureMode: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE";
+  captureMode: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "EXTENSION_BROWSER";
   cookieCount?: number | null;
   origin?: string | null;
   storageStateJson?: Record<string, unknown> | null;
@@ -649,7 +649,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       accountHandle?: string;
       externalAccountId?: string | null;
       sessionLabel?: string | null;
-      captureMode?: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE";
+      captureMode?: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "EXTENSION_BROWSER";
       cookieCount?: number | null;
       origin?: string | null;
       storageStateJson?: Record<string, unknown> | null;

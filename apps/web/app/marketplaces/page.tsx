@@ -1,31 +1,73 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { FormEvent, Suspense, useMemo, useState, useTransition } from "react";
 
-import type { AutomationVendor, OperatorHint, VendorConnectAttempt } from "@reselleros/types";
+import type { AutomationVendor, OperatorHint } from "@reselleros/types";
 import { Button, Card, StatusPill } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
-import { AutomationVendorConnectModal } from "../../components/automation-vendor-connect-modal";
 import { OperatorHintCard } from "../../components/operator-hint-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
+import { useBrowserExtension } from "../../components/use-browser-extension";
 import { useAuthedResource } from "../../lib/api";
+import { ensureMollieExtensionSession, recheckMarketplaceAuthInExtension } from "../../lib/extension-bridge";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const simulatedMarketplacePathsAllowed =
   process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_ALLOW_SIMULATED_MARKETPLACE_PATHS === "true";
 
-const automationVendorLabels: Record<AutomationVendor, string> = {
-  DEPOP: "Depop",
-  POSHMARK: "Poshmark",
-  WHATNOT: "Whatnot"
-};
+const automationVendorConfig = {
+  DEPOP: {
+    label: "Depop",
+    loginUrl: "https://www.depop.com/login/"
+  },
+  POSHMARK: {
+    label: "Poshmark",
+    loginUrl: "https://poshmark.com/login"
+  },
+  WHATNOT: {
+    label: "Whatnot",
+    loginUrl: "https://www.whatnot.com/login"
+  }
+} satisfies Record<AutomationVendor, { label: string; loginUrl: string }>;
 
-const finalAttemptStates = new Set(["CONNECTED", "FAILED", "EXPIRED"]);
-
-function renderConnectorDescriptor(account: {
+type MarketplaceAccountResponse = {
+  id: string;
+  platform: string;
+  displayName: string;
+  status: string;
+  secretRef: string;
+  credentialType: string;
+  validationStatus: string;
+  ebayState?: string | null;
+  publishMode?: string | null;
+  externalAccountId: string | null;
+  credentialMetadata?: {
+    publishMode?: string;
+    username?: string;
+    accountHandle?: string;
+    accountLabel?: string;
+    ebayLiveDefaults?: {
+      merchantLocationKey?: string;
+      paymentPolicyId?: string;
+      returnPolicyId?: string;
+      fulfillmentPolicyId?: string;
+      marketplaceId?: string;
+      currency?: string;
+    };
+  } | null;
+  lastValidatedAt?: string | null;
+  lastErrorMessage?: string | null;
+  readiness?: {
+    state: string;
+    status: string;
+    publishMode: string;
+    summary: string;
+    detail: string;
+    hint?: OperatorHint | null;
+  } | null;
   connectorDescriptor?: {
     executionMode: string;
     fallbackMode: string;
@@ -42,7 +84,9 @@ function renderConnectorDescriptor(account: {
       detail: string;
     }>;
   } | null;
-}) {
+};
+
+function renderConnectorDescriptor(account: { connectorDescriptor?: MarketplaceAccountResponse["connectorDescriptor"] | null }) {
   const descriptor = account.connectorDescriptor;
 
   if (!descriptor) {
@@ -84,86 +128,25 @@ function renderConnectorDescriptor(account: {
   );
 }
 
-function renderOperatorHint(account: {
-  readiness?: {
-    hint?: OperatorHint | null;
-  } | null;
-}) {
+function renderOperatorHint(account: { readiness?: { hint?: OperatorHint | null } | null }) {
   return <OperatorHintCard hint={account.readiness?.hint} />;
 }
 
 function MarketplacesPageContent() {
   const auth = useAuth();
   const searchParams = useSearchParams();
-  const { data, refresh, error } = useAuthedResource<{
-    accounts: Array<{
-      id: string;
-      platform: string;
-      displayName: string;
-      status: string;
-      secretRef: string;
-      credentialType: string;
-      validationStatus: string;
-      ebayState?: string | null;
-      publishMode?: string | null;
-      externalAccountId: string | null;
-      credentialMetadata?: {
-        publishMode?: string;
-        username?: string;
-        accountHandle?: string;
-        ebayLiveDefaults?: {
-          merchantLocationKey?: string;
-          paymentPolicyId?: string;
-          returnPolicyId?: string;
-          fulfillmentPolicyId?: string;
-          marketplaceId?: string;
-          currency?: string;
-        };
-      } | null;
-      lastValidatedAt?: string | null;
-      lastErrorMessage?: string | null;
-      readiness?: {
-        state: string;
-        status: string;
-        publishMode: string;
-        summary: string;
-        detail: string;
-        hint?: OperatorHint | null;
-      } | null;
-      connectorDescriptor?: {
-        executionMode: string;
-        fallbackMode: string;
-        riskLevel: string;
-        rateLimitStrategy: string;
-        supportedCapabilities: Array<{
-          capability: string;
-          support: string;
-          detail: string;
-        }>;
-        supportedFeatureFamilies: Array<{
-          family: string;
-          support: string;
-          detail: string;
-        }>;
-      } | null;
-    }>;
-  }>("/api/marketplace-accounts", auth.token);
+  const extension = useBrowserExtension();
+  const { data, refresh, error } = useAuthedResource<{ accounts: MarketplaceAccountResponse[] }>("/api/marketplace-accounts", auth.token);
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [activeAutomationVendor, setActiveAutomationVendor] = useState<AutomationVendor | null>(null);
-  const [connectDisplayName, setConnectDisplayName] = useState("");
-  const [connectAttempt, setConnectAttempt] = useState<VendorConnectAttempt | null>(null);
-  const [challengeCode, setChallengeCode] = useState("");
-  const [connectModalOpen, setConnectModalOpen] = useState(false);
-  const [desktopSupported, setDesktopSupported] = useState(true);
-  const popupRef = useRef<Window | null>(null);
+  const [actionStatus, setActionStatus] = useState<string | null>(null);
   const oauthStatus = searchParams.get("ebay_oauth");
   const oauthMessage = searchParams.get("message");
   const oauthCode = searchParams.get("code");
   const oauthAccountId = searchParams.get("accountId");
   const accounts = data?.accounts ?? [];
 
-  const activeAutomationAccounts = useMemo(
+  const automationAccounts = useMemo(
     () => ({
       DEPOP: accounts.filter((account) => account.platform === "DEPOP"),
       POSHMARK: accounts.filter((account) => account.platform === "POSHMARK"),
@@ -171,122 +154,6 @@ function MarketplacesPageContent() {
     }),
     [accounts]
   );
-
-  useEffect(() => {
-    if (typeof navigator === "undefined") {
-      return;
-    }
-
-    setDesktopSupported(!/iphone|ipad|android|mobile/i.test(navigator.userAgent));
-  }, []);
-
-  useEffect(() => {
-    if (oauthStatus === "connected") {
-      void refresh();
-    }
-  }, [oauthStatus, refresh]);
-
-  useEffect(() => {
-    if (!connectAttempt || finalAttemptStates.has(connectAttempt.state)) {
-      return;
-    }
-
-    const interval = window.setInterval(async () => {
-      if (!activeAutomationVendor) {
-        return;
-      }
-
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}`,
-          {
-            headers: {
-              Authorization: `Bearer ${auth.token}`
-            },
-            cache: "no-store"
-          }
-        );
-        const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
-
-        if (!response.ok || !payload.attempt) {
-          throw new Error(payload.error ?? "Could not refresh vendor sign-in status.");
-        }
-
-        setConnectAttempt(payload.attempt);
-
-        if (payload.attempt.state === "CONNECTED") {
-          setSubmitError(null);
-          await refresh();
-        }
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not refresh vendor sign-in status.");
-      }
-    }, 1500);
-
-    return () => window.clearInterval(interval);
-  }, [activeAutomationVendor, auth.token, connectAttempt, refresh]);
-
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      if (event.origin !== window.location.origin) {
-        return;
-      }
-
-      if (event.data?.type !== "reselleros-vendor-connect") {
-        return;
-      }
-
-      if (!connectAttempt || event.data.attemptId !== connectAttempt.id || !activeAutomationVendor) {
-        return;
-      }
-
-      void (async () => {
-        try {
-          const response = await fetch(
-            `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}`,
-            {
-              headers: {
-                Authorization: `Bearer ${auth.token}`
-              },
-              cache: "no-store"
-            }
-          );
-          const payload = (await response.json()) as { attempt?: VendorConnectAttempt };
-          if (response.ok && payload.attempt) {
-            setConnectAttempt(payload.attempt);
-            if (payload.attempt.state === "CONNECTED") {
-              await refresh();
-            }
-          }
-        } catch {
-          // polling already handles errors
-        }
-      })();
-    }
-
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
-  }, [activeAutomationVendor, auth.token, connectAttempt, refresh]);
-
-  async function fetchAttempt(vendor: AutomationVendor, attemptId: string) {
-    const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/${attemptId}`, {
-      headers: {
-        Authorization: `Bearer ${auth.token}`
-      },
-      cache: "no-store"
-    });
-    const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
-
-    if (!response.ok || !payload.attempt) {
-      throw new Error(payload.error ?? "Could not load vendor sign-in attempt.");
-    }
-
-    setConnectAttempt(payload.attempt);
-
-    if (payload.attempt.state === "CONNECTED") {
-      await refresh();
-    }
-  }
 
   function launchEbayOAuth(displayName: string) {
     startTransition(async () => {
@@ -297,9 +164,7 @@ function MarketplacesPageContent() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${auth.token}`
           },
-          body: JSON.stringify({
-            displayName
-          })
+          body: JSON.stringify({ displayName })
         });
         const payload = (await response.json()) as { authorizeUrl?: string; error?: string };
 
@@ -352,6 +217,7 @@ function MarketplacesPageContent() {
         }
 
         setSubmitError(null);
+        setActionStatus("Manual eBay account connected.");
         form.reset();
         await refresh();
       } catch (caughtError) {
@@ -360,140 +226,72 @@ function MarketplacesPageContent() {
     });
   }
 
-  function openAutomationConnect(vendor: AutomationVendor, displayName?: string) {
-    setActiveAutomationVendor(vendor);
-    setConnectDisplayName(displayName ?? `Main ${automationVendorLabels[vendor]} account`);
-    setConnectAttempt(null);
-    setChallengeCode("");
-    setSubmitError(null);
-    setConnectModalOpen(true);
-  }
+  async function recheckAutomationVendor(vendor: AutomationVendor, displayName?: string) {
+    const config = automationVendorConfig[vendor];
+    if (!auth.token || !auth.user || !auth.workspace) {
+      setSubmitError("Sign back into Mollie before checking marketplace login.");
+      return;
+    }
 
-  function startAutomationConnect() {
-    if (!activeAutomationVendor) {
+    if (!extension.installed) {
+      setSubmitError(`Install the Mollie browser extension to connect ${config.label}.`);
+      return;
+    }
+
+    setActionStatus(`Checking ${config.label} in your browser...`);
+    setSubmitError(null);
+
+    const extensionSession = await ensureMollieExtensionSession({
+      token: auth.token,
+      userId: auth.user.id,
+      email: auth.user.email,
+      workspaceId: auth.workspace.id,
+      apiBaseUrl: API_BASE_URL
+    });
+
+    void extension.refresh();
+
+    if (!extensionSession.ok) {
+      setSubmitError(`Open Mollie in this browser so the extension can connect before checking ${config.label}.`);
       return;
     }
 
     startTransition(async () => {
       try {
-        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/start`, {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/start`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${auth.token}`
           },
           body: JSON.stringify({
-            displayName: connectDisplayName
+            displayName: displayName ?? `Main ${config.label} account`
           })
         });
-        const payload = (await response.json()) as { error?: string; attempt?: VendorConnectAttempt };
-
-        if (!response.ok || !payload.attempt) {
-          throw new Error(payload.error ?? "Could not start vendor sign-in.");
-        }
-
-        setConnectAttempt(payload.attempt);
-        setSubmitError(null);
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not start vendor sign-in.");
-      }
-    });
-  }
-
-  function openHelperPopup() {
-    if (!connectAttempt?.helperLaunchUrl) {
-      return;
-    }
-
-    popupRef.current = window.open(
-      connectAttempt.helperLaunchUrl,
-      "mollie-vendor-connect",
-      "popup=yes,width=720,height=860,noopener=no,noreferrer=no"
-    );
-  }
-
-  function submitAutomationChallenge(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    if (!activeAutomationVendor || !connectAttempt) {
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        const response = await fetch(
-          `${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}/challenge`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${auth.token}`
-            },
-            body: JSON.stringify({
-              code: challengeCode,
-              method: "SMS"
-            })
-          }
-        );
         const payload = (await response.json()) as {
           error?: string;
-          attempt?: VendorConnectAttempt;
+          attempt?: { id: string; helperNonce: string; displayName: string };
         };
 
         if (!response.ok || !payload.attempt) {
-          throw new Error(payload.error ?? "Could not verify vendor code.");
+          throw new Error(payload.error ?? `Could not start ${config.label} login recheck.`);
         }
 
-        setConnectAttempt(payload.attempt);
-        setChallengeCode("");
-        setSubmitError(null);
-        if (payload.attempt.state === "CONNECTED") {
-          await refresh();
-        }
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not verify vendor code.");
-      }
-    });
-  }
-
-  function refreshAutomationAttempt() {
-    if (!activeAutomationVendor || !connectAttempt) {
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        await fetchAttempt(activeAutomationVendor, connectAttempt.id);
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not refresh vendor sign-in status.");
-      }
-    });
-  }
-
-  function closeAutomationConnect() {
-    if (!activeAutomationVendor || !connectAttempt || finalAttemptStates.has(connectAttempt.state)) {
-      setConnectModalOpen(false);
-      setConnectAttempt(null);
-      setActiveAutomationVendor(null);
-      setChallengeCode("");
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        await fetch(`${API_BASE_URL}/api/marketplace-accounts/${activeAutomationVendor}/connect/${connectAttempt.id}/cancel`, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${auth.token}`
-          }
+        const result = await recheckMarketplaceAuthInExtension({
+          vendor,
+          attemptId: payload.attempt.id,
+          helperNonce: payload.attempt.helperNonce,
+          displayName: payload.attempt.displayName
         });
-      } catch {
-        // ignore cancel errors on close
-      } finally {
-        setConnectModalOpen(false);
-        setConnectAttempt(null);
-        setActiveAutomationVendor(null);
-        setChallengeCode("");
+
+        if (!result.ok) {
+          throw new Error(result.error ?? `Could not recheck ${config.label} login.`);
+        }
+
+        setActionStatus(result.message ?? `${config.label} recheck submitted.`);
+        await refresh();
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${config.label} login.`);
       }
     });
   }
@@ -526,6 +324,7 @@ function MarketplacesPageContent() {
             throw new Error(payload.error ?? "Could not save eBay live defaults");
           }
 
+          setActionStatus("eBay defaults saved.");
           setSubmitError(null);
           await refresh();
         } catch (caughtError) {
@@ -539,96 +338,76 @@ function MarketplacesPageContent() {
     window.location.assign("/imports");
   }
 
-  function renderAutomationAccounts(platform: AutomationVendor) {
-    const platformAccounts = activeAutomationAccounts[platform];
-
-    if (platformAccounts.length === 0) {
-      return null;
-    }
-
-    return (
-      <div className="stack" style={{ marginTop: "1rem" }}>
-        {platformAccounts.map((account) => (
-          <div className="rs-card" key={account.id}>
-            <div className="split">
-              <div>
-                <strong>{account.displayName}</strong>
-                <div className="muted">
-                  {account.credentialMetadata?.accountHandle ?? account.externalAccountId ?? account.secretRef}
-                </div>
-              </div>
-              {account.readiness ? <StatusPill status={account.readiness.state} /> : <StatusPill status={account.status} />}
-            </div>
-            {account.readiness ? (
-              <div className="stack" style={{ marginTop: "0.75rem" }}>
-                <div className="muted">State: {account.readiness.state}</div>
-                <div>{account.readiness.summary}</div>
-                <div className="muted">{account.readiness.detail}</div>
-                {renderOperatorHint(account)}
-                {renderConnectorDescriptor(account)}
-                <div className="actions">
-                  <Button disabled={pending} kind="secondary" onClick={() => openAutomationConnect(platform, account.displayName)}>
-                    Reconnect {automationVendorLabels[platform]}
-                  </Button>
-                  <Button disabled={pending} kind="secondary" onClick={openImports}>
-                    Import inventory
-                  </Button>
-                </div>
-                {account.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
-              </div>
-            ) : null}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  function renderAutomationCard(platform: AutomationVendor) {
-    const platformAccounts = activeAutomationAccounts[platform];
-    const label = automationVendorLabels[platform];
+  function renderAutomationCard(vendor: AutomationVendor) {
+    const config = automationVendorConfig[vendor];
+    const account = automationAccounts[vendor][0] ?? null;
+    const isConnected = account?.status === "CONNECTED" && account.readiness?.status === "READY";
+    const accountIdentity = account?.credentialMetadata?.accountHandle ?? account?.externalAccountId ?? account?.displayName ?? null;
+    const extensionState = extension.connected
+      ? "Browser extension connected"
+      : extension.installed
+        ? "Browser extension installed but not connected"
+        : "Browser extension not installed";
 
     return (
-      <Card eyebrow={label} title="Automation connector">
+      <Card eyebrow={config.label} title={isConnected ? "Connected" : "Login required"}>
         <div className="stack">
-          <div className="muted">
-            {label} uses a secure helper-assisted sign-in flow. Mollie validates the captured workspace session before the
-            account becomes automation-ready.
+          <div className={isConnected ? "notice success" : "notice"}>
+            {isConnected
+              ? `Logged in as ${accountIdentity ?? account?.displayName ?? config.label}.`
+              : `Please log in to your ${config.label} account in another tab, then click recheck login.`}
           </div>
+          <div className="muted">{extensionState}</div>
           <div className="actions">
-            <Button disabled={pending} onClick={() => openAutomationConnect(platform, platformAccounts[0]?.displayName)}>
-              {platformAccounts.length > 0 ? `Reconnect ${label}` : `Connect ${label}`}
+            <a className="public-doc-link" href={config.loginUrl} rel="noreferrer" target="_blank">
+              Open {config.label} login
+            </a>
+            <Button disabled={pending} kind="secondary" onClick={() => void recheckAutomationVendor(vendor, account?.displayName)}>
+              Recheck login
             </Button>
             <Button disabled={pending} kind="secondary" onClick={openImports}>
               Import inventory
             </Button>
           </div>
-          {!desktopSupported ? (
-            <div className="notice">
-              {label} sign-in capture is desktop-first for MVP. Start this flow on desktop so Mollie can validate the session
-              reliably.
+          {account?.readiness ? (
+            <div className="stack" style={{ gap: "0.65rem" }}>
+              <div className="split">
+                <div>
+                  <strong>{account.displayName}</strong>
+                  <div className="muted">{accountIdentity ?? "No account label detected yet"}</div>
+                </div>
+                <StatusPill status={account.readiness.state} />
+              </div>
+              <div>{account.readiness.summary}</div>
+              <div className="muted">{account.readiness.detail}</div>
+              {renderOperatorHint(account)}
+              {renderConnectorDescriptor(account)}
             </div>
           ) : null}
+          {account?.lastValidatedAt ? (
+            <div className="muted">Last validated {new Date(account.lastValidatedAt).toLocaleString()}</div>
+          ) : null}
+          {account?.lastErrorMessage ? <div className="notice">{account.lastErrorMessage}</div> : null}
         </div>
-        {renderAutomationAccounts(platform)}
       </Card>
     );
   }
 
   return (
     <ProtectedView>
-      <AppShell title="Marketplace Accounts">
+      <AppShell title="Marketplaces">
         {error ? <div className="notice">{error}</div> : null}
         {submitError ? <div className="notice">{submitError}</div> : null}
+        {actionStatus ? <div className="notice success">{actionStatus}</div> : null}
         {oauthStatus === "connected" ? (
-          <div className="notice">
-            eBay OAuth connected successfully{oauthAccountId ? ` for account ${oauthAccountId}` : ""}.
-          </div>
+          <div className="notice">eBay OAuth connected successfully{oauthAccountId ? ` for account ${oauthAccountId}` : ""}.</div>
         ) : null}
         {oauthStatus === "error" ? (
           <div className="notice">
             eBay OAuth failed{oauthCode ? ` (${oauthCode})` : ""}: {oauthMessage ?? "Unknown OAuth error"}
           </div>
         ) : null}
+
         <div className="grid-2">
           <Card eyebrow="eBay" title="Primary connector">
             <form className="stack" onSubmit={startEbayOAuth}>
@@ -636,7 +415,7 @@ function MarketplacesPageContent() {
                 OAuth display name
                 <input className="field" name="ebayOauthDisplayName" placeholder="Main eBay account" required />
               </label>
-              <Button type="submit" disabled={pending}>
+              <Button disabled={pending} type="submit">
                 Start eBay OAuth
               </Button>
             </form>
@@ -736,9 +515,7 @@ function MarketplacesPageContent() {
                                   placeholder="USD"
                                 />
                               </label>
-                              <div className="muted">
-                                These defaults are stored on the eBay account and used when Mollie publishes listings.
-                              </div>
+                              <div className="muted">These defaults are stored on the eBay account and used when Mollie publishes listings.</div>
                               <div className="actions">
                                 <Button disabled={pending} kind="secondary" type="submit">
                                   Save eBay defaults
@@ -763,7 +540,7 @@ function MarketplacesPageContent() {
                   Manual secret reference
                   <input className="field" name="ebaySecretRef" placeholder="secret://ebay/main" required />
                 </label>
-                <Button type="submit" disabled={pending}>
+                <Button disabled={pending} type="submit">
                   Connect manual eBay account
                 </Button>
               </form>
@@ -802,7 +579,9 @@ function MarketplacesPageContent() {
                     {account.readiness ? (
                       <div>
                         <StatusPill status={account.readiness.state} />
-                        <div className="muted" style={{ marginTop: "0.35rem" }}>{account.readiness.summary}</div>
+                        <div className="muted" style={{ marginTop: "0.35rem" }}>
+                          {account.readiness.summary}
+                        </div>
                       </div>
                     ) : (
                       <span className="muted">n/a</span>
@@ -810,9 +589,7 @@ function MarketplacesPageContent() {
                   </td>
                   <td>
                     <div>{account.credentialMetadata?.username ?? account.credentialMetadata?.accountHandle ?? account.externalAccountId ?? account.secretRef}</div>
-                    {account.lastValidatedAt ? (
-                      <div className="muted">Last validated: {new Date(account.lastValidatedAt).toLocaleString()}</div>
-                    ) : null}
+                    {account.lastValidatedAt ? <div className="muted">Last validated: {new Date(account.lastValidatedAt).toLocaleString()}</div> : null}
                     {account.lastErrorMessage ? <div className="muted">{account.lastErrorMessage}</div> : null}
                   </td>
                 </tr>
@@ -820,24 +597,6 @@ function MarketplacesPageContent() {
             </tbody>
           </table>
         </Card>
-
-        <AutomationVendorConnectModal
-          attempt={connectAttempt}
-          challengeCode={challengeCode}
-          desktopSupported={desktopSupported}
-          displayName={connectDisplayName}
-          error={submitError}
-          onChallengeCodeChange={setChallengeCode}
-          onClose={closeAutomationConnect}
-          onDisplayNameChange={setConnectDisplayName}
-          onOpenHelper={openHelperPopup}
-          onRetry={refreshAutomationAttempt}
-          onStart={startAutomationConnect}
-          onSubmitChallenge={submitAutomationChallenge}
-          open={connectModalOpen}
-          pending={pending}
-          vendor={activeAutomationVendor}
-        />
       </AppShell>
     </ProtectedView>
   );
@@ -848,7 +607,7 @@ export default function MarketplacesPage() {
     <Suspense
       fallback={
         <ProtectedView>
-          <AppShell title="Marketplace Accounts">
+          <AppShell title="Marketplaces">
             <div className="center-state">Loading marketplace accounts...</div>
           </AppShell>
         </ProtectedView>

@@ -16,10 +16,15 @@ import { useAuth } from "../../../components/auth-provider";
 import { useBrowserExtension } from "../../../components/use-browser-extension";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
 import { useAuthedResource } from "../../../lib/api";
-import { handoffExtensionTask } from "../../../lib/extension-bridge";
+import { ensureMollieExtensionSession, handoffExtensionTask, recheckMarketplaceAuthInExtension } from "../../../lib/extension-bridge";
 import type { MarketplaceAccountLike, MarketplaceActionKind } from "../../../lib/item-lifecycle";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+const automationVendorLabels = {
+  DEPOP: "Depop",
+  POSHMARK: "Poshmark",
+  WHATNOT: "Whatnot"
+} as const;
 
 type InventoryItemResponse = {
   item: InventoryDetailRecord;
@@ -614,6 +619,80 @@ export default function InventoryDetailPage() {
     });
   }
 
+  async function recheckMarketplaceAccountInExtension(platform: Platform) {
+    if (platform === "EBAY") {
+      router.push("/marketplaces");
+      return;
+    }
+
+    if (!auth.token || !auth.user || !auth.workspace) {
+      return;
+    }
+
+    const label = automationVendorLabels[platform as keyof typeof automationVendorLabels];
+    if (!label) {
+      return;
+    }
+
+    if (!extension.installed) {
+      setExtensionActionStatus(`Install the Mollie browser extension to connect ${label}.`);
+      return;
+    }
+
+    const extensionSession = await ensureMollieExtensionSession({
+      token: auth.token,
+      userId: auth.user.id,
+      email: auth.user.email,
+      workspaceId: auth.workspace.id,
+      apiBaseUrl: API_BASE_URL
+    });
+
+    void extension.refresh();
+
+    if (!extensionSession.ok) {
+      setExtensionActionStatus(`Open Mollie in this browser so the extension can connect before checking ${label}.`);
+      return;
+    }
+
+    const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
+
+    setExtensionActionStatus(`Checking ${label} in your browser...`);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${platform}/connect/start`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${auth.token}`
+        },
+        body: JSON.stringify({
+          displayName: existingAccount?.displayName ?? `Main ${label} account`
+        })
+      });
+      const payload = (await response.json()) as { error?: string; attempt?: { id: string; helperNonce: string; displayName: string } };
+
+      if (!response.ok || !payload.attempt) {
+        throw new Error(payload.error ?? `Could not start ${label} login recheck.`);
+      }
+
+      const result = await recheckMarketplaceAuthInExtension({
+        vendor: platform as "DEPOP" | "POSHMARK" | "WHATNOT",
+        attemptId: payload.attempt.id,
+        helperNonce: payload.attempt.helperNonce,
+        displayName: payload.attempt.displayName
+      });
+
+      if (!result.ok) {
+        throw new Error(result.error ?? `Could not recheck ${label} login.`);
+      }
+
+      setExtensionActionStatus(result.message ?? `${label} recheck submitted.`);
+      await Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
+    } catch (caughtError) {
+      setExtensionActionStatus(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
+    }
+  }
+
   function handleMarketplaceAction(platform: string, action: MarketplaceActionKind) {
     if (action === "open_listing") {
       const listing = data?.item.platformListings.find((entry) => entry.platform === platform);
@@ -629,12 +708,16 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "connect_account") {
-      router.push("/marketplaces");
+      void recheckMarketplaceAccountInExtension(platform as Platform);
       return;
     }
 
     if (action === "check_again") {
-      void Promise.all([refresh(), ebayPreflight.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh()]);
+      if (platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT") {
+        void recheckMarketplaceAccountInExtension(platform as Platform);
+      } else {
+        void Promise.all([refresh(), ebayPreflight.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh()]);
+      }
       return;
     }
 
@@ -675,7 +758,7 @@ export default function InventoryDetailPage() {
 
   function handleMarketplaceSecondaryAction(platform: string, action: MarketplaceActionKind) {
     if (action === "connect_account") {
-      router.push("/marketplaces");
+      void recheckMarketplaceAccountInExtension(platform as Platform);
       return;
     }
 

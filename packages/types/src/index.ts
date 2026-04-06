@@ -113,7 +113,7 @@ export type VendorConnectState = (typeof vendorConnectStates)[number];
 export const vendorConnectPromptKinds = ["INFO", "LOGIN", "CODE", "APPROVAL"] as const;
 export type VendorConnectPromptKind = (typeof vendorConnectPromptKinds)[number];
 
-export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE"] as const;
+export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE", "EXTENSION_BROWSER"] as const;
 export type VendorConnectCaptureMode = (typeof vendorConnectCaptureModes)[number];
 export const inventoryImportRunStatuses = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"] as const;
 export type InventoryImportRunStatus = (typeof inventoryImportRunStatuses)[number];

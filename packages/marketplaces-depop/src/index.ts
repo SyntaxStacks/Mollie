@@ -58,12 +58,12 @@ export const depopAdapter: MarketplaceAdapter = {
       {
         capability: "CONNECT_ACCOUNT",
         support: "SUPPORTED",
-        detail: "Operators connect Depop through a helper-assisted secure sign-in flow."
+        detail: "Operators connect Depop by signing in on another tab and rechecking that browser session through the Mollie extension."
       },
       {
         capability: "VALIDATE_AUTH",
         support: "SUPPORTED",
-        detail: "Depop sessions are validated after helper-assisted sign-in before the account is marked ready."
+        detail: "Depop sessions are validated after the browser extension rechecks the signed-in tab."
       },
       {
         capability: "REFRESH_AUTH",

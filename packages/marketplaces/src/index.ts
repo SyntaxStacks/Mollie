@@ -96,7 +96,7 @@ export type VendorConnectStartResult = {
 
 export type VendorConnectSessionCaptureInput = {
   attempt: AutomationVendorConnectAttemptContext;
-  accountHandle: string;
+  accountHandle?: string | null;
   externalAccountId?: string | null;
   sessionLabel?: string | null;
   captureMode: VendorConnectCaptureMode;
@@ -213,14 +213,20 @@ export function createAutomationVendorConnectAdapter(config: {
 }) {
   const helperPath = `/marketplaces/connect-helper?vendor=${config.platform.toLowerCase()}`;
   const summarizeAccount = (input: {
-    accountHandle: string;
+    accountHandle?: string | null;
     externalAccountId?: string | null;
     sessionLabel?: string | null;
-  }) => ({
-    accountHandle: input.sessionLabel?.trim() || input.accountHandle.trim(),
+  }) => {
+    const normalizedHandle = input.accountHandle?.trim() || "";
+    const sessionLabel = input.sessionLabel?.trim() || "";
+    const accountHandle = sessionLabel || normalizedHandle || config.platformLabel;
+
+    return {
+      accountHandle,
     externalAccountId: input.externalAccountId?.trim() || null,
-    detail: `${config.summaryLabel} ${input.accountHandle.trim()}`
-  });
+      detail: normalizedHandle ? `${config.summaryLabel} ${normalizedHandle}` : config.summaryLabel
+    };
+  };
 
   return {
     platform: config.platform,
@@ -239,11 +245,11 @@ export function createAutomationVendorConnectAdapter(config: {
           platform: config.platform,
           platformLabel: config.platformLabel,
           title: `${config.platformLabel} sign-in is ready to start.`,
-          explanation: `Open the secure ${config.platformLabel} sign-in bridge, finish login, and Mollie will validate the captured workspace session before marking the account ready.`,
+          explanation: `Open ${config.platformLabel} in another browser tab, finish login there, and then ask Mollie to recheck the signed-in session through the browser extension.`,
           severity: "INFO",
           nextActions: [
-            `Open the ${config.platformLabel} sign-in bridge on desktop.`,
-            "Finish the vendor login flow, then return here to review the captured account."
+            `Open ${config.platformLabel} in another tab and finish login there.`,
+            "Return to Mollie and click recheck login to save the account."
           ],
           canContinue: true
         }),
@@ -374,7 +380,7 @@ export function createAutomationVendorConnectAdapter(config: {
       };
     },
     validateSession({ accountHandle, externalAccountId, captureMode, sessionLabel, attempt }) {
-      const normalizedHandle = accountHandle.trim();
+      const normalizedHandle = accountHandle?.trim() || sessionLabel?.trim() || config.platformLabel;
 
       if (!normalizedHandle || /fail|invalid|blocked/i.test(normalizedHandle)) {
         return {
@@ -411,7 +417,7 @@ export function createAutomationVendorConnectAdapter(config: {
           platform: config.platform,
           platformLabel: config.platformLabel,
           title: `${config.platformLabel} is connected and ready.`,
-          explanation: `Mollie validated ${summary.accountHandle} and stored the workspace session artifact captured through the secure sign-in bridge.`,
+          explanation: `Mollie validated ${summary.accountHandle} and stored the workspace browser session that was rechecked through the extension.`,
           severity: "SUCCESS",
           nextActions: ["Return to inventory to publish through this account.", "Reconnect the account later if the session expires or the vendor challenges sign-in again."],
           canContinue: true

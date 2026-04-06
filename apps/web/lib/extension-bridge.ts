@@ -5,12 +5,18 @@ type BridgeResponse = {
   error?: string;
   pendingCount?: number;
   version?: string;
+  needsLogin?: boolean;
+  state?: string;
+  message?: string;
+  accountHandle?: string | null;
+  accountDisplayName?: string | null;
 };
 
 type BridgeMessageType =
   | "MOLLIE_EXTENSION_PING"
   | "MOLLIE_EXTENSION_AUTH_SESSION"
-  | "MOLLIE_EXTENSION_TASK_HANDOFF";
+  | "MOLLIE_EXTENSION_TASK_HANDOFF"
+  | "MOLLIE_EXTENSION_RECHECK_MARKETPLACE_AUTH";
 
 function isBridgeResponse(value: unknown, requestId: string) {
   if (!value || typeof value !== "object") {
@@ -96,6 +102,24 @@ export async function connectMollieExtensionSession(input: {
   return postExtensionMessage("MOLLIE_EXTENSION_AUTH_SESSION", input, 2_000);
 }
 
+export async function ensureMollieExtensionSession(input: {
+  token: string;
+  userId: string;
+  email: string;
+  workspaceId: string;
+  apiBaseUrl: string;
+}) {
+  const installed = await detectMollieExtension();
+  if (!installed) {
+    return {
+      ok: false,
+      error: "Extension unavailable"
+    };
+  }
+
+  return connectMollieExtensionSession(input);
+}
+
 export async function handoffExtensionTask(input: {
   taskId: string;
   platform: string;
@@ -103,4 +127,13 @@ export async function handoffExtensionTask(input: {
   listing: Record<string, unknown>;
 }) {
   return postExtensionMessage("MOLLIE_EXTENSION_TASK_HANDOFF", input, 2_000);
+}
+
+export async function recheckMarketplaceAuthInExtension(input: {
+  vendor: "DEPOP" | "POSHMARK" | "WHATNOT";
+  attemptId: string;
+  helperNonce: string;
+  displayName: string;
+}) {
+  return postExtensionMessage("MOLLIE_EXTENSION_RECHECK_MARKETPLACE_AUTH", input, 12_000);
 }

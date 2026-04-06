@@ -2,7 +2,11 @@ function isBridgeRequest(value: unknown): value is {
   source: "MOLLIE_WEB_APP";
   target: "MOLLIE_EXTENSION";
   requestId: string;
-  type: "MOLLIE_EXTENSION_PING" | "MOLLIE_EXTENSION_AUTH_SESSION" | "MOLLIE_EXTENSION_TASK_HANDOFF";
+  type:
+    | "MOLLIE_EXTENSION_PING"
+    | "MOLLIE_EXTENSION_AUTH_SESSION"
+    | "MOLLIE_EXTENSION_TASK_HANDOFF"
+    | "MOLLIE_EXTENSION_RECHECK_MARKETPLACE_AUTH";
   payload?: Record<string, unknown>;
 } {
   if (!value || typeof value !== "object") {

@@ -252,7 +252,7 @@ function describeConnection(account?: MarketplaceAccountLike | null) {
     return {
       connectionSummary: "No connected marketplace account",
       connectionTone: "warning" as const,
-      blocker: "Connect a marketplace account first."
+      blocker: "Open the marketplace in another tab, finish login there, then recheck it from Mollie."
     };
   }
 
@@ -354,7 +354,7 @@ function actionForState(input: {
   if (input.blocker) {
     if (!input.account) {
       return {
-        actionLabel: "Connect account",
+        actionLabel: "Recheck login",
         actionKind: "connect_account" as const
       };
     }

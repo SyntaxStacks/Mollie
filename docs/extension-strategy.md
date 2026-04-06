@@ -50,6 +50,7 @@ The extension exists to add desktop-grade marketplace operations where API cover
 
 - import listing data from marketplace pages into Mollie
 - push Mollie listing payloads into marketplace forms
+- let operators sign in on a normal marketplace tab, then recheck and save that browser session into Mollie
 - support browser-assisted publish/update/relist/delist flows
 - return actionable results and failures back into Mollie
 
@@ -161,6 +162,9 @@ Mollie should therefore surface extension state inside marketplace rows:
 - execution mode:
   - `API`
   - `Extension`
+- login model:
+  - `Open marketplace in another tab`
+  - `Recheck login`
 - extension required or not
 - extension installed/connected state
 - marketplace account/session health
