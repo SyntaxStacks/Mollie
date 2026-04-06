@@ -310,6 +310,36 @@ function getExtensionTaskMissingFields(extensionTask?: ExtensionTaskLike | null)
   return uniqueStrings(getStringArray(result.missingFields).map(humanizeExtensionField));
 }
 
+function marketplaceFieldHasValue(item: InventoryListLikeItem, platform: string, field: string, draft?: ListingDraftLike | null) {
+  const attributes = getItemAttributes(item);
+  const override = getMarketplaceOverride(item, platform);
+  const overrideAttributes = getMarketplaceOverrideAttributes(item, platform);
+
+  switch (field) {
+    case "title":
+      return hasValue(override?.title) || hasValue(item.title);
+    case "description":
+    case "show notes":
+      return hasValue(getTextAttribute(attributes, "description")) || hasValue(override?.description);
+    case "price":
+      return hasValue(override?.price) || hasValue(item.priceRecommendation);
+    case "brand":
+      return hasValue(override?.brand) || hasValue(item.brand);
+    case "category":
+      return hasValue(override?.category) || hasValue(item.category);
+    case "condition":
+      return hasValue(override?.condition) || hasValue(item.condition);
+    case "size":
+      return hasValue(override?.size) || hasValue(overrideAttributes?.size) || hasValue(item.size);
+    case "photos":
+      return (item.images?.length ?? 0) > 0;
+    case "eBay category mapping":
+      return hasValue(draft?.attributesJson && typeof draft.attributesJson === "object" ? (draft.attributesJson as Record<string, unknown>).ebayCategoryId : null);
+    default:
+      return false;
+  }
+}
+
 function getTextAttribute(attributes: Record<string, unknown>, key: string) {
   return typeof attributes[key] === "string" ? attributes[key].trim() : "";
 }
@@ -915,7 +945,9 @@ export function getMarketplaceStatusSummaries(
       genericFlags: flags,
       draft
     });
-    const extensionTaskMissingFields = getExtensionTaskMissingFields(extensionTask);
+    const extensionTaskMissingFields = getExtensionTaskMissingFields(extensionTask).filter(
+      (field) => !marketplaceFieldHasValue(item, platform, field, draft)
+    );
     const missingRequirements = uniqueStrings([...requirements.required, ...extensionTaskMissingFields]);
     const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
     const account =

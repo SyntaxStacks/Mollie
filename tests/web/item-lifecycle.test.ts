@@ -74,8 +74,8 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
   assert.equal(depop.actionKind, "fix_details");
   assert.equal(depop.connectionSummary, "Browser session ready - main closet");
   assert.equal(depop.summary, "Depop still needs required item fields before publish.");
-  assert.equal(depop.blocker, "Missing description, category.");
-  assert.deepEqual(depop.missingRequirements, ["description", "category"]);
+  assert.equal(depop.blocker, "Missing description.");
+  assert.deepEqual(depop.missingRequirements, ["description"]);
 });
 
 test("Depop rows retry browser publish when Mollie already has the required fields", () => {
@@ -147,6 +147,74 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
     depop.blocker,
     "Depop opened the final publish step, but Mollie could not confirm that the listing went live."
   );
+});
+
+test("Depop rows do not re-mark shared fields as missing when Mollie already has them", () => {
+  const depop = getMarketplaceStatusSummaries(
+    {
+      id: "item-1c",
+      title: "Biore pore refining mask",
+      category: "Beauty & Personal Care",
+      condition: "Good used condition",
+      size: "8 Count (Pack of 1)",
+      priceRecommendation: 10,
+      attributesJson: {
+        description: "Biore pore refining bubbling nose mask."
+      },
+      images: [{ id: "img-1", url: "https://images.example.com/biore.jpg", position: 0 }],
+      listingDrafts: [
+        {
+          id: "draft-1c",
+          platform: "DEPOP",
+          reviewStatus: "APPROVED",
+          generatedPrice: 10,
+          generatedTitle: "Biore pore refining mask"
+        }
+      ],
+      platformListings: [],
+      extensionTasks: [
+        {
+          id: "task-1c",
+          platform: "DEPOP",
+          action: "PUBLISH_LISTING",
+          state: "NEEDS_INPUT",
+          needsInputReason: "Depop opened the final publish step, but Mollie could not confirm that the listing went live.",
+          lastErrorMessage: "Depop publish needs another browser pass.",
+          resultJson: {
+            missingFields: ["description", "title", "price", "category", "size"]
+          }
+        }
+      ]
+    },
+    {
+      extensionInstalled: true,
+      extensionConnected: true,
+      capabilitySummary: [
+        {
+          platform: "DEPOP",
+          capabilities: ["EXTENSION_PUBLISH"],
+          importMode: "NONE",
+          publishMode: "EXTENSION",
+          bulkImport: false,
+          bulkPublish: false
+        }
+      ],
+      marketplaceAccounts: [
+        {
+          id: "acct-1c",
+          platform: "DEPOP",
+          displayName: "main closet",
+          status: "CONNECTED",
+          validationStatus: "VALID"
+        }
+      ]
+    }
+  ).find((entry) => entry.platform === "DEPOP");
+
+  assert.ok(depop);
+  assert.deepEqual(depop.missingRequirements, []);
+  assert.equal(depop.actionLabel, "Retry publish");
+  assert.equal(depop.actionKind, "retry");
 });
 
 test("Depop rows offer browser publish when a ready draft exists", () => {

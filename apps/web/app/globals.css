@@ -1955,6 +1955,80 @@ body {
   max-width: 34rem;
 }
 
+.listing-selection-empty-state,
+.listing-overrides-callout,
+.listing-requirement-card,
+.listing-platform-adjustment-card {
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.listing-selection-empty-state {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.listing-overrides-callout {
+  display: grid;
+  gap: 0.3rem;
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.84);
+}
+
+.listing-requirements-grid,
+.listing-platform-adjustments-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.listing-requirements-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.listing-platform-adjustments-grid {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.listing-requirement-card,
+.listing-platform-adjustment-card {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.listing-requirement-card-topline,
+.listing-platform-adjustment-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+}
+
+.listing-requirement-copy,
+.listing-requirement-hint {
+  line-height: 1.5;
+}
+
+.listing-requirement-hint {
+  color: var(--muted);
+}
+
+.listing-platform-adjustment-topline p {
+  margin: 0.3rem 0 0;
+  line-height: 1.55;
+}
+
+.listing-platform-adjustment-fields {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.listing-override-note {
+  line-height: 1.55;
+}
+
 .listing-dimension-grid,
 .listing-price-override-grid {
   display: grid;

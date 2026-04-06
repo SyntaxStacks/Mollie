@@ -164,6 +164,17 @@ const templates = [
   { id: "hardgoods", name: "Hardgoods resale", description: "General merchandise with shipping details in focus.", values: { category: "General Merchandise", condition: "Good used condition", shippingWeightUnit: "lb", shippingDimensionUnit: "in" } }
 ] as const;
 
+const platformLabels = {
+  EBAY: "eBay",
+  DEPOP: "Depop",
+  POSHMARK: "Poshmark",
+  WHATNOT: "Whatnot"
+} as const;
+
+function titleCaseRequirement(requirement: string) {
+  return requirement.slice(0, 1).toUpperCase() + requirement.slice(1);
+}
+
 function ContinueOnMobileModal({ open, url, title, onClose }: { open: boolean; url: string; title: string; onClose: () => void }) {
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -321,6 +332,12 @@ export function InventoryDetailView({
   const recentExtensionTasks = item.extensionTasks.slice(0, 4);
   const selectedCount = selectedPlatforms.length;
   const selectedBlockedCount = selectedMarketStatuses.filter((state) => state.missingRequirements.length > 0).length;
+  const selectedRequirementCards = selectedMarketStatuses.map((state) => ({
+    platform: state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT",
+    label: platformLabels[state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"],
+    required: state.missingRequirements,
+    recommended: state.recommendedRequirements
+  }));
 
   const historyRows = useMemo(() => {
     const rows: Array<{ id: string; label: string; detail: string; meta: string }> = [];
@@ -410,6 +427,45 @@ export function InventoryDetailView({
                     </Button>
                   </div>
                   <MissingFieldsPanel flags={readinessFlags} />
+                  <div className="listing-form-section">
+                    <div className="listing-form-section-heading">
+                      <h3>Selected marketplace requirements</h3>
+                      <p className="muted">Choose marketplaces on the left and Mollie will show only the extra requirements those targets care about.</p>
+                    </div>
+                    {selectedCount === 0 ? (
+                      <div className="listing-selection-empty-state">
+                        Select one or more marketplaces to reveal their required and recommended fields here.
+                      </div>
+                    ) : (
+                      <div className="listing-requirements-grid">
+                        {selectedRequirementCards.map((card) => (
+                          <div className="listing-requirement-card" key={card.platform}>
+                            <div className="listing-requirement-card-topline">
+                              <strong>{card.label}</strong>
+                              <StatusPill
+                                label={card.required.length > 0 ? "Needs fields" : "Ready from Mollie"}
+                                tone={card.required.length > 0 ? "warning" : "success"}
+                              />
+                            </div>
+                            {card.required.length > 0 ? (
+                              <div className="listing-requirement-copy">
+                                Required now: {card.required.map(titleCaseRequirement).join(", ")}
+                              </div>
+                            ) : (
+                              <div className="listing-requirement-copy">
+                                Shared item details already cover this marketplace&apos;s required fields.
+                              </div>
+                            )}
+                            {card.recommended.length > 0 ? (
+                              <div className="listing-requirement-hint">
+                                Improves results: {card.recommended.map(titleCaseRequirement).join(", ")}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="listing-form-section">
                     <div className="listing-form-section-heading">
                       <h3>Photos</h3>
@@ -566,23 +622,88 @@ export function InventoryDetailView({
                   <div className="listing-form-section">
                     <div className="listing-form-section-heading">
                       <h3>Platform-specific adjustments</h3>
-                      <p className="muted">Use overrides only when a marketplace needs something different from the shared item data.</p>
+                      <p className="muted">Base item data stays in charge. These cards only appear for the marketplaces you selected and only change that marketplace.</p>
                     </div>
                     <div className="listing-overrides-callout">
                       <strong>Shared data stays in control.</strong>
                       <span>Base title, description, category, condition, and price apply everywhere unless you override them here.</span>
                     </div>
-                    <div className="listing-price-override-grid">
-                      <label className="label"><span>eBay price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.ebayPrice} onChange={(event) => onFieldChange("ebayPrice", event.target.value)} /></label>
-                      <label className="label"><span>Depop price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} /></label>
-                      <label className="label"><span>Poshmark price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.poshmarkPrice} onChange={(event) => onFieldChange("poshmarkPrice", event.target.value)} /></label>
-                      <label className="label"><span>Whatnot price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.whatnotPrice} onChange={(event) => onFieldChange("whatnotPrice", event.target.value)} /></label>
-                    </div>
-                    <label className="label">
-                      Depop discovery tags
-                      <input className="field" placeholder="vintage, streetwear, leather, y2k" value={itemForm.depopTags} onChange={(event) => onFieldChange("depopTags", event.target.value)} />
-                    </label>
-                    <div className="muted listing-override-note">Depop uses these tags only for Depop. The shared listing record stays unchanged for other marketplaces.</div>
+                    {selectedCount === 0 ? (
+                      <div className="listing-selection-empty-state">
+                        Select marketplaces on the left to reveal only their override fields here.
+                      </div>
+                    ) : (
+                      <div className="listing-platform-adjustments-grid">
+                        {selectedMarketStatuses.map((state) => (
+                          <div className="listing-platform-adjustment-card" key={state.platform}>
+                            <div className="listing-platform-adjustment-topline">
+                              <div>
+                                <strong>{platformLabels[state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"]} adjustments</strong>
+                                <p className="muted">
+                                  {state.platform === "EBAY"
+                                    ? "Use an override only if eBay should list differently than the shared item."
+                                    : state.platform === "DEPOP"
+                                      ? "Depop can use a different price and discovery tags while keeping the shared item intact."
+                                      : state.platform === "POSHMARK"
+                                        ? "Poshmark usually inherits the shared item, but you can set a different asking price here."
+                                        : "Whatnot can inherit the shared item and optionally use a different price."}
+                                </p>
+                              </div>
+                              <StatusPill
+                                label={state.missingRequirements.length > 0 ? "Needs setup" : "Using shared data"}
+                                tone={state.missingRequirements.length > 0 ? "warning" : "neutral"}
+                              />
+                            </div>
+
+                            {state.platform === "EBAY" ? (
+                              <div className="listing-platform-adjustment-fields">
+                                <label className="label">
+                                  eBay price override
+                                  <input className="field" min="0" step="0.01" type="number" value={itemForm.ebayPrice} onChange={(event) => onFieldChange("ebayPrice", event.target.value)} />
+                                </label>
+                                <div className="muted listing-override-note">
+                                  eBay category mapping and store category stay in <strong>Advanced eBay settings</strong> below.
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {state.platform === "DEPOP" ? (
+                              <div className="listing-platform-adjustment-fields">
+                                <label className="label">
+                                  Depop price override
+                                  <input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} />
+                                </label>
+                                <label className="label">
+                                  Depop discovery tags
+                                  <input className="field" placeholder="vintage, streetwear, leather, y2k" value={itemForm.depopTags} onChange={(event) => onFieldChange("depopTags", event.target.value)} />
+                                </label>
+                                <div className="muted listing-override-note">
+                                  Depop uses these tags only for Depop. The shared listing record stays unchanged for other marketplaces.
+                                </div>
+                              </div>
+                            ) : null}
+
+                            {state.platform === "POSHMARK" ? (
+                              <div className="listing-platform-adjustment-fields">
+                                <label className="label">
+                                  Poshmark price override
+                                  <input className="field" min="0" step="0.01" type="number" value={itemForm.poshmarkPrice} onChange={(event) => onFieldChange("poshmarkPrice", event.target.value)} />
+                                </label>
+                              </div>
+                            ) : null}
+
+                            {state.platform === "WHATNOT" ? (
+                              <div className="listing-platform-adjustment-fields">
+                                <label className="label">
+                                  Whatnot price override
+                                  <input className="field" min="0" step="0.01" type="number" value={itemForm.whatnotPrice} onChange={(event) => onFieldChange("whatnotPrice", event.target.value)} />
+                                </label>
+                              </div>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="listing-form-footer">
