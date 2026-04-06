@@ -1,7 +1,7 @@
 "use client";
 
 import QRCode from "qrcode";
-import { Camera, Copy, ExternalLink, LayoutTemplate, Plug2, QrCode, RefreshCw, Sparkles, Smartphone, Truck, X } from "lucide-react";
+import { Camera, Copy, ExternalLink, LayoutTemplate, QrCode, RefreshCw, Sparkles, Smartphone, Truck, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { AiStatusResponse, MarketplaceCapabilitySummary, OperatorHint } from "@reselleros/types";
@@ -18,7 +18,6 @@ import {
   type MarketplaceAccountLike,
   type MarketplaceActionKind
 } from "../lib/item-lifecycle";
-import { ActionRail } from "./action-rail";
 import { MarketplaceStatusRow } from "./marketplace-status-row";
 import { MissingFieldsPanel } from "./missing-fields-panel";
 import { OperatorHintCard } from "./operator-hint-card";
@@ -352,40 +351,21 @@ export function InventoryDetailView({
                 <div className="metric"><span className="muted">Resale range</span><strong>{currency(item.estimatedResaleMin)}-{currency(item.estimatedResaleMax)}</strong></div>
                 <div className="metric"><span className="muted">Condition</span><strong>{item.condition}</strong></div>
               </div>
-              {continuityNotice ? (
-                <div className="continuity-note" role="status">
-                  <RefreshCw size={14} />
-                  <span>{continuityNotice}</span>
-                </div>
-              ) : null}
-              {lastSyncedLabel ? <p className="inventory-sync-copy">Continuity refresh active. Last checked {lastSyncedLabel}.</p> : null}
+              <div className="detail-identity-grid">
+                <div className="detail-meta-row"><span className="muted">SKU</span><strong>{item.sku}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Identifier</span><strong>{identifier}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Category</span><strong>{item.category}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Brand</span><strong>{item.brand?.trim() || "Not set yet"}</strong></div>
+              </div>
             </div>
           </div>
         </SectionCard>
-
-        <ActionRail>
-          <Button disabled={pending || selectedCount === 0} onClick={() => onGenerateDrafts(selectedPlatforms)}>Generate drafts</Button>
-          <Button disabled={pending || selectedCount === 0} kind="secondary" onClick={() => onPublishLinked(selectedPlatforms)}>Post selected</Button>
-          <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)}>Delete item</Button>
-          <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)}>
-            <Smartphone size={16} /> Continue on mobile
-          </Button>
-        </ActionRail>
 
         {submitError ? <div className="notice">{submitError}</div> : null}
         {uploadStatus ? <div className="notice success">{uploadStatus}</div> : null}
         {aiMessage ? <div className="notice success">{aiMessage}</div> : null}
 
         <div className="detail-section-grid">
-          <SectionCard eyebrow="Identification" title="How Mollie knows this item">
-            <div className="detail-meta-list">
-              <div className="detail-meta-row"><span className="muted">SKU</span><strong>{item.sku}</strong></div>
-              <div className="detail-meta-row"><span className="muted">Identifier</span><strong>{identifier}</strong></div>
-              <div className="detail-meta-row"><span className="muted">Brand</span><strong>{item.brand?.trim() || "Not set yet"}</strong></div>
-              <div className="detail-meta-row"><span className="muted">Category</span><strong>{item.category}</strong></div>
-            </div>
-          </SectionCard>
-
           <SectionCard eyebrow="Listing workspace" title="Choose marketplaces first, then fill one listing form">
             <div className="listing-workbench-layout">
               <aside className="listing-marketplace-rail">
@@ -416,7 +396,7 @@ export function InventoryDetailView({
                   <div className="listing-form-toolbar">
                     <div>
                       <p className="eyebrow">Universal listing form</p>
-                      <strong>One canonical listing record for every selected marketplace</strong>
+                      <strong>One listing record, then post where it is ready</strong>
                     </div>
                     <Button kind="secondary" onClick={() => setTemplatesOpen(true)} type="button">
                       <LayoutTemplate size={16} /> Templates
@@ -587,8 +567,10 @@ export function InventoryDetailView({
                   </div>
 
                   <div className="listing-form-footer">
-                    <div className="muted">
-                      {aiStatus?.enabled ? `AI active via ${aiStatus.provider}. ${aiStatus.remainingDailyQuota}/${aiStatus.dailyQuota} requests remaining today.` : "AI suggestions are not enabled in this environment."}
+                    <div className="muted listing-form-status">
+                      {selectedCount === 0
+                        ? "Select at least one marketplace on the left before posting."
+                        : `${selectedCount} marketplace${selectedCount === 1 ? "" : "s"} selected. Save once, then generate or post where ready.`}
                     </div>
                     <div className="actions">
                       <Button disabled={pending} type="submit">Save listing form</Button>
@@ -602,118 +584,89 @@ export function InventoryDetailView({
             </div>
           </SectionCard>
 
-          <SectionCard eyebrow="Marketplace draft controls" title="Live marketplace details where they matter">
-            <div className="detail-sell-grid">
-              <div className="market-observation-card">
-                <div className="split">
-                  <div>
-                    <p className="eyebrow">eBay draft</p>
-                    <strong>Keep the live eBay listing field-ready</strong>
-                  </div>
-                  <div className="market-observation-value">{ebayDraft ? ebayDraft.reviewStatus : "Missing"}</div>
-                </div>
-                {!ebayDraft ? (
-                  <div className="muted">Generate an eBay draft first, then map the live listing category here.</div>
-                ) : (
-                  <form className="stack" onSubmit={onSaveEbayDraft}>
-                    <label className="label">eBay title<input className="field" name="generatedTitle" required value={ebayDraftForm.generatedTitle} onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)} /></label>
-                    <label className="label">eBay price<input className="field" min="0" name="generatedPrice" required step="0.01" type="number" value={ebayDraftForm.generatedPrice} onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)} /></label>
-                    <label className="label">eBay category ID<input className="field" name="ebayCategoryId" placeholder="15724" value={ebayDraftForm.ebayCategoryId} onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)} /></label>
-                    <label className="label">eBay store category ID<input className="field" name="ebayStoreCategoryId" placeholder="Optional" value={ebayDraftForm.ebayStoreCategoryId} onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)} /></label>
-                    <div className="actions">
-                      <Button disabled={pending} type="submit">Save eBay draft</Button>
-                      {ebayDraft.reviewStatus !== "APPROVED" ? <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">Approve eBay draft</Button> : null}
+          <SectionCard eyebrow="Advanced" title="Less-used controls and debug detail">
+            <div className="detail-advanced-stack">
+              <details className="detail-advanced-panel">
+                <summary>Advanced eBay settings</summary>
+                <div className="detail-advanced-content">
+                  {!ebayDraft ? (
+                    <div className="muted">Generate an eBay draft first, then adjust advanced eBay-only fields here if needed.</div>
+                  ) : (
+                    <form className="stack" onSubmit={onSaveEbayDraft}>
+                      <label className="label">eBay title<input className="field" name="generatedTitle" required value={ebayDraftForm.generatedTitle} onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)} /></label>
+                      <label className="label">eBay price<input className="field" min="0" name="generatedPrice" required step="0.01" type="number" value={ebayDraftForm.generatedPrice} onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)} /></label>
+                      <label className="label">eBay category ID<input className="field" name="ebayCategoryId" placeholder="15724" value={ebayDraftForm.ebayCategoryId} onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)} /></label>
+                      <label className="label">eBay store category ID<input className="field" name="ebayStoreCategoryId" placeholder="Optional" value={ebayDraftForm.ebayStoreCategoryId} onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)} /></label>
+                      <div className="actions">
+                        <Button disabled={pending} type="submit">Save eBay settings</Button>
+                        {ebayDraft.reviewStatus !== "APPROVED" ? <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">Approve eBay draft</Button> : null}
+                      </div>
+                    </form>
+                  )}
+                  {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
+                  {ebayPreflight ? (
+                    <div className="stack">
+                      <OperatorHintCard hint={ebayPreflight.hint} />
+                      <div className="notice">{ebayPreflight.summary}</div>
                     </div>
-                  </form>
-                )}
-              </div>
-
-              <div className="market-observation-card">
-                <div className="split">
-                  <div>
-                    <p className="eyebrow">Row refresh</p>
-                    <strong>Check marketplace state without leaving the form</strong>
-                  </div>
-                  <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Check again</Button>
+                  ) : null}
                 </div>
-                {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
-                {ebayPreflight ? (
-                  <div className="stack">
-                    <OperatorHintCard hint={ebayPreflight.hint} />
-                    <div className="notice">{ebayPreflight.summary}</div>
-                    <div className="inventory-preflight-meta">
-                      <span>State: {ebayPreflight.state ?? "none"}</span>
-                      <span>Account: {ebayPreflight.selectedCredentialType ?? "none"}</span>
+              </details>
+
+              <details className="detail-advanced-panel">
+                <summary>Automation and extension details</summary>
+                <div className="detail-advanced-content">
+                  <div className="inventory-preflight-meta">
+                    <span>{extensionConnected ? "Extension connected" : extensionInstalled ? "Extension detected" : "Extension missing"}</span>
+                    <span>Pending tasks: {extensionPendingCount}</span>
+                  </div>
+                  <div className="actions">
+                    <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Refresh row state</Button>
+                  </div>
+                  <div className="activity-list">
+                    {recentExtensionTasks.length === 0 ? <div className="muted">No recent browser-side work for this item.</div> : null}
+                    {recentExtensionTasks.map((task) => (
+                      <div className="activity-row" key={task.id}>
+                        <div>
+                          <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
+                          <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
+                        </div>
+                        <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </details>
+
+              <details className="detail-advanced-panel">
+                <summary>History and item tools</summary>
+                <div className="detail-advanced-content stack">
+                  {continuityNotice ? (
+                    <div className="muted detail-advanced-note">
+                      {continuityNotice}
+                      {lastSyncedLabel ? ` Last checked ${lastSyncedLabel}.` : ""}
                     </div>
+                  ) : null}
+                  <div className="actions">
+                    <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)} type="button">
+                      <Smartphone size={16} /> Continue on mobile
+                    </Button>
+                    <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)} type="button">Delete item</Button>
                   </div>
-                ) : (
-                  <div className="muted">Marketplace row status updates live from account readiness, extension state, and marketplace tasks.</div>
-                )}
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard
-            action={<StatusPill label={extensionConnected ? "connected" : extensionInstalled ? "detected" : "missing"} tone={extensionConnected ? "success" : extensionInstalled ? "warning" : "neutral"} />}
-            eyebrow="Browser Extension"
-            title="Browser execution stays visible but secondary"
-          >
-            <div className="extension-task-card">
-              <div className="extension-task-header">
-                <div>
-                  <strong className="extension-task-title"><Plug2 size={16} /> Mollie browser extension</strong>
-                  <p className="muted">
-                    {extensionConnected
-                      ? "Connected. Use it when a marketplace row requires browser-side work."
-                      : extensionInstalled
-                        ? "Installed, but this page needs to refresh the Mollie session bridge."
-                        : "Install the Mollie browser extension to import listings and complete extension-required marketplace actions."}
-                  </p>
-                </div>
-                <div className="actions">
-                  <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Refresh</Button>
-                  <Button disabled={!extensionConnected || pending} onClick={onSendToExtension} type="button">Open in extension</Button>
-                </div>
-              </div>
-              <div className="inventory-preflight-meta">
-                <span>Pending tasks: {extensionPendingCount}</span>
-                <span>{extensionLoading ? "Checking extension..." : extensionConnected ? "Ready for handoff" : "Not ready for handoff"}</span>
-              </div>
-              {extensionActionStatus ? <div className="notice">{extensionActionStatus}</div> : null}
-              <div className="activity-list">
-                {recentExtensionTasks.length === 0 ? <div className="muted">No extension work yet. Use the browser extension to import a listing or accept marketplace-side tasks.</div> : null}
-                {recentExtensionTasks.map((task) => (
-                  <div className="activity-row" key={task.id}>
-                    <div>
-                      <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
-                      <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
-                    </div>
-                    <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
+                  <div className="activity-list">
+                    {historyRows.length === 0 ? <div className="muted">No history yet. Draft, listing, and sale activity will show up here.</div> : null}
+                    {historyRows.map((row) => (
+                      <div className="activity-row" key={row.id}>
+                        <div>
+                          <strong>{row.label}</strong>
+                          <div className="muted">{row.detail}</div>
+                        </div>
+                        <div className="muted">{row.meta}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard eyebrow="History" title="What happened to this item">
-            <div className="activity-list">
-              {historyRows.length === 0 ? <div className="muted">No history yet. Scan, draft, publish, and sell activity will show up here.</div> : null}
-              {historyRows.map((row) => (
-                <div className="activity-row" key={row.id}>
-                  <div>
-                    <strong>{row.label}</strong>
-                    <div className="muted">{row.detail}</div>
-                  </div>
-                  <div className="muted">{row.meta}</div>
                 </div>
-              ))}
-              <div className="activity-row">
-                <div>
-                  <strong>Item record</strong>
-                  <div className="muted">Created in inventory and ready for progressive enrichment.</div>
-                </div>
-                <div className="muted">{item.createdAt ? formatDate(item.createdAt) : "Recently created"}</div>
-              </div>
+              </details>
             </div>
           </SectionCard>
         </div>
