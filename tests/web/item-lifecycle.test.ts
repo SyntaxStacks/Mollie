@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { getMarketplaceStatusSummaries } from "../../apps/web/lib/item-lifecycle.js";
 
-test("Depop rows treat browser-input work as draft prep instead of a hard failure", () => {
+test("Depop rows surface exact missing fields in Mollie instead of sending the operator back to the Depop tab", () => {
   const depop = getMarketplaceStatusSummaries(
     {
       id: "item-1",
@@ -28,8 +28,11 @@ test("Depop rows treat browser-input work as draft prep instead of a hard failur
           platform: "DEPOP",
           action: "PREPARE_DRAFT",
           state: "NEEDS_INPUT",
-          needsInputReason: "Finish the Depop draft in the current browser tab.",
-          lastErrorMessage: "Depop needs a few more listing fields finished in the browser tab."
+          needsInputReason: "Depop still needs a few required fields before publish.",
+          lastErrorMessage: "Depop still needs a few required fields before publish.",
+          resultJson: {
+            missingFields: ["description", "category"]
+          }
         }
       ]
     },
@@ -67,11 +70,83 @@ test("Depop rows treat browser-input work as draft prep instead of a hard failur
   assert.ok(depop);
   assert.equal(depop.platform, "DEPOP");
   assert.equal(depop.state, "draft");
-  assert.equal(depop.actionLabel, "Finish draft in Depop tab");
-  assert.equal(depop.actionKind, "open_extension");
+  assert.equal(depop.actionLabel, "Fix details");
+  assert.equal(depop.actionKind, "fix_details");
   assert.equal(depop.connectionSummary, "Browser session ready - main closet");
-  assert.equal(depop.summary, "Depop needs a few more listing fields finished in the browser tab.");
-  assert.equal(depop.blocker, "Finish the Depop draft in the current browser tab.");
+  assert.equal(depop.summary, "Depop still needs required item fields before publish.");
+  assert.equal(depop.blocker, "Missing description, category.");
+  assert.deepEqual(depop.missingRequirements, ["description", "category"]);
+});
+
+test("Depop rows retry browser publish when Mollie already has the required fields", () => {
+  const depop = getMarketplaceStatusSummaries(
+    {
+      id: "item-1b",
+      title: "Vintage denim jacket",
+      category: "Jackets",
+      condition: "Good used condition",
+      priceRecommendation: 58,
+      attributesJson: {
+        description: "A clean vintage denim jacket ready to list."
+      },
+      images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
+      listingDrafts: [
+        {
+          id: "draft-1b",
+          platform: "DEPOP",
+          reviewStatus: "APPROVED",
+          generatedPrice: 58,
+          generatedTitle: "Vintage denim jacket"
+        }
+      ],
+      platformListings: [],
+      extensionTasks: [
+        {
+          id: "task-1b",
+          platform: "DEPOP",
+          action: "PUBLISH_LISTING",
+          state: "NEEDS_INPUT",
+          needsInputReason: "Depop opened the final publish step, but Mollie could not confirm that the listing went live.",
+          lastErrorMessage: "Depop publish needs another browser pass.",
+          resultJson: {
+            missingFields: []
+          }
+        }
+      ]
+    },
+    {
+      extensionInstalled: true,
+      extensionConnected: true,
+      capabilitySummary: [
+        {
+          platform: "DEPOP",
+          capabilities: ["EXTENSION_PUBLISH"],
+          importMode: "NONE",
+          publishMode: "EXTENSION",
+          bulkImport: false,
+          bulkPublish: false
+        }
+      ],
+      marketplaceAccounts: [
+        {
+          id: "acct-1b",
+          platform: "DEPOP",
+          displayName: "main closet",
+          status: "CONNECTED",
+          validationStatus: "VALID"
+        }
+      ]
+    }
+  ).find((entry) => entry.platform === "DEPOP");
+
+  assert.ok(depop);
+  assert.equal(depop.actionLabel, "Retry publish");
+  assert.equal(depop.actionKind, "retry");
+  assert.equal(depop.summary, "Depop publish needs another browser pass.");
+  assert.equal(
+    depop.blocker,
+    "Depop opened the final publish step, but Mollie could not confirm that the listing went live."
+  );
 });
 
 test("Depop rows offer browser publish when a ready draft exists", () => {

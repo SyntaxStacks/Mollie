@@ -138,6 +138,10 @@ type PlatformRequirements = {
   recommended: string[];
 };
 
+type ExtensionTaskResultLike = {
+  missingFields?: unknown;
+};
+
 export function getItemPrimaryImage(item: InventoryListLikeItem) {
   return item.images?.[0]?.url ?? null;
 }
@@ -272,6 +276,38 @@ function humanizeGenericRequirement(flag: ListingReadinessFlag) {
     default:
       return String(flag).replace(/_/g, " ");
   }
+}
+
+function humanizeExtensionField(field: string) {
+  switch (field.trim().toLowerCase()) {
+    case "title":
+      return "title";
+    case "description":
+      return "description";
+    case "price":
+      return "price";
+    case "brand":
+      return "brand";
+    case "category":
+      return "category";
+    case "condition":
+      return "condition";
+    case "size":
+      return "size";
+    case "photos":
+      return "photos";
+    default:
+      return field.replace(/_/g, " ").trim().toLowerCase();
+  }
+}
+
+function getExtensionTaskMissingFields(extensionTask?: ExtensionTaskLike | null) {
+  if (!extensionTask?.resultJson || typeof extensionTask.resultJson !== "object") {
+    return [];
+  }
+
+  const result = extensionTask.resultJson as ExtensionTaskResultLike;
+  return uniqueStrings(getStringArray(result.missingFields).map(humanizeExtensionField));
 }
 
 function getTextAttribute(attributes: Record<string, unknown>, key: string) {
@@ -561,13 +597,25 @@ function summarizeMarketplaceReadiness(input: {
   }
 
   if (input.needsBrowserInput) {
+    if (input.requiredRequirements.length > 0) {
+      return {
+        summary:
+          input.platform === "DEPOP"
+            ? "Depop still needs required item fields before publish."
+            : "This marketplace still needs required item fields.",
+        blocker: fallbackBlocker
+      };
+    }
+
     return {
       summary:
         input.extensionTask?.lastErrorMessage ??
-        (input.platform === "DEPOP" ? "Finish the Depop flow in the browser tab." : "Finish the marketplace flow in the browser tab."),
+        (input.platform === "DEPOP"
+          ? "Depop publish needs another browser pass."
+          : "The marketplace flow needs another browser pass."),
       blocker:
         input.extensionTask?.needsInputReason ??
-        "The browser extension applied what it could. Finish the remaining fields in the marketplace tab."
+        "The browser extension needs another pass to finish the marketplace flow."
     };
   }
 
@@ -736,14 +784,21 @@ function actionForState(input: {
   }
 
   if (input.needsBrowserInput) {
+    if (input.hasBlockingFields) {
+      return {
+        actionLabel: "Fix details",
+        actionKind: "fix_details" as const
+      };
+    }
+
     return {
       actionLabel:
         input.platform === "DEPOP"
           ? input.extensionTaskAction === "PUBLISH_LISTING"
-            ? "Finish publish in Depop tab"
-            : "Finish draft in Depop tab"
-          : "Finish in browser",
-      actionKind: "open_extension" as const
+            ? "Retry publish"
+            : "Retry draft prep"
+          : "Retry in browser",
+      actionKind: "retry" as const
     };
   }
 
@@ -860,6 +915,8 @@ export function getMarketplaceStatusSummaries(
       genericFlags: flags,
       draft
     });
+    const extensionTaskMissingFields = getExtensionTaskMissingFields(extensionTask);
+    const missingRequirements = uniqueStrings([...requirements.required, ...extensionTaskMissingFields]);
     const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
     const account =
       options.marketplaceAccounts?.find((candidate) => candidate.platform === platform && candidate.status === "CONNECTED") ??
@@ -877,7 +934,7 @@ export function getMarketplaceStatusSummaries(
       platform,
       listingState,
       draft,
-      requiredRequirements: requirements.required,
+      requiredRequirements: missingRequirements,
       recommendedRequirements: requirements.recommended,
       capability,
       account,
@@ -897,7 +954,7 @@ export function getMarketplaceStatusSummaries(
       platform,
       listingState,
       hasDraft: Boolean(draft),
-      hasBlockingFields: requirements.required.length > 0,
+      hasBlockingFields: missingRequirements.length > 0,
       capability,
       extensionRequired: capabilityDetail.extensionRequired,
       extensionConnected: options.extensionConnected,
@@ -928,7 +985,7 @@ export function getMarketplaceStatusSummaries(
       platform,
       state:
         needsBrowserInput ? baseListingState : listingState,
-      missingRequirements: requirements.required,
+      missingRequirements,
       recommendedRequirements: requirements.recommended,
       actionLabel: action.actionLabel,
       actionKind: action.actionKind,
