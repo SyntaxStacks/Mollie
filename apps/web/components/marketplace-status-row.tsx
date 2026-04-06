@@ -92,7 +92,7 @@ export function MarketplaceStatusRow({
           </Button>
         ) : null}
         {onAction ? (
-          <Button kind="secondary" onClick={onAction}>
+          <Button onClick={onAction}>
             {state.actionLabel}
           </Button>
         ) : null}
