@@ -84,6 +84,11 @@ export function MarketplaceStatusRow({
             Missing: {state.missingRequirements.join(", ")}
           </div>
         ) : null}
+        {state.missingRequirements.length === 0 && state.recommendedRequirements.length > 0 ? (
+          <div className="marketplace-missing-inline muted">
+            Improves results: {state.recommendedRequirements.join(", ")}
+          </div>
+        ) : null}
       </div>
       <div className="marketplace-status-actions">
         {onSecondaryAction && state.secondaryActionLabel ? (

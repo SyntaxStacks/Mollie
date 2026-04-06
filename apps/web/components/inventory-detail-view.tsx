@@ -305,12 +305,22 @@ export function InventoryDetailView({
     extensionInstalled,
     extensionConnected
   });
+  const selectedMarketStatuses = marketStatuses.filter((state) =>
+    selectedPlatforms.includes(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")
+  );
+  const draftReadyPlatforms = selectedMarketStatuses
+    .filter((state) => state.actionKind === "generate_draft")
+    .map((state) => state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT");
+  const postReadyPlatforms = selectedMarketStatuses
+    .filter((state) => state.actionKind === "publish_api" || state.actionKind === "publish_extension")
+    .map((state) => state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT");
   const lifecycle = getItemLifecycleState(item);
   const profit = getProfitEstimate(item);
   const nextAction = getNextActionLabel(item);
   const identifier = getIdentifierValue(item);
   const recentExtensionTasks = item.extensionTasks.slice(0, 4);
   const selectedCount = selectedPlatforms.length;
+  const selectedBlockedCount = selectedMarketStatuses.filter((state) => state.missingRequirements.length > 0).length;
 
   const historyRows = useMemo(() => {
     const rows: Array<{ id: string; label: string; detail: string; meta: string }> = [];
@@ -579,12 +589,16 @@ export function InventoryDetailView({
                     <div className="muted listing-form-status">
                       {selectedCount === 0
                         ? "Select at least one marketplace on the left before posting."
-                        : `${selectedCount} marketplace${selectedCount === 1 ? "" : "s"} selected. Save once, then generate or post where ready.`}
+                        : draftReadyPlatforms.length === 0 && postReadyPlatforms.length === 0
+                          ? selectedBlockedCount > 0
+                            ? "Selected marketplaces are still missing required fields. Fill those in Mollie first, then generate or post."
+                            : "Selected marketplaces need login, draft review, or browser follow-through before posting."
+                          : `${draftReadyPlatforms.length} ready for draft generation and ${postReadyPlatforms.length} ready to post right now.`}
                     </div>
                     <div className="actions">
                       <Button disabled={pending} type="submit">Save listing form</Button>
-                      <Button disabled={pending || selectedCount === 0} kind="secondary" onClick={() => onGenerateDrafts(selectedPlatforms)} type="button">Generate drafts for selected</Button>
-                      <Button disabled={pending || selectedCount === 0} kind="secondary" onClick={() => onPublishLinked(selectedPlatforms)} type="button">Post selected</Button>
+                      <Button disabled={pending || draftReadyPlatforms.length === 0} kind="secondary" onClick={() => onGenerateDrafts(draftReadyPlatforms)} type="button">Generate drafts for selected</Button>
+                      <Button disabled={pending || postReadyPlatforms.length === 0} kind="secondary" onClick={() => onPublishLinked(postReadyPlatforms)} type="button">Post selected</Button>
                     </div>
                   </div>
                   </form>

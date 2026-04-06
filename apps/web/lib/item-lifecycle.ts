@@ -51,6 +51,7 @@ export type InventoryListLikeItem = {
   brand?: string | null;
   category: string;
   condition: string;
+  size?: string | null;
   status?: string | null;
   costBasis?: number | null;
   priceRecommendation?: number | null;
@@ -107,6 +108,7 @@ export type MarketplaceStatusSummary = {
   platform: string;
   state: MarketplaceListingState;
   missingRequirements: string[];
+  recommendedRequirements: string[];
   actionLabel: string;
   actionKind: MarketplaceActionKind;
   secondaryActionLabel?: string | null;
@@ -131,6 +133,10 @@ export type MarketplaceStatusOptions = {
 
 type ListingDraftLike = NonNullable<InventoryListLikeItem["listingDrafts"]>[number];
 type ExtensionTaskLike = NonNullable<InventoryListLikeItem["extensionTasks"]>[number];
+type PlatformRequirements = {
+  required: string[];
+  recommended: string[];
+};
 
 export function getItemPrimaryImage(item: InventoryListLikeItem) {
   return item.images?.[0]?.url ?? null;
@@ -231,6 +237,10 @@ function getStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0) : [];
 }
 
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter((value) => value.trim().length > 0))];
+}
+
 function hasValue(value: unknown) {
   if (typeof value === "number") {
     return Number.isFinite(value) && value > 0;
@@ -264,48 +274,116 @@ function humanizeGenericRequirement(flag: ListingReadinessFlag) {
   }
 }
 
-function getPlatformMissingRequirements(input: {
+function getTextAttribute(attributes: Record<string, unknown>, key: string) {
+  return typeof attributes[key] === "string" ? attributes[key].trim() : "";
+}
+
+function itemNeedsSizing(item: InventoryListLikeItem) {
+  const haystack = `${item.category} ${item.title}`.toLowerCase();
+  return [
+    "apparel",
+    "clothing",
+    "dress",
+    "shirt",
+    "jacket",
+    "coat",
+    "hoodie",
+    "pants",
+    "jeans",
+    "shorts",
+    "skirt",
+    "top",
+    "sweater",
+    "outerwear",
+    "sneaker",
+    "shoe",
+    "boot",
+    "heel",
+    "sandals"
+  ].some((token) => haystack.includes(token));
+}
+
+function getPlatformRequirements(input: {
   item: InventoryListLikeItem;
   platform: string;
   genericFlags: ListingReadinessFlag[];
   draft?: ListingDraftLike | null;
-}) {
-  const requirements = input.genericFlags.map(humanizeGenericRequirement);
+}): PlatformRequirements {
+  const required = input.genericFlags
+    .filter((flag) => flag !== "duplicate_candidate")
+    .map(humanizeGenericRequirement);
+  const recommended: string[] = [];
   const attributes = getItemAttributes(input.item);
   const draftAttributes =
     input.draft?.attributesJson && typeof input.draft.attributesJson === "object"
       ? (input.draft.attributesJson as Record<string, unknown>)
       : {};
+  const description = getTextAttribute(attributes, "description");
 
   if (input.platform === "EBAY") {
     if (!hasValue(attributes.shippingWeightValue)) {
-      requirements.push("shipping weight");
+      required.push("shipping weight");
     }
 
     const hasDimensions = hasValue(attributes.shippingLength) && hasValue(attributes.shippingWidth) && hasValue(attributes.shippingHeight);
     if (!hasDimensions) {
-      requirements.push("package size");
+      required.push("package size");
     }
 
-    if (!hasValue(draftAttributes.ebayCategoryId) && !requirements.includes("category")) {
-      requirements.push("eBay category mapping");
+    if (!description) {
+      required.push("description");
+    }
+
+    if (!hasValue(draftAttributes.ebayCategoryId) && !required.includes("category")) {
+      required.push("eBay category mapping");
     }
   }
 
   if (input.platform === "DEPOP") {
+    if (!description) {
+      required.push("description");
+    }
+
     const sharedTags = getStringArray(attributes.tags);
     const depopTags = getStringArray(getMarketplaceOverrideAttributes(input.item, "DEPOP")?.tags);
 
     if (sharedTags.length === 0 && depopTags.length === 0) {
-      requirements.push("Depop discovery tags");
+      recommended.push("Depop discovery tags");
+    }
+
+    if (itemNeedsSizing(input.item) && !hasValue(input.item.size)) {
+      recommended.push("size");
     }
   }
 
-  if (input.platform === "WHATNOT" && !hasValue(attributes.description)) {
-    requirements.push("show notes");
+  if (input.platform === "POSHMARK") {
+    if (!description) {
+      required.push("description");
+    }
+
+    if (itemNeedsSizing(input.item) && !hasValue(input.item.size)) {
+      required.push("size");
+    }
+
+    if (!hasValue(input.item.brand)) {
+      recommended.push("brand");
+    }
   }
 
-  return [...new Set(requirements)];
+  if (input.platform === "WHATNOT") {
+    if (!description) {
+      required.push("show notes");
+    }
+
+    if (!hasValue(input.item.brand)) {
+      recommended.push("brand");
+    }
+  }
+
+  return {
+    required: uniqueStrings(required),
+    recommended: uniqueStrings(recommended).filter((value) => !required.includes(value))
+  };
 }
 
 function describeCapabilities(platform: string, capability?: MarketplaceCapabilitySummary | null) {
@@ -450,7 +528,8 @@ function summarizeMarketplaceReadiness(input: {
   platform: string;
   listingState: MarketplaceListingState;
   draft?: ListingDraftLike | null;
-  missingRequirements: string[];
+  requiredRequirements: string[];
+  recommendedRequirements: string[];
   capability?: MarketplaceCapabilitySummary | null;
   account?: MarketplaceAccountLike | null;
   connectionBlocker: string | null;
@@ -458,9 +537,9 @@ function summarizeMarketplaceReadiness(input: {
   extensionTask?: ExtensionTaskLike | null;
   needsBrowserInput: boolean;
 }) {
-  const primaryMissing = input.missingRequirements[0] ?? null;
+  const primaryMissing = input.requiredRequirements[0] ?? null;
   const fallbackBlocker =
-    input.missingRequirements.length > 0 ? `Missing ${input.missingRequirements.join(", ")}.` : null;
+    input.requiredRequirements.length > 0 ? `Missing ${input.requiredRequirements.join(", ")}.` : null;
 
   if (input.listingState === "published" || input.listingState === "sold") {
     return {
@@ -504,25 +583,25 @@ function summarizeMarketplaceReadiness(input: {
       if (input.draft) {
         return {
           summary: input.draft.reviewStatus === "APPROVED" ? "Ready for eBay API publish" : "eBay draft needs review",
-          blocker: input.missingRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
+          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
         };
       }
 
-      if (input.missingRequirements.some((value) => value === "shipping weight" || value === "package size")) {
+      if (input.requiredRequirements.some((value) => value === "shipping weight" || value === "package size")) {
         return {
           summary: "Finish eBay shipping details",
           blocker: fallbackBlocker
         };
       }
 
-      if (input.missingRequirements.some((value) => value === "eBay category mapping" || value === "category")) {
+      if (input.requiredRequirements.some((value) => value === "eBay category mapping" || value === "category")) {
         return {
           summary: "Finish eBay category mapping",
           blocker: fallbackBlocker
         };
       }
 
-      if (input.capability?.publishMode !== "NONE" && input.missingRequirements.length === 0) {
+      if (input.capability?.publishMode !== "NONE" && input.requiredRequirements.length === 0) {
         return {
           summary: "eBay is ready for draft generation",
           blocker: "Generate a marketplace draft before publishing."
@@ -546,18 +625,11 @@ function summarizeMarketplaceReadiness(input: {
       if (input.draft) {
         return {
           summary: input.draft.reviewStatus === "APPROVED" ? "Ready for Depop browser posting" : "Depop draft needs review",
-          blocker: input.missingRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
+          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
         };
       }
 
-      if (input.missingRequirements.some((value) => value === "Depop discovery tags")) {
-        return {
-          summary: "Add Depop tags so the listing is easier to discover",
-          blocker: fallbackBlocker
-        };
-      }
-
-      if (input.capability?.publishMode === "EXTENSION" && input.missingRequirements.length === 0) {
+      if (input.capability?.publishMode === "EXTENSION" && input.requiredRequirements.length === 0) {
         return {
           summary: "Ready for Depop browser draft prep",
           blocker: input.connectionBlocker ?? input.extensionBlocker
@@ -578,7 +650,7 @@ function summarizeMarketplaceReadiness(input: {
         };
       }
 
-      if (input.missingRequirements.length > 0) {
+      if (input.requiredRequirements.length > 0) {
         return {
           summary: primaryMissing ? `Finish ${primaryMissing} before Poshmark prep` : "Finish the core listing details for Poshmark",
           blocker: fallbackBlocker
@@ -602,7 +674,7 @@ function summarizeMarketplaceReadiness(input: {
         };
       }
 
-      if (input.missingRequirements.length > 0) {
+      if (input.requiredRequirements.length > 0) {
         return {
           summary: primaryMissing ? `Finish ${primaryMissing} before Whatnot prep` : "Finish the core listing details for Whatnot",
           blocker: fallbackBlocker
@@ -782,7 +854,7 @@ export function getMarketplaceStatusSummaries(
           : extensionTask?.state === "FAILED"
             ? "failed"
             : baseListingState;
-    const missingRequirements = getPlatformMissingRequirements({
+    const requirements = getPlatformRequirements({
       item,
       platform,
       genericFlags: flags,
@@ -805,7 +877,8 @@ export function getMarketplaceStatusSummaries(
       platform,
       listingState,
       draft,
-      missingRequirements,
+      requiredRequirements: requirements.required,
+      recommendedRequirements: requirements.recommended,
       capability,
       account,
       connectionBlocker: connectionDetail.blocker,
@@ -824,7 +897,7 @@ export function getMarketplaceStatusSummaries(
       platform,
       listingState,
       hasDraft: Boolean(draft),
-      hasBlockingFields: missingRequirements.length > 0,
+      hasBlockingFields: requirements.required.length > 0,
       capability,
       extensionRequired: capabilityDetail.extensionRequired,
       extensionConnected: options.extensionConnected,
@@ -855,7 +928,8 @@ export function getMarketplaceStatusSummaries(
       platform,
       state:
         needsBrowserInput ? baseListingState : listingState,
-      missingRequirements,
+      missingRequirements: requirements.required,
+      recommendedRequirements: requirements.recommended,
       actionLabel: action.actionLabel,
       actionKind: action.actionKind,
       secondaryActionLabel,

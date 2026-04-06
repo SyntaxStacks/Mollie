@@ -83,6 +83,7 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
       condition: "Excellent used condition",
       priceRecommendation: 240,
       attributesJson: {
+        description: "Warm Burberry wool coat in excellent condition.",
         marketplaceOverrides: {
           DEPOP: {
             attributes: {
@@ -133,6 +134,55 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
   assert.equal(depop.actionLabel, "Post in browser");
   assert.equal(depop.actionKind, "publish_extension");
   assert.equal(depop.summary, "Ready for Depop browser posting");
+});
+
+test("Depop tags stay recommended instead of blocking draft prep", () => {
+  const depop = getMarketplaceStatusSummaries(
+    {
+      id: "item-2b",
+      title: "Vintage leather jacket",
+      category: "Jackets",
+      condition: "Good used condition",
+      priceRecommendation: 95,
+      attributesJson: {
+        description: "Broken-in leather jacket with clean lining."
+      },
+      images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
+      listingDrafts: [],
+      platformListings: [],
+      extensionTasks: []
+    },
+    {
+      extensionInstalled: true,
+      extensionConnected: true,
+      capabilitySummary: [
+        {
+          platform: "DEPOP",
+          capabilities: ["EXTENSION_PUBLISH"],
+          importMode: "NONE",
+          publishMode: "EXTENSION",
+          bulkImport: false,
+          bulkPublish: false
+        }
+      ],
+      marketplaceAccounts: [
+        {
+          id: "acct-2b",
+          platform: "DEPOP",
+          displayName: "main closet",
+          status: "CONNECTED",
+          validationStatus: "VALID"
+        }
+      ]
+    }
+  ).find((entry) => entry.platform === "DEPOP");
+
+  assert.ok(depop);
+  assert.equal(depop.actionLabel, "Generate draft");
+  assert.equal(depop.actionKind, "generate_draft");
+  assert.deepEqual(depop.missingRequirements, []);
+  assert.deepEqual(depop.recommendedRequirements, ["Depop discovery tags", "size"]);
+  assert.equal(depop.summary, "Ready for Depop browser draft prep");
 });
 
 test("eBay rows prioritize shipping and category readiness", () => {
@@ -191,6 +241,9 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
       category: "Bags",
       condition: "Excellent used condition",
       priceRecommendation: 140,
+      attributesJson: {
+        description: "Coach shoulder bag with clean lining and light wear."
+      },
       images: [{ id: "img-1", url: "https://images.example.com/bag.jpg", position: 0 }],
       listingDrafts: [],
       platformListings: [],
@@ -224,4 +277,48 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
   assert.ok(poshmark);
   assert.equal(poshmark.summary, "Poshmark browser session is connected, but listing prep is not live yet");
   assert.equal(poshmark.actionLabel, "Unavailable");
+});
+
+test("Poshmark rows block on required description and size", () => {
+  const poshmark = getMarketplaceStatusSummaries(
+    {
+      id: "item-5",
+      title: "Nike hoodie",
+      category: "Apparel",
+      condition: "Good used condition",
+      priceRecommendation: 42,
+      images: [{ id: "img-1", url: "https://images.example.com/hoodie.jpg", position: 0 }],
+      listingDrafts: [],
+      platformListings: [],
+      extensionTasks: []
+    },
+    {
+      extensionInstalled: true,
+      extensionConnected: true,
+      capabilitySummary: [
+        {
+          platform: "POSHMARK",
+          capabilities: [],
+          importMode: "NONE",
+          publishMode: "NONE",
+          bulkImport: false,
+          bulkPublish: false
+        }
+      ],
+      marketplaceAccounts: [
+        {
+          id: "acct-5",
+          platform: "POSHMARK",
+          displayName: "main closet",
+          status: "CONNECTED",
+          validationStatus: "VALID"
+        }
+      ]
+    }
+  ).find((entry) => entry.platform === "POSHMARK");
+
+  assert.ok(poshmark);
+  assert.equal(poshmark.actionLabel, "Fix details");
+  assert.match(poshmark.summary, /description/i);
+  assert.deepEqual(poshmark.missingRequirements, ["description", "size"]);
 });
