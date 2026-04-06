@@ -215,6 +215,11 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
   assert.deepEqual(depop.missingRequirements, []);
   assert.equal(depop.actionLabel, "Retry publish");
   assert.equal(depop.actionKind, "retry");
+  assert.equal(depop.summary, "Depop publish needs another browser pass.");
+  assert.equal(
+    depop.blocker,
+    "Depop opened the final publish step, but Mollie could not confirm that the listing went live."
+  );
 });
 
 test("Depop rows offer browser publish when a ready draft exists", () => {

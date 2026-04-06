@@ -301,6 +301,15 @@ function humanizeExtensionField(field: string) {
   }
 }
 
+function isGenericMissingFieldMessage(message: string | null | undefined) {
+  if (!message) {
+    return false;
+  }
+
+  const normalized = message.trim().toLowerCase();
+  return normalized.includes("needs a few required fields") || normalized.includes("still needs required item fields");
+}
+
 function getExtensionTaskMissingFields(extensionTask?: ExtensionTaskLike | null) {
   if (!extensionTask?.resultJson || typeof extensionTask.resultJson !== "object") {
     return [];
@@ -637,14 +646,18 @@ function summarizeMarketplaceReadiness(input: {
       };
     }
 
+    const browserRetrySummary =
+      input.platform === "DEPOP" ? "Depop publish needs another browser pass." : "The marketplace flow needs another browser pass.";
+
     return {
       summary:
-        input.extensionTask?.lastErrorMessage ??
-        (input.platform === "DEPOP"
-          ? "Depop publish needs another browser pass."
-          : "The marketplace flow needs another browser pass."),
+        isGenericMissingFieldMessage(input.extensionTask?.lastErrorMessage)
+          ? browserRetrySummary
+          : input.extensionTask?.lastErrorMessage ?? browserRetrySummary,
       blocker:
-        input.extensionTask?.needsInputReason ??
+        isGenericMissingFieldMessage(input.extensionTask?.needsInputReason)
+          ? "Mollie has the required fields. Retry the browser publish so the extension can map them onto this Depop page."
+          : input.extensionTask?.needsInputReason ??
         "The browser extension needs another pass to finish the marketplace flow."
     };
   }
