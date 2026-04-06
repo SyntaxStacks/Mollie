@@ -56,7 +56,6 @@ export default function InventoryDetailPage() {
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [extensionActionStatus, setExtensionActionStatus] = useState<string | null>(null);
   const [itemForm, setItemForm] = useState<InventoryItemFormState>({
     title: "",
     brand: "",
@@ -82,7 +81,8 @@ export default function InventoryDetailPage() {
     ebayPrice: "",
     depopPrice: "",
     poshmarkPrice: "",
-    whatnotPrice: ""
+    whatnotPrice: "",
+    depopTags: ""
   });
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["EBAY"]);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -144,6 +144,23 @@ export default function InventoryDetailPage() {
       return;
     }
 
+    const marketplaceOverrides =
+      typeof data.item.attributesJson?.marketplaceOverrides === "object" && data.item.attributesJson?.marketplaceOverrides
+        ? (data.item.attributesJson.marketplaceOverrides as Record<string, unknown>)
+        : {};
+    const marketplacePriceOverrides =
+      typeof data.item.attributesJson?.marketplacePriceOverrides === "object" && data.item.attributesJson?.marketplacePriceOverrides
+        ? (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>)
+        : {};
+    const depopOverride =
+      typeof marketplaceOverrides.DEPOP === "object" && marketplaceOverrides.DEPOP
+        ? (marketplaceOverrides.DEPOP as Record<string, unknown>)
+        : {};
+    const depopOverrideAttributes =
+      typeof depopOverride.attributes === "object" && depopOverride.attributes
+        ? (depopOverride.attributes as Record<string, unknown>)
+        : {};
+
     setItemForm({
       title: data.item.title ?? "",
       brand: data.item.brand ?? "",
@@ -181,28 +198,33 @@ export default function InventoryDetailPage() {
         typeof data.item.attributesJson?.shippingDimensionUnit === "string" ? data.item.attributesJson.shippingDimensionUnit : "in",
       freeShipping: data.item.attributesJson?.freeShipping === true,
       ebayPrice:
-        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
-        data.item.attributesJson?.marketplacePriceOverrides &&
-        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).EBAY === "number"
-          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).EBAY)
-          : "",
+        typeof ((marketplaceOverrides.EBAY as Record<string, unknown> | undefined)?.price) === "number"
+          ? String((marketplaceOverrides.EBAY as Record<string, number>).price)
+          : typeof marketplacePriceOverrides.EBAY === "number"
+            ? String(marketplacePriceOverrides.EBAY)
+            : "",
       depopPrice:
-        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
-        data.item.attributesJson?.marketplacePriceOverrides &&
-        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).DEPOP === "number"
-          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).DEPOP)
-          : "",
+        typeof depopOverride.price === "number"
+          ? String(depopOverride.price)
+          : typeof marketplacePriceOverrides.DEPOP === "number"
+            ? String(marketplacePriceOverrides.DEPOP)
+            : "",
       poshmarkPrice:
-        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
-        data.item.attributesJson?.marketplacePriceOverrides &&
-        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).POSHMARK === "number"
-          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).POSHMARK)
-          : "",
+        typeof ((marketplaceOverrides.POSHMARK as Record<string, unknown> | undefined)?.price) === "number"
+          ? String((marketplaceOverrides.POSHMARK as Record<string, number>).price)
+          : typeof marketplacePriceOverrides.POSHMARK === "number"
+            ? String(marketplacePriceOverrides.POSHMARK)
+            : "",
       whatnotPrice:
-        typeof data.item.attributesJson?.marketplacePriceOverrides === "object" &&
-        data.item.attributesJson?.marketplacePriceOverrides &&
-        typeof (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>).WHATNOT === "number"
-          ? String((data.item.attributesJson.marketplacePriceOverrides as Record<string, number>).WHATNOT)
+        typeof ((marketplaceOverrides.WHATNOT as Record<string, unknown> | undefined)?.price) === "number"
+          ? String((marketplaceOverrides.WHATNOT as Record<string, number>).price)
+          : typeof marketplacePriceOverrides.WHATNOT === "number"
+            ? String(marketplacePriceOverrides.WHATNOT)
+            : "",
+      depopTags: Array.isArray(depopOverrideAttributes.tags)
+        ? depopOverrideAttributes.tags.join(", ")
+        : Array.isArray(data.item.attributesJson?.tags)
+          ? data.item.attributesJson.tags.join(", ")
           : ""
     });
   }, [data?.item]);
@@ -254,6 +276,16 @@ export default function InventoryDetailPage() {
       await Promise.all([refresh(), ebayPreflight.refresh()]);
     }
   });
+
+  function setActionNotice(message: string | null) {
+    setSubmitError(null);
+    setUploadStatus(message);
+  }
+
+  function setActionError(message: string | null) {
+    setUploadStatus(null);
+    setSubmitError(message);
+  }
 
   async function addImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -470,6 +502,21 @@ export default function InventoryDetailPage() {
       }
     });
 
+    const depopTags = itemForm.depopTags
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (depopTags.length > 0) {
+      marketplaceOverrides.DEPOP = {
+        ...(marketplaceOverrides.DEPOP ?? {}),
+        attributes: {
+          ...((marketplaceOverrides.DEPOP?.attributes as Record<string, unknown> | undefined) ?? {}),
+          tags: depopTags
+        }
+      };
+    }
+
     return {
       inventoryItemId: data.item.id,
       sku: data.item.sku,
@@ -572,7 +619,26 @@ export default function InventoryDetailPage() {
     return extensionFirst ?? selectedPlatforms[0] ?? "EBAY";
   }
 
-  async function sendToExtension(platform: Platform = getPreferredExtensionPlatform()) {
+  function getLatestExtensionTask(platform: Platform) {
+    return data?.item.extensionTasks.find((task) => task.platform === platform) ?? null;
+  }
+
+  function getExtensionTaskTabUrl(platform: Platform) {
+    const task = getLatestExtensionTask(platform);
+    const resultJson =
+      task && "resultJson" in task && task.resultJson && typeof task.resultJson === "object"
+        ? (task.resultJson as Record<string, unknown>)
+        : null;
+    const tabUrl = typeof resultJson?.tabUrl === "string" ? resultJson.tabUrl : null;
+    const externalUrl = typeof resultJson?.externalUrl === "string" ? resultJson.externalUrl : null;
+
+    return externalUrl ?? tabUrl;
+  }
+
+  async function sendToExtension(
+    platform: Platform = getPreferredExtensionPlatform(),
+    action: "PREPARE_DRAFT" | "PUBLISH_LISTING" = "PREPARE_DRAFT"
+  ) {
     if (!auth.token || !auth.workspace) {
       return;
     }
@@ -580,7 +646,7 @@ export default function InventoryDetailPage() {
     const workspaceId = auth.workspace.id;
 
     if (!extension.connected) {
-      setExtensionActionStatus("Refresh the browser extension connection first.");
+      setActionError("Refresh the browser extension connection first.");
       return;
     }
 
@@ -596,7 +662,7 @@ export default function InventoryDetailPage() {
         body: JSON.stringify({
           inventoryItemId: params.id,
           platform,
-          action: "PREPARE_DRAFT"
+          action
         })
       });
         const payload = (await response.json().catch(() => ({ error: "Could not create extension handoff" }))) as {
@@ -623,10 +689,14 @@ export default function InventoryDetailPage() {
         const platformLabel =
           platform === "EBAY" ? "eBay" : platform === "DEPOP" ? "Depop" : platform === "POSHMARK" ? "Poshmark" : "Whatnot";
 
-        setExtensionActionStatus(`Queued ${platformLabel} draft prep in the browser extension.`);
+        setActionNotice(
+          action === "PUBLISH_LISTING"
+            ? `Queued ${platformLabel} publish in the browser extension.`
+            : `Queued ${platformLabel} draft prep in the browser extension.`
+        );
         await Promise.all([refresh(), extensionStatus.refresh()]);
       } catch (caughtError) {
-        setExtensionActionStatus(caughtError instanceof Error ? caughtError.message : "Could not send item to extension");
+        setActionError(caughtError instanceof Error ? caughtError.message : "Could not send item to extension");
       }
     });
   }
@@ -647,7 +717,7 @@ export default function InventoryDetailPage() {
     }
 
     if (!extension.installed) {
-      setExtensionActionStatus(`Install the Mollie browser extension to connect ${label}.`);
+      setActionError(`Install the Mollie browser extension to connect ${label}.`);
       return;
     }
 
@@ -662,13 +732,13 @@ export default function InventoryDetailPage() {
     void extension.refresh();
 
     if (!extensionSession.ok) {
-      setExtensionActionStatus(`Open Mollie in this browser so the extension can connect before checking ${label}.`);
+      setActionError(`Open Mollie in this browser so the extension can connect before checking ${label}.`);
       return;
     }
 
     const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
 
-    setExtensionActionStatus(`Checking ${label} in your browser...`);
+    setActionNotice(`Checking ${label} in your browser...`);
 
     try {
       const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${platform}/connect/start`, {
@@ -698,10 +768,10 @@ export default function InventoryDetailPage() {
         throw new Error(result.error ?? `Could not recheck ${label} login.`);
       }
 
-      setExtensionActionStatus(result.message ?? `${label} recheck submitted.`);
+      setActionNotice(result.message ?? `${label} recheck submitted.`);
       await Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
     } catch (caughtError) {
-      setExtensionActionStatus(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
+      setActionError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
     }
   }
 
@@ -739,7 +809,19 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "open_extension") {
+      const taskTabUrl = getExtensionTaskTabUrl(platform as Platform);
+
+      if (taskTabUrl) {
+        window.open(taskTabUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+
       void sendToExtension(platform as Platform);
+      return;
+    }
+
+    if (action === "publish_extension") {
+      void sendToExtension(platform as Platform, "PUBLISH_LISTING");
       return;
     }
 
@@ -749,6 +831,20 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "publish_api" || action === "retry") {
+      const capability = extensionStatus.data?.capabilitySummary.find((entry) => entry.platform === platform);
+      const latestTask = getLatestExtensionTask(platform as Platform);
+
+      if (
+        capability?.publishMode === "EXTENSION" &&
+        (platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT")
+      ) {
+        void sendToExtension(
+          platform as Platform,
+          latestTask?.action === "PUBLISH_LISTING" ? "PUBLISH_LISTING" : "PREPARE_DRAFT"
+        );
+        return;
+      }
+
       if (platform === "EBAY") {
         void runMutation(`/api/inventory/${data?.item.id}/publish/ebay`);
       } else if (platform === "DEPOP") {
@@ -781,7 +877,19 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "open_extension") {
+      const taskTabUrl = getExtensionTaskTabUrl(platform as Platform);
+
+      if (taskTabUrl) {
+        window.open(taskTabUrl, "_blank", "noopener,noreferrer");
+        return;
+      }
+
       void sendToExtension(platform as Platform);
+      return;
+    }
+
+    if (action === "publish_extension") {
+      void sendToExtension(platform as Platform, "PUBLISH_LISTING");
       return;
     }
 
@@ -800,10 +908,10 @@ export default function InventoryDetailPage() {
             Authorization: `Bearer ${auth.token}`
           },
           body: JSON.stringify({
-      title: itemForm.title.trim(),
-      brand: itemForm.brand.trim() || null,
-      category: itemForm.category.trim(),
-      condition: itemForm.condition.trim(),
+            title: itemForm.title.trim(),
+            brand: itemForm.brand.trim() || null,
+            category: itemForm.category.trim(),
+            condition: itemForm.condition.trim(),
             size: itemForm.size.trim() || null,
             color: itemForm.color.trim() || null,
             quantity: Math.max(1, Number(itemForm.quantity || 1)),
@@ -838,6 +946,52 @@ export default function InventoryDetailPage() {
                 ...(itemForm.depopPrice.trim() ? { DEPOP: Number(itemForm.depopPrice) } : {}),
                 ...(itemForm.poshmarkPrice.trim() ? { POSHMARK: Number(itemForm.poshmarkPrice) } : {}),
                 ...(itemForm.whatnotPrice.trim() ? { WHATNOT: Number(itemForm.whatnotPrice) } : {})
+              },
+              marketplaceOverrides: {
+                ...(typeof data?.item.attributesJson?.marketplaceOverrides === "object" &&
+                data?.item.attributesJson?.marketplaceOverrides
+                  ? (data.item.attributesJson.marketplaceOverrides as Record<string, unknown>)
+                  : {}),
+                ...(itemForm.ebayPrice.trim()
+                  ? {
+                      EBAY: {
+                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.EBAY as Record<string, unknown> | undefined) ?? {}),
+                        price: Number(itemForm.ebayPrice)
+                      }
+                    }
+                  : {}),
+                ...(itemForm.depopPrice.trim() || itemForm.depopTags.trim()
+                  ? {
+                      DEPOP: {
+                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.DEPOP as Record<string, unknown> | undefined) ?? {}),
+                        ...(itemForm.depopPrice.trim() ? { price: Number(itemForm.depopPrice) } : {}),
+                        attributes: {
+                          ...((((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.DEPOP as Record<string, unknown> | undefined)
+                            ?.attributes as Record<string, unknown> | undefined) ?? {}),
+                          tags: itemForm.depopTags
+                            .split(",")
+                            .map((entry) => entry.trim())
+                            .filter(Boolean)
+                        }
+                      }
+                    }
+                  : {}),
+                ...(itemForm.poshmarkPrice.trim()
+                  ? {
+                      POSHMARK: {
+                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.POSHMARK as Record<string, unknown> | undefined) ?? {}),
+                        price: Number(itemForm.poshmarkPrice)
+                      }
+                    }
+                  : {}),
+                ...(itemForm.whatnotPrice.trim()
+                  ? {
+                      WHATNOT: {
+                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.WHATNOT as Record<string, unknown> | undefined) ?? {}),
+                        price: Number(itemForm.whatnotPrice)
+                      }
+                    }
+                  : {})
               }
             }
           })
@@ -927,10 +1081,8 @@ export default function InventoryDetailPage() {
             onPublishLinked={(platforms) => void runMutation(`/api/inventory/${data.item.id}/publish-linked`, { platforms })}
             onSaveEbayDraft={saveEbayDraft}
             onSaveItemDetails={saveItemDetails}
-            extensionActionStatus={extensionActionStatus}
             extensionConnected={extension.connected}
             extensionInstalled={extension.installed}
-            extensionLoading={extension.loading}
             extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
             marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
             onMarketplaceAction={handleMarketplaceAction}
@@ -940,7 +1092,6 @@ export default function InventoryDetailPage() {
               void extension.refresh();
               void extensionStatus.refresh();
             }}
-            onSendToExtension={() => void sendToExtension()}
             itemForm={itemForm}
             selectedPlatforms={selectedPlatforms}
             onTogglePlatform={(platform, checked) =>

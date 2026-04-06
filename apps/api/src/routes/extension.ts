@@ -196,6 +196,110 @@ function buildUniversalListing(item: Awaited<ReturnType<typeof findInventoryItem
   };
 }
 
+async function syncPublishedPlatformListingFromExtensionTask(input: {
+  workspaceId: string;
+  task: Awaited<ReturnType<typeof findExtensionTaskForWorkspace>>;
+  result: Record<string, unknown> | null;
+}) {
+  if (!input.task?.inventoryItemId) {
+    return null;
+  }
+
+  const marketplaceAccount =
+    (input.task.marketplaceAccountId
+      ? await db.marketplaceAccount.findFirst({
+          where: {
+            id: input.task.marketplaceAccountId,
+            workspaceId: input.workspaceId,
+            status: "CONNECTED"
+          }
+        })
+      : null) ??
+    (await db.marketplaceAccount.findFirst({
+      where: {
+        workspaceId: input.workspaceId,
+        platform: input.task.platform,
+        status: "CONNECTED"
+      },
+      orderBy: { createdAt: "asc" }
+    }));
+
+  if (!marketplaceAccount) {
+    return null;
+  }
+
+  const externalListingId =
+    typeof input.result?.externalListingId === "string" && input.result.externalListingId.trim()
+      ? input.result.externalListingId.trim()
+      : null;
+  const externalUrl =
+    typeof input.result?.externalUrl === "string" && input.result.externalUrl.trim()
+      ? input.result.externalUrl.trim()
+      : null;
+  const publishedTitle =
+    typeof input.result?.publishedTitle === "string" && input.result.publishedTitle.trim()
+      ? input.result.publishedTitle.trim()
+      : null;
+  const publishedPrice = typeof input.result?.publishedPrice === "number" ? input.result.publishedPrice : null;
+
+  const existing =
+    (externalListingId
+      ? await db.platformListing.findFirst({
+          where: {
+            inventoryItem: {
+              workspaceId: input.workspaceId
+            },
+            platform: input.task.platform,
+            externalListingId
+          }
+        })
+      : null) ??
+    (await db.platformListing.findFirst({
+      where: {
+        inventoryItemId: input.task.inventoryItemId,
+        platform: input.task.platform
+      }
+    }));
+
+  const listing = existing
+    ? await db.platformListing.update({
+        where: { id: existing.id },
+        data: {
+          marketplaceAccountId: marketplaceAccount.id,
+          status: "PUBLISHED",
+          externalListingId: externalListingId ?? existing.externalListingId,
+          externalUrl: externalUrl ?? existing.externalUrl,
+          publishedTitle: publishedTitle ?? existing.publishedTitle,
+          publishedPrice: publishedPrice ?? existing.publishedPrice,
+          lastSyncAt: new Date(),
+          rawLastResponseJson: (input.result ?? undefined) as never
+        }
+      })
+    : await db.platformListing.create({
+        data: {
+          inventoryItemId: input.task.inventoryItemId,
+          marketplaceAccountId: marketplaceAccount.id,
+          platform: input.task.platform,
+          externalListingId,
+          status: "PUBLISHED",
+          publishedTitle,
+          publishedPrice,
+          externalUrl,
+          lastSyncAt: new Date(),
+          rawLastResponseJson: (input.result ?? undefined) as never
+        }
+      });
+
+  await db.inventoryItem.update({
+    where: { id: input.task.inventoryItemId },
+    data: {
+      status: "LISTED"
+    }
+  });
+
+  return listing;
+}
+
 function mapSourceListingStateToPlatformStatus(sourceState: "DRAFT" | "PUBLISHED" | "SOLD" | "ENDED") {
   switch (sourceState) {
     case "DRAFT":
@@ -254,6 +358,17 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
     const workspace = await context.requireWorkspace(auth);
     const body = extensionTaskCreateSchema.parse(request.body);
     const item = await findInventoryItemDetailForWorkspace(workspace.id, body.inventoryItemId);
+    const marketplaceAccount =
+      body.platform === "EBAY"
+        ? null
+        : await db.marketplaceAccount.findFirst({
+            where: {
+              workspaceId: workspace.id,
+              platform: body.platform,
+              status: "CONNECTED"
+            },
+            orderBy: { createdAt: "asc" }
+          });
 
     if (!item) {
       throw app.httpErrors.notFound("Inventory item not found");
@@ -262,6 +377,7 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
     const listing = buildUniversalListing(item, body.platform);
     const task = await createExtensionTaskForWorkspace(workspace.id, {
       inventoryItemId: item.id,
+      marketplaceAccountId: marketplaceAccount?.id ?? null,
       platform: body.platform,
       action: body.action,
       payload: {
@@ -326,6 +442,17 @@ export function registerExtensionRoutes(app: ApiApp, context: ApiRouteContext) {
         ? { completedAt: now }
         : {})
     });
+
+    const resultPayload =
+      body.result && body.result !== null ? (body.result as Record<string, unknown>) : null;
+
+    if (body.state === "SUCCEEDED" && task.action === "PUBLISH_LISTING") {
+      await syncPublishedPlatformListingFromExtensionTask({
+        workspaceId: workspace.id,
+        task,
+        result: resultPayload
+      });
+    }
 
     await recordAuditLog({
       workspaceId: workspace.id,

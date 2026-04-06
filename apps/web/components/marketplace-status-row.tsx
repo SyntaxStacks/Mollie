@@ -65,11 +65,13 @@ export function MarketplaceStatusRow({
             <Store size={13} />
             {state.executionMode}
           </span>
-          <span className="marketplace-meta-pill">
-            <Plug2 size={13} />
-            {state.extensionSummary}
-          </span>
           <StatusPill label={state.connectionSummary} tone={toneForConnection(state.connectionTone)} />
+          {state.extensionRequired ? (
+            <span className="marketplace-meta-pill">
+              <Plug2 size={13} />
+              {state.extensionSummary}
+            </span>
+          ) : null}
         </div>
         {state.blocker ? (
           <div className="marketplace-blocker-inline">
@@ -82,7 +84,6 @@ export function MarketplaceStatusRow({
             Missing: {state.missingRequirements.join(", ")}
           </div>
         ) : null}
-        <div className="muted marketplace-capability-copy">{state.capabilitySummary}</div>
       </div>
       <div className="marketplace-status-actions">
         {onSecondaryAction && state.secondaryActionLabel ? (

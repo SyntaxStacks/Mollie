@@ -148,12 +148,14 @@ Existing routes remain available where needed, but the shell and screen hierarch
   - right: universal listing form
 - Sections:
   - Snapshot
-  - Identification
   - Listing Workspace
-  - Marketplace Draft Controls
-  - Browser Extension
-  - History
+  - Advanced marketplace details
 - Sticky action rail on mobile and compact action header on larger screens
+
+The item detail page should reinforce one source of truth:
+- shared item fields are edited once
+- marketplace-specific fields appear as inline overrides
+- postings are generated from the inventory item rather than edited as separate disconnected listings
 
 ## Crosslist-style sell workflow
 The sell-side flow should mirror the operator pattern that works in Crosslist:

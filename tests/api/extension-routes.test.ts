@@ -236,6 +236,118 @@ test("extension task must be claimed before it becomes running", async () => {
   assert.equal(claimBody.task.runnerInstanceId, "runner-test-1234");
 });
 
+test("successful Depop extension publish creates a live platform listing", async () => {
+  const session = await createWorkspaceSession("extension-depop-publish");
+  const item = await db.inventoryItem.create({
+    data: {
+      workspaceId: session.workspaceId,
+      sku: `SKU-${crypto.randomUUID().slice(0, 8)}`,
+      title: "Vintage leather bag",
+      brand: "Coach",
+      category: "Bags",
+      condition: "Good used condition",
+      quantity: 1,
+      costBasis: 18,
+      priceRecommendation: 95,
+      attributesJson: {
+        description: "Structured vintage shoulder bag."
+      },
+      imageManifestJson: []
+    }
+  });
+
+  await db.imageAsset.create({
+    data: {
+      inventoryItemId: item.id,
+      url: "https://images.example.com/bag.jpg",
+      kind: "ORIGINAL",
+      position: 0
+    }
+  });
+
+  const depopAccount = await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "DEPOP",
+      displayName: "Main Depop",
+      secretRef: "db-encrypted://marketplace-account/depop",
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      status: "CONNECTED",
+      credentialMetadataJson: {
+        captureMode: "EXTENSION_BROWSER"
+      },
+      credentialPayloadJson: {
+        scheme: "db-encrypted-v1"
+      }
+    }
+  });
+
+  const handoffResponse = await app.inject({
+    method: "POST",
+    url: "/api/extension/tasks/handoff",
+    headers: session.headers,
+    payload: {
+      inventoryItemId: item.id,
+      platform: "DEPOP",
+      action: "PUBLISH_LISTING"
+    }
+  });
+
+  assert.equal(handoffResponse.statusCode, 200);
+  const handoffBody = handoffResponse.json() as { task: { id: string; marketplaceAccountId?: string | null } };
+  assert.ok(handoffBody.task.id);
+
+  const claimResponse = await app.inject({
+    method: "POST",
+    url: `/api/extension/tasks/${handoffBody.task.id}/claim`,
+    headers: session.headers,
+    payload: {
+      runnerInstanceId: "runner-depop-publish"
+    }
+  });
+
+  assert.equal(claimResponse.statusCode, 200);
+
+  const resultResponse = await app.inject({
+    method: "POST",
+    url: `/api/extension/tasks/${handoffBody.task.id}/result`,
+    headers: session.headers,
+    payload: {
+      state: "SUCCEEDED",
+      runnerInstanceId: "runner-depop-publish",
+      result: {
+        browserExecution: "DEPOP_PUBLISH_LISTING",
+        externalListingId: "depop-listing-123",
+        externalUrl: "https://www.depop.com/products/mollie-vintage-bag/",
+        publishedTitle: "Vintage leather bag",
+        publishedPrice: 95
+      }
+    }
+  });
+
+  assert.equal(resultResponse.statusCode, 200);
+
+  const listing = await db.platformListing.findFirst({
+    where: {
+      inventoryItemId: item.id,
+      platform: "DEPOP"
+    }
+  });
+
+  assert.ok(listing);
+  assert.equal(listing?.marketplaceAccountId, depopAccount.id);
+  assert.equal(listing?.status, "PUBLISHED");
+  assert.equal(listing?.externalListingId, "depop-listing-123");
+  assert.equal(listing?.externalUrl, "https://www.depop.com/products/mollie-vintage-bag/");
+
+  const refreshedItem = await db.inventoryItem.findUnique({
+    where: { id: item.id }
+  });
+
+  assert.equal(refreshedItem?.status, "LISTED");
+});
+
 test("extension eBay import creates inventory and links a published listing", async () => {
   const session = await createWorkspaceSession("extension-ebay-import");
 

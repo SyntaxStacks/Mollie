@@ -1,4 +1,34 @@
 (() => {
+type DepopExecutionMode = "draft" | "publish";
+
+type DepopExecutionResult =
+  | {
+      ok: true;
+      result: {
+        fieldsApplied: string[];
+        missingFields: string[];
+        tabUrl: string | null;
+        externalUrl?: string | null;
+        externalListingId?: string | null;
+        publishedTitle?: string | null;
+        publishedPrice?: number | null;
+      };
+    }
+  | {
+      ok: false;
+      needsInput?: boolean;
+      error?: string;
+      result?: {
+        fieldsApplied?: string[];
+        missingFields?: string[];
+        tabUrl?: string | null;
+        externalUrl?: string | null;
+        externalListingId?: string | null;
+        publishedTitle?: string | null;
+        publishedPrice?: number | null;
+      };
+    };
+
 function findFormField<T extends Element>(selectors: string[]) {
   for (const selector of selectors) {
     const element = document.querySelector(selector);
@@ -106,7 +136,123 @@ function resolveMarketplaceValue(listing: Record<string, unknown>, field: string
   return depopOverride?.[field] ?? listing[field];
 }
 
-async function applyDepopDraft(payload: { listing?: Record<string, unknown> | null }) {
+function fileNameFromUrl(url: string, index: number) {
+  try {
+    const { pathname } = new URL(url);
+    const lastSegment = pathname.split("/").at(-1)?.trim();
+    return lastSegment && lastSegment.includes(".") ? lastSegment : `mollie-photo-${index + 1}.jpg`;
+  } catch {
+    return `mollie-photo-${index + 1}.jpg`;
+  }
+}
+
+async function fetchPhotoAsFile(url: string, index: number) {
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    throw new Error(`Could not fetch photo ${index + 1}.`);
+  }
+
+  const blob = await response.blob();
+  return new File([blob], fileNameFromUrl(url, index), {
+    type: blob.type || "image/jpeg"
+  });
+}
+
+async function uploadListingPhotos(listing: Record<string, unknown>) {
+  const photos = Array.isArray(listing.photos)
+    ? listing.photos.filter(
+        (photo): photo is { url: string } =>
+          typeof photo === "object" && photo !== null && typeof (photo as { url?: unknown }).url === "string"
+      )
+    : [];
+
+  if (photos.length === 0) {
+    return {
+      uploaded: true,
+      reason: null as string | null
+    };
+  }
+
+  const input = findFormField<HTMLInputElement>([
+    "input[type='file'][accept*='image']",
+    "input[type='file'][multiple]",
+    "input[type='file']"
+  ]);
+
+  if (!input) {
+    return {
+      uploaded: false,
+      reason: "Depop did not expose a stable image uploader on this page."
+    };
+  }
+
+  try {
+    const files = await Promise.all(photos.map((photo, index) => fetchPhotoAsFile(photo.url, index)));
+    const transfer = new DataTransfer();
+
+    files.forEach((file) => transfer.items.add(file));
+    input.files = transfer.files;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await sleep(1_500);
+
+    return {
+      uploaded: true,
+      reason: null as string | null
+    };
+  } catch (error) {
+    return {
+      uploaded: false,
+      reason: error instanceof Error ? error.message : "Could not upload listing photos to Depop."
+    };
+  }
+}
+
+function findPublishButton() {
+  const candidates = Array.from(document.querySelectorAll<HTMLElement>("button, [role='button'], a")).filter((candidate) =>
+    isVisible(candidate)
+  );
+  const labels = ["list item", "publish", "post listing", "sell now"];
+
+  return (
+    candidates.find((candidate) => labels.includes(textContent(candidate).toLowerCase())) ??
+    candidates.find((candidate) => labels.some((label) => textContent(candidate).toLowerCase().includes(label)))
+  );
+}
+
+async function waitForPublishConfirmation() {
+  const startedAt = Date.now();
+  const timeoutMs = 12_000;
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const path = window.location.pathname;
+    const href = window.location.href;
+    const successCopy = Array.from(document.querySelectorAll<HTMLElement>("h1, h2, [role='alert'], div, span")).some((candidate) => {
+      const normalized = textContent(candidate).toLowerCase();
+      return isVisible(candidate) && /listed|published|live/i.test(normalized);
+    });
+
+    if (/\/products\/(?!create\b|drafts\b|edit\b)/i.test(path) || successCopy) {
+      const externalListingId = path.split("/").filter(Boolean).at(-1) ?? null;
+      return {
+        published: true,
+        externalUrl: href,
+        externalListingId
+      };
+    }
+
+    await sleep(400);
+  }
+
+  return {
+    published: false,
+    externalUrl: window.location.href,
+    externalListingId: null
+  };
+}
+
+async function applyDepopListing(payload: { listing?: Record<string, unknown> | null }, mode: DepopExecutionMode): Promise<DepopExecutionResult> {
   const listing = payload.listing ?? {};
   const fieldsApplied: string[] = [];
   const missingFields: string[] = [];
@@ -269,7 +415,13 @@ async function applyDepopDraft(payload: { listing?: Record<string, unknown> | nu
     }
   }
 
-  if (Array.isArray(listing.photos) && listing.photos.length > 0) {
+  const photoUpload = await uploadListingPhotos(listing);
+
+  if (photoUpload.uploaded) {
+    if (Array.isArray(listing.photos) && listing.photos.length > 0) {
+      fieldsApplied.push("photos");
+    }
+  } else {
     missingFields.push("photos");
   }
 
@@ -285,15 +437,73 @@ async function applyDepopDraft(payload: { listing?: Record<string, unknown> | nu
     };
   }
 
-  if (missingFields.length > 0) {
+  if (mode === "draft") {
+    if (missingFields.length > 0) {
+      return {
+        ok: false,
+        needsInput: true,
+        error: photoUpload.reason ?? "Depop needs a few more listing fields finished in the browser tab.",
+        result: {
+          fieldsApplied,
+          missingFields,
+          tabUrl: window.location.href
+        }
+      };
+    }
+
     return {
-      ok: false,
-      needsInput: true,
-      error: "Depop needs a few more listing fields finished in the browser tab.",
+      ok: true,
       result: {
         fieldsApplied,
         missingFields,
         tabUrl: window.location.href
+      }
+    };
+  }
+
+  if (missingFields.length > 0) {
+    return {
+      ok: false,
+      needsInput: true,
+      error: photoUpload.reason ?? "Depop still needs a few required fields before publish.",
+      result: {
+        fieldsApplied,
+        missingFields,
+        tabUrl: window.location.href
+      }
+    };
+  }
+
+  const publishButton = findPublishButton();
+
+  if (!publishButton) {
+    return {
+      ok: false,
+      needsInput: true,
+      error: "Depop is ready, but Mollie could not find a stable publish button on this page variant.",
+      result: {
+        fieldsApplied,
+        missingFields,
+        tabUrl: window.location.href
+      }
+    };
+  }
+
+  publishButton.click();
+  await sleep(600);
+
+  const confirmation = await waitForPublishConfirmation();
+
+  if (!confirmation.published) {
+    return {
+      ok: false,
+      needsInput: true,
+      error: "Depop opened the final publish step, but Mollie could not confirm that the listing went live.",
+      result: {
+        fieldsApplied,
+        missingFields,
+        tabUrl: confirmation.externalUrl ?? window.location.href,
+        externalUrl: confirmation.externalUrl
       }
     };
   }
@@ -303,18 +513,23 @@ async function applyDepopDraft(payload: { listing?: Record<string, unknown> | nu
     result: {
       fieldsApplied,
       missingFields,
-      tabUrl: window.location.href
+      tabUrl: confirmation.externalUrl ?? window.location.href,
+      externalUrl: confirmation.externalUrl,
+      externalListingId: confirmation.externalListingId,
+      publishedTitle: titleValue || null,
+      publishedPrice: price
     }
   };
 }
 
 chrome.runtime.onMessage.addListener((message: Record<string, unknown>, _sender: unknown, sendResponse: (response?: unknown) => void) => {
-  if (message.type !== "MOLLIE_EXTENSION_APPLY_DEPOP_DRAFT") {
+  if (message.type !== "MOLLIE_EXTENSION_APPLY_DEPOP_DRAFT" && message.type !== "MOLLIE_EXTENSION_PUBLISH_DEPOP_LISTING") {
     return false;
   }
 
   void (async () => {
-    sendResponse(await applyDepopDraft((message.payload ?? {}) as { listing?: Record<string, unknown> | null }));
+    const mode: DepopExecutionMode = message.type === "MOLLIE_EXTENSION_PUBLISH_DEPOP_LISTING" ? "publish" : "draft";
+    sendResponse(await applyDepopListing((message.payload ?? {}) as { listing?: Record<string, unknown> | null }, mode));
   })();
 
   return true;

@@ -51,6 +51,7 @@ export type InventoryItemFormState = {
   depopPrice: string;
   poshmarkPrice: string;
   whatnotPrice: string;
+  depopTags: string;
 };
 
 export type InventoryDetailRecord = {
@@ -86,8 +87,10 @@ export type InventoryDetailRecord = {
     platform: string;
     action: string;
     state: string;
+    needsInputReason?: string | null;
     lastErrorCode?: string | null;
     lastErrorMessage?: string | null;
+    resultJson?: Record<string, unknown> | null;
     createdAt?: string;
     updatedAt?: string;
   }>;
@@ -144,10 +147,7 @@ type InventoryDetailViewProps = {
   extensionInstalled: boolean;
   extensionConnected: boolean;
   extensionPendingCount: number;
-  extensionLoading: boolean;
   onRefreshExtension: () => void;
-  onSendToExtension: () => void;
-  extensionActionStatus: string | null;
   marketplaceAccounts: MarketplaceAccountLike[];
   extensionCapabilities: MarketplaceCapabilitySummary[];
   selectedPlatforms: Array<"EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT">;
@@ -284,10 +284,7 @@ export function InventoryDetailView({
   extensionInstalled,
   extensionConnected,
   extensionPendingCount,
-  extensionLoading,
   onRefreshExtension,
-  onSendToExtension,
-  extensionActionStatus,
   marketplaceAccounts,
   extensionCapabilities,
   selectedPlatforms,
@@ -447,8 +444,8 @@ export function InventoryDetailView({
                   <form className="stack" onSubmit={onSaveItemDetails}>
                   <div className="listing-form-section">
                     <div className="listing-form-section-heading">
-                      <h3>Core listing data</h3>
-                      <p className="muted">Scanner and source results can prefill this, but the operator stays in control.</p>
+                      <h3>Shared item details</h3>
+                      <p className="muted">These fields apply across marketplaces unless you add a platform-specific adjustment below.</p>
                     </div>
                     <div className="scan-import-grid">
                       <label className="label listing-ai-field">
@@ -483,12 +480,8 @@ export function InventoryDetailView({
                         <input className="field" value={itemForm.color} onChange={(event) => onFieldChange("color", event.target.value)} />
                       </label>
                       <label className="label">
-                        Tags
-                        <input className="field" placeholder="comma, separated, search terms" value={itemForm.tags} onChange={(event) => onFieldChange("tags", event.target.value)} />
-                      </label>
-                      <label className="label">
-                        Labels
-                        <input className="field" placeholder="draft, clearance, seasonal" value={itemForm.labels} onChange={(event) => onFieldChange("labels", event.target.value)} />
+                        Quantity
+                        <input className="field" min="1" step="1" type="number" value={itemForm.quantity} onChange={(event) => onFieldChange("quantity", event.target.value)} />
                       </label>
                     </div>
                     <label className="label listing-ai-field">
@@ -506,13 +499,13 @@ export function InventoryDetailView({
 
                   <div className="listing-form-section">
                     <div className="listing-form-section-heading">
-                      <h3>Pricing and shipping</h3>
-                      <p className="muted">Set one base price, then override per marketplace only where it matters.</p>
+                      <h3>Shipping</h3>
+                      <p className="muted">Complete shipping once here so eBay and other structured marketplaces are easier to post.</p>
                     </div>
                     <div className="scan-import-grid">
                       <label className="label listing-ai-field">
                         <span className="listing-ai-label-row">
-                          Suggested sell
+                          Base price
                           {aiStatus?.enabled ? (
                             <Button disabled={pending || aiPendingOperation === "price"} kind="ghost" onClick={() => onAiAssist("price")} type="button">
                               <Sparkles size={14} /> {aiPendingOperation === "price" ? "Thinking..." : "Suggest price"}
@@ -524,14 +517,6 @@ export function InventoryDetailView({
                       <label className="label">
                         Buy cost
                         <input className="field" min="0" step="0.01" type="number" value={itemForm.costBasis} onChange={(event) => onFieldChange("costBasis", event.target.value)} />
-                      </label>
-                      <label className="label">
-                        Resale min
-                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMin} onChange={(event) => onFieldChange("estimatedResaleMin", event.target.value)} />
-                      </label>
-                      <label className="label">
-                        Resale max
-                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMax} onChange={(event) => onFieldChange("estimatedResaleMax", event.target.value)} />
                       </label>
                       <label className="label">
                         Shipping weight
@@ -553,17 +538,41 @@ export function InventoryDetailView({
                           </select>
                         </div>
                       </label>
+                      <label className="label">
+                        Resale min
+                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMin} onChange={(event) => onFieldChange("estimatedResaleMin", event.target.value)} />
+                      </label>
+                      <label className="label">
+                        Resale max
+                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMax} onChange={(event) => onFieldChange("estimatedResaleMax", event.target.value)} />
+                      </label>
                     </div>
                     <label className="checkbox-row">
                       <input checked={itemForm.freeShipping} onChange={(event) => onFieldChange("freeShipping", event.target.checked)} type="checkbox" />
                       <span><Truck size={14} /> Offer free shipping where it helps conversion</span>
                     </label>
-                    <div className="listing-price-override-grid">
-                      <label className="label"><span>eBay price</span><input className="field" min="0" step="0.01" type="number" value={itemForm.ebayPrice} onChange={(event) => onFieldChange("ebayPrice", event.target.value)} /></label>
-                      <label className="label"><span>Depop price</span><input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} /></label>
-                      <label className="label"><span>Poshmark price</span><input className="field" min="0" step="0.01" type="number" value={itemForm.poshmarkPrice} onChange={(event) => onFieldChange("poshmarkPrice", event.target.value)} /></label>
-                      <label className="label"><span>Whatnot price</span><input className="field" min="0" step="0.01" type="number" value={itemForm.whatnotPrice} onChange={(event) => onFieldChange("whatnotPrice", event.target.value)} /></label>
+                  </div>
+
+                  <div className="listing-form-section">
+                    <div className="listing-form-section-heading">
+                      <h3>Platform-specific adjustments</h3>
+                      <p className="muted">Use overrides only when a marketplace needs something different from the shared item data.</p>
                     </div>
+                    <div className="listing-overrides-callout">
+                      <strong>Shared data stays in control.</strong>
+                      <span>Base title, description, category, condition, and price apply everywhere unless you override them here.</span>
+                    </div>
+                    <div className="listing-price-override-grid">
+                      <label className="label"><span>eBay price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.ebayPrice} onChange={(event) => onFieldChange("ebayPrice", event.target.value)} /></label>
+                      <label className="label"><span>Depop price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} /></label>
+                      <label className="label"><span>Poshmark price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.poshmarkPrice} onChange={(event) => onFieldChange("poshmarkPrice", event.target.value)} /></label>
+                      <label className="label"><span>Whatnot price override</span><input className="field" min="0" step="0.01" type="number" value={itemForm.whatnotPrice} onChange={(event) => onFieldChange("whatnotPrice", event.target.value)} /></label>
+                    </div>
+                    <label className="label">
+                      Depop discovery tags
+                      <input className="field" placeholder="vintage, streetwear, leather, y2k" value={itemForm.depopTags} onChange={(event) => onFieldChange("depopTags", event.target.value)} />
+                    </label>
+                    <div className="muted listing-override-note">Depop uses these tags only for Depop. The shared listing record stays unchanged for other marketplaces.</div>
                   </div>
 
                   <div className="listing-form-footer">
@@ -614,10 +623,10 @@ export function InventoryDetailView({
               </details>
 
               <details className="detail-advanced-panel">
-                <summary>Automation and extension details</summary>
+                <summary>Automation details</summary>
                 <div className="detail-advanced-content">
                   <div className="inventory-preflight-meta">
-                    <span>{extensionConnected ? "Extension connected" : extensionInstalled ? "Extension detected" : "Extension missing"}</span>
+                    <span>{extensionConnected ? "Browser automation connected" : extensionInstalled ? "Browser automation detected" : "Browser automation missing"}</span>
                     <span>Pending tasks: {extensionPendingCount}</span>
                   </div>
                   <div className="actions">

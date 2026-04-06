@@ -81,13 +81,17 @@ type ClaimResponse = {
   error?: string;
 };
 
-type BrowserDraftApplyResult =
+type BrowserMarketplaceApplyResult =
   | {
       ok: true;
       result: {
         fieldsApplied: string[];
         missingFields: string[];
         tabUrl: string | null;
+        externalUrl?: string | null;
+        externalListingId?: string | null;
+        publishedTitle?: string | null;
+        publishedPrice?: number | null;
       };
     }
   | {
@@ -98,6 +102,10 @@ type BrowserDraftApplyResult =
         fieldsApplied?: string[];
         missingFields?: string[];
         tabUrl?: string | null;
+        externalUrl?: string | null;
+        externalListingId?: string | null;
+        publishedTitle?: string | null;
+        publishedPrice?: number | null;
       };
     };
 
@@ -568,13 +576,13 @@ async function runEbayPrepareDraftTask(task: StoredExtensionTask, runnerInstance
     }
   });
 
-  const applied = (await sendTabMessageWithRetry<BrowserDraftApplyResult>(tab.id, {
-    type: "MOLLIE_EXTENSION_APPLY_EBAY_DRAFT",
-    payload: {
-      taskId: task.taskId,
-      listing
-    }
-  })) as BrowserDraftApplyResult;
+  const applied = (await sendTabMessageWithRetry<BrowserMarketplaceApplyResult>(tab.id, {
+      type: "MOLLIE_EXTENSION_APPLY_EBAY_DRAFT",
+      payload: {
+        taskId: task.taskId,
+        listing
+      }
+    })) as BrowserMarketplaceApplyResult;
 
   if (applied?.ok) {
     return {
@@ -619,11 +627,25 @@ async function runEbayPrepareDraftTask(task: StoredExtensionTask, runnerInstance
   };
 }
 
-async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanceId: string) {
+function depopFailureCode(error: string | null | undefined) {
+  const normalized = (error ?? "").toLowerCase();
+
+  if (normalized.includes("upload") || normalized.includes("photo")) {
+    return "UPLOAD_FAILED" as const;
+  }
+
+  if (normalized.includes("publish")) {
+    return "PUBLISH_FAILED" as const;
+  }
+
+  return "SELECTOR_FAILED" as const;
+}
+
+async function openDepopListingTab(task: StoredExtensionTask, runnerInstanceId: string, phaseLabel: string) {
   const listing = task.listing;
 
   await heartbeatMollieTask(task.taskId, runnerInstanceId, {
-    message: "Opening Depop draft flow",
+    message: phaseLabel,
     result: {
       phase: "open_tab"
     }
@@ -660,37 +682,51 @@ async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanc
     };
   }
 
+  return {
+      listing,
+      tabId: tab.id,
+      readyTab
+    };
+  }
+
+async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanceId: string) {
+  const opened = await openDepopListingTab(task, runnerInstanceId, "Opening Depop draft flow");
+
+  if ("state" in opened) {
+    return opened;
+  }
+
   await heartbeatMollieTask(task.taskId, runnerInstanceId, {
     message: "Applying listing fields on Depop",
     result: {
       phase: "fill_form",
-      tabId: tab.id,
-      tabUrl: readyTab.url ?? null
-    }
-  });
+        tabId: opened.tabId,
+        tabUrl: opened.readyTab.url ?? null
+      }
+    });
 
-  let applied: BrowserDraftApplyResult;
+  let applied: BrowserMarketplaceApplyResult;
 
   try {
-    applied = (await sendTabMessageWithRetry<BrowserDraftApplyResult>(tab.id, {
-      type: "MOLLIE_EXTENSION_APPLY_DEPOP_DRAFT",
-      payload: {
-        taskId: task.taskId,
-        listing
+      applied = (await sendTabMessageWithRetry<BrowserMarketplaceApplyResult>(opened.tabId, {
+        type: "MOLLIE_EXTENSION_APPLY_DEPOP_DRAFT",
+        payload: {
+          taskId: task.taskId,
+        listing: opened.listing
       }
-    })) as BrowserDraftApplyResult;
+    })) as BrowserMarketplaceApplyResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not talk to the Depop browser tab.";
     return {
       state: "FAILED" as const,
-      lastErrorCode: "SELECTOR_FAILED" as const,
+      lastErrorCode: depopFailureCode(message),
       lastErrorMessage: message,
       result: {
-        browserExecution: "DEPOP_PREPARE_DRAFT",
-        tabId: tab.id,
-        tabUrl: readyTab.url ?? null,
-        fieldsApplied: [],
-        missingFields: []
+          browserExecution: "DEPOP_PREPARE_DRAFT",
+          tabId: opened.tabId,
+          tabUrl: opened.readyTab.url ?? null,
+          fieldsApplied: [],
+          missingFields: []
       }
     };
   }
@@ -698,12 +734,12 @@ async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanc
   if (applied?.ok) {
     return {
       state: "SUCCEEDED" as const,
-      result: {
-        browserExecution: "DEPOP_PREPARE_DRAFT",
-        tabId: tab.id,
-        tabUrl: applied.result.tabUrl,
-        fieldsApplied: applied.result.fieldsApplied,
-        missingFields: applied.result.missingFields
+        result: {
+          browserExecution: "DEPOP_PREPARE_DRAFT",
+          tabId: opened.tabId,
+          tabUrl: applied.result.tabUrl,
+          fieldsApplied: applied.result.fieldsApplied,
+          missingFields: applied.result.missingFields
       }
     };
   }
@@ -714,10 +750,101 @@ async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanc
       lastErrorCode: "MISSING_REQUIRED_FIELD" as const,
       lastErrorMessage: applied.error ?? "Depop needs a little more input before the draft is ready.",
       needsInputReason: applied.error ?? "Finish the Depop draft in the current browser tab.",
+        result: {
+          browserExecution: "DEPOP_PREPARE_DRAFT",
+          tabId: opened.tabId,
+          tabUrl: applied.result?.tabUrl ?? opened.readyTab.url ?? null,
+          fieldsApplied: applied.result?.fieldsApplied ?? [],
+          missingFields: applied.result?.missingFields ?? []
+      }
+    };
+  }
+
+  return {
+    state: "FAILED" as const,
+    lastErrorCode: depopFailureCode(applied?.error),
+    lastErrorMessage: applied?.error ?? "Could not apply the Depop draft fields in the browser.",
+    result: {
+      browserExecution: "DEPOP_PREPARE_DRAFT",
+      tabId: opened.tabId,
+      tabUrl: opened.readyTab.url ?? null,
+      fieldsApplied: applied?.result?.fieldsApplied ?? [],
+      missingFields: applied?.result?.missingFields ?? []
+    }
+  };
+}
+
+async function runDepopPublishListingTask(task: StoredExtensionTask, runnerInstanceId: string) {
+  const opened = await openDepopListingTab(task, runnerInstanceId, "Opening Depop publish flow");
+
+  if ("state" in opened) {
+    return opened;
+  }
+
+  await heartbeatMollieTask(task.taskId, runnerInstanceId, {
+    message: "Publishing the Depop listing in your browser",
+    result: {
+      phase: "publish_listing",
+        tabId: opened.tabId,
+        tabUrl: opened.readyTab.url ?? null
+      }
+    });
+
+  let applied: BrowserMarketplaceApplyResult;
+
+  try {
+      applied = (await sendTabMessageWithRetry<BrowserMarketplaceApplyResult>(opened.tabId, {
+        type: "MOLLIE_EXTENSION_PUBLISH_DEPOP_LISTING",
+        payload: {
+          taskId: task.taskId,
+        listing: opened.listing
+      }
+    })) as BrowserMarketplaceApplyResult;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not talk to the Depop browser tab.";
+    return {
+      state: "FAILED" as const,
+      lastErrorCode: depopFailureCode(message),
+      lastErrorMessage: message,
       result: {
-        browserExecution: "DEPOP_PREPARE_DRAFT",
-        tabId: tab.id,
-        tabUrl: applied.result?.tabUrl ?? readyTab.url ?? null,
+          browserExecution: "DEPOP_PUBLISH_LISTING",
+          tabId: opened.tabId,
+          tabUrl: opened.readyTab.url ?? null,
+          fieldsApplied: [],
+          missingFields: []
+      }
+    };
+  }
+
+  if (applied?.ok) {
+    return {
+      state: "SUCCEEDED" as const,
+        result: {
+          browserExecution: "DEPOP_PUBLISH_LISTING",
+          tabId: opened.tabId,
+          tabUrl: applied.result.tabUrl,
+          externalUrl: applied.result.externalUrl ?? null,
+        externalListingId: applied.result.externalListingId ?? null,
+        publishedTitle: applied.result.publishedTitle ?? null,
+        publishedPrice: applied.result.publishedPrice ?? null,
+        fieldsApplied: applied.result.fieldsApplied,
+        missingFields: applied.result.missingFields
+      }
+    };
+  }
+
+  if (applied?.needsInput) {
+    return {
+      state: "NEEDS_INPUT" as const,
+      lastErrorCode:
+        (applied.result?.missingFields?.length ?? 0) > 0 ? ("MISSING_REQUIRED_FIELD" as const) : ("PUBLISH_FAILED" as const),
+      lastErrorMessage: applied.error ?? "Depop needs a little more input before the listing can go live.",
+      needsInputReason: applied.error ?? "Finish the Depop publish flow in the current browser tab.",
+        result: {
+          browserExecution: "DEPOP_PUBLISH_LISTING",
+          tabId: opened.tabId,
+          tabUrl: applied.result?.tabUrl ?? opened.readyTab.url ?? null,
+          externalUrl: applied.result?.externalUrl ?? null,
         fieldsApplied: applied.result?.fieldsApplied ?? [],
         missingFields: applied.result?.missingFields ?? []
       }
@@ -726,12 +853,13 @@ async function runDepopPrepareDraftTask(task: StoredExtensionTask, runnerInstanc
 
   return {
     state: "FAILED" as const,
-    lastErrorCode: "SELECTOR_FAILED" as const,
-    lastErrorMessage: applied?.error ?? "Could not apply the Depop draft fields in the browser.",
+    lastErrorCode: depopFailureCode(applied?.error),
+    lastErrorMessage: applied?.error ?? "Could not publish the Depop listing in the browser.",
     result: {
-      browserExecution: "DEPOP_PREPARE_DRAFT",
-      tabId: tab.id,
-      tabUrl: readyTab.url ?? null,
+      browserExecution: "DEPOP_PUBLISH_LISTING",
+      tabId: opened.tabId,
+      tabUrl: applied?.result?.tabUrl ?? opened.readyTab.url ?? null,
+      externalUrl: applied?.result?.externalUrl ?? null,
       fieldsApplied: applied?.result?.fieldsApplied ?? [],
       missingFields: applied?.result?.missingFields ?? []
     }
@@ -745,6 +873,10 @@ async function runTask(task: StoredExtensionTask, runnerInstanceId: string) {
 
   if (task.platform === "DEPOP" && task.action === "PREPARE_DRAFT") {
     return runDepopPrepareDraftTask(task, runnerInstanceId);
+  }
+
+  if (task.platform === "DEPOP" && task.action === "PUBLISH_LISTING") {
+    return runDepopPublishListingTask(task, runnerInstanceId);
   }
 
   return {
@@ -884,14 +1016,14 @@ async function pumpTaskQueue() {
     }
 
     await updateStoredTask(nextTask.taskId, (task) =>
-      execution.state === "SUCCEEDED"
-        ? null
-        : {
-            ...task,
-            localState: execution.state,
-            runnerInstanceId: runnerInstanceId,
-            lastErrorCode: execution.lastErrorCode ?? null,
-            lastErrorMessage: execution.lastErrorMessage ?? null,
+        execution.state === "SUCCEEDED"
+          ? null
+          : {
+              ...task,
+              localState: execution.state as StoredTaskState,
+              runnerInstanceId: runnerInstanceId,
+              lastErrorCode: execution.lastErrorCode ?? null,
+              lastErrorMessage: execution.lastErrorMessage ?? null,
             updatedAt: nowIso(),
             lastHeartbeatAt: nowIso()
           }
