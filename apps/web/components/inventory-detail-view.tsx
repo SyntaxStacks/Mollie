@@ -52,6 +52,10 @@ export type InventoryItemFormState = {
   poshmarkPrice: string;
   whatnotPrice: string;
   depopTags: string;
+  depopDepartment: string;
+  depopProductType: string;
+  depopCondition: string;
+  depopShippingMode: string;
 };
 
 export type InventoryDetailRecord = {
@@ -171,8 +175,44 @@ const platformLabels = {
   WHATNOT: "Whatnot"
 } as const;
 
+const depopDepartmentOptions = [
+  "Women",
+  "Men",
+  "Kids",
+  "Home",
+  "Other"
+] as const;
+
+const depopProductTypeOptions = [
+  "Beauty & Personal Care",
+  "Jackets",
+  "Coats",
+  "Tops",
+  "Shoes",
+  "Bags",
+  "Accessories",
+  "Home Decor",
+  "Other"
+] as const;
+
+const depopConditionOptions = [
+  "Brand new",
+  "Like new",
+  "Good",
+  "Fair"
+] as const;
+
+const depopShippingModeOptions = [
+  { value: "DEPOP_SHIPPING", label: "Depop shipping" },
+  { value: "OWN_SHIPPING", label: "My own shipping" }
+] as const;
+
 function titleCaseRequirement(requirement: string) {
   return requirement.slice(0, 1).toUpperCase() + requirement.slice(1);
+}
+
+function cx(...values: Array<string | false | null | undefined>) {
+  return values.filter(Boolean).join(" ");
 }
 
 function ContinueOnMobileModal({ open, url, title, onClose }: { open: boolean; url: string; title: string; onClose: () => void }) {
@@ -338,6 +378,50 @@ export function InventoryDetailView({
     required: state.missingRequirements,
     recommended: state.recommendedRequirements
   }));
+  const requirementToPlatforms = useMemo(() => {
+    const next = new Map<string, string[]>();
+
+    selectedRequirementCards.forEach((card) => {
+      card.required.forEach((requirement) => {
+        const existing = next.get(requirement) ?? [];
+        if (!existing.includes(card.label)) {
+          existing.push(card.label);
+        }
+        next.set(requirement, existing);
+      });
+    });
+
+    return next;
+  }, [selectedRequirementCards]);
+  const selectedMissingRequirementSet = useMemo(
+    () => new Set(Array.from(requirementToPlatforms.keys())),
+    [requirementToPlatforms]
+  );
+
+  function fieldIsMissing(...requirements: string[]) {
+    return requirements.some((requirement) => selectedMissingRequirementSet.has(requirement));
+  }
+
+  function requirementPlatforms(requirements: string[]) {
+    return Array.from(
+      new Set(
+        requirements.flatMap((requirement) => requirementToPlatforms.get(requirement) ?? [])
+      )
+    );
+  }
+
+  function renderRequirementNote(...requirements: string[]) {
+    const platforms = requirementPlatforms(requirements);
+    if (platforms.length === 0) {
+      return null;
+    }
+
+    return (
+      <div className="listing-field-requirement-note">
+        Needed for {platforms.join(", ")}
+      </div>
+    );
+  }
 
   const historyRows = useMemo(() => {
     const rows: Array<{ id: string; label: string; detail: string; meta: string }> = [];
@@ -466,13 +550,14 @@ export function InventoryDetailView({
                       </div>
                     )}
                   </div>
-                  <div className="listing-form-section">
+                  <div className={cx("listing-form-section", fieldIsMissing("photos") && "listing-form-section-missing")}>
                     <div className="listing-form-section-heading">
                       <h3>Photos</h3>
                       <p className="muted">Add photos here once, then reuse them across marketplace targets.</p>
+                      {renderRequirementNote("photos")}
                     </div>
                     <div className="scan-import-grid">
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("photos") && "label-missing")}>
                         Upload image
                         <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
                       </label>
@@ -508,13 +593,24 @@ export function InventoryDetailView({
                   </div>
 
                   <form className="stack" onSubmit={onSaveItemDetails}>
-                  <div className="listing-form-section">
+                  <div
+                    className={cx(
+                      "listing-form-section",
+                      (fieldIsMissing("title") ||
+                        fieldIsMissing("description", "show notes") ||
+                        fieldIsMissing("category") ||
+                        fieldIsMissing("condition") ||
+                        fieldIsMissing("size") ||
+                        fieldIsMissing("brand")) &&
+                        "listing-form-section-missing"
+                    )}
+                  >
                     <div className="listing-form-section-heading">
                       <h3>Shared item details</h3>
                       <p className="muted">These fields apply across marketplaces unless you add a platform-specific adjustment below.</p>
                     </div>
                     <div className="scan-import-grid">
-                      <label className="label listing-ai-field">
+                      <label className={cx("label", "listing-ai-field", fieldIsMissing("title") && "label-missing")}>
                         <span className="listing-ai-label-row">
                           Title
                           {aiStatus?.enabled ? (
@@ -523,23 +619,28 @@ export function InventoryDetailView({
                             </Button>
                           ) : null}
                         </span>
-                        <input className="field" required value={itemForm.title} onChange={(event) => onFieldChange("title", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("title") && "field-missing")} required value={itemForm.title} onChange={(event) => onFieldChange("title", event.target.value)} />
+                        {renderRequirementNote("title")}
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("brand") && "label-missing")}>
                         Brand
-                        <input className="field" value={itemForm.brand} onChange={(event) => onFieldChange("brand", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("brand") && "field-missing")} value={itemForm.brand} onChange={(event) => onFieldChange("brand", event.target.value)} />
+                        {renderRequirementNote("brand")}
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("category") && "label-missing")}>
                         Category
-                        <input className="field" required value={itemForm.category} onChange={(event) => onFieldChange("category", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("category") && "field-missing")} required value={itemForm.category} onChange={(event) => onFieldChange("category", event.target.value)} />
+                        {renderRequirementNote("category")}
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("condition") && "label-missing")}>
                         Condition
-                        <input className="field" required value={itemForm.condition} onChange={(event) => onFieldChange("condition", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("condition") && "field-missing")} required value={itemForm.condition} onChange={(event) => onFieldChange("condition", event.target.value)} />
+                        {renderRequirementNote("condition")}
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("size") && "label-missing")}>
                         Size
-                        <input className="field" value={itemForm.size} onChange={(event) => onFieldChange("size", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("size") && "field-missing")} value={itemForm.size} onChange={(event) => onFieldChange("size", event.target.value)} />
+                        {renderRequirementNote("size")}
                       </label>
                       <label className="label">
                         Color
@@ -550,7 +651,7 @@ export function InventoryDetailView({
                         <input className="field" min="1" step="1" type="number" value={itemForm.quantity} onChange={(event) => onFieldChange("quantity", event.target.value)} />
                       </label>
                     </div>
-                    <label className="label listing-ai-field">
+                    <label className={cx("label", "listing-ai-field", fieldIsMissing("description", "show notes") && "label-missing")}>
                       <span className="listing-ai-label-row">
                         Description
                         {aiStatus?.enabled ? (
@@ -559,17 +660,24 @@ export function InventoryDetailView({
                           </Button>
                         ) : null}
                       </span>
-                      <textarea className="field textarea-field" value={itemForm.description} onChange={(event) => onFieldChange("description", event.target.value)} />
+                      <textarea className={cx("field", "textarea-field", fieldIsMissing("description", "show notes") && "field-missing")} value={itemForm.description} onChange={(event) => onFieldChange("description", event.target.value)} />
+                      {renderRequirementNote("description", "show notes")}
                     </label>
                   </div>
 
-                  <div className="listing-form-section">
+                  <div
+                    className={cx(
+                      "listing-form-section",
+                      (fieldIsMissing("price") || fieldIsMissing("shipping weight") || fieldIsMissing("package size")) &&
+                        "listing-form-section-missing"
+                    )}
+                  >
                     <div className="listing-form-section-heading">
                       <h3>Shipping</h3>
                       <p className="muted">Complete shipping once here so eBay and other structured marketplaces are easier to post.</p>
                     </div>
                     <div className="scan-import-grid">
-                      <label className="label listing-ai-field">
+                      <label className={cx("label", "listing-ai-field", fieldIsMissing("price") && "label-missing")}>
                         <span className="listing-ai-label-row">
                           Base price
                           {aiStatus?.enabled ? (
@@ -578,31 +686,34 @@ export function InventoryDetailView({
                             </Button>
                           ) : null}
                         </span>
-                        <input className="field" min="0" step="0.01" type="number" value={itemForm.priceRecommendation} onChange={(event) => onFieldChange("priceRecommendation", event.target.value)} />
+                        <input className={cx("field", fieldIsMissing("price") && "field-missing")} min="0" step="0.01" type="number" value={itemForm.priceRecommendation} onChange={(event) => onFieldChange("priceRecommendation", event.target.value)} />
+                        {renderRequirementNote("price")}
                       </label>
                       <label className="label">
                         Buy cost
                         <input className="field" min="0" step="0.01" type="number" value={itemForm.costBasis} onChange={(event) => onFieldChange("costBasis", event.target.value)} />
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("shipping weight") && "label-missing")}>
                         Shipping weight
                         <div className="scan-field-row">
-                          <input className="field" min="0" step="0.01" type="number" value={itemForm.shippingWeightValue} onChange={(event) => onFieldChange("shippingWeightValue", event.target.value)} />
+                          <input className={cx("field", fieldIsMissing("shipping weight") && "field-missing")} min="0" step="0.01" type="number" value={itemForm.shippingWeightValue} onChange={(event) => onFieldChange("shippingWeightValue", event.target.value)} />
                           <select className="field" value={itemForm.shippingWeightUnit} onChange={(event) => onFieldChange("shippingWeightUnit", event.target.value)}>
                             <option value="oz">oz</option><option value="lb">lb</option><option value="g">g</option><option value="kg">kg</option>
                           </select>
                         </div>
+                        {renderRequirementNote("shipping weight")}
                       </label>
-                      <label className="label">
+                      <label className={cx("label", fieldIsMissing("package size") && "label-missing")}>
                         Dimensions
                         <div className="listing-dimension-grid">
-                          <input className="field" placeholder="L" type="number" value={itemForm.shippingLength} onChange={(event) => onFieldChange("shippingLength", event.target.value)} />
-                          <input className="field" placeholder="W" type="number" value={itemForm.shippingWidth} onChange={(event) => onFieldChange("shippingWidth", event.target.value)} />
-                          <input className="field" placeholder="H" type="number" value={itemForm.shippingHeight} onChange={(event) => onFieldChange("shippingHeight", event.target.value)} />
+                          <input className={cx("field", fieldIsMissing("package size") && "field-missing")} placeholder="L" type="number" value={itemForm.shippingLength} onChange={(event) => onFieldChange("shippingLength", event.target.value)} />
+                          <input className={cx("field", fieldIsMissing("package size") && "field-missing")} placeholder="W" type="number" value={itemForm.shippingWidth} onChange={(event) => onFieldChange("shippingWidth", event.target.value)} />
+                          <input className={cx("field", fieldIsMissing("package size") && "field-missing")} placeholder="H" type="number" value={itemForm.shippingHeight} onChange={(event) => onFieldChange("shippingHeight", event.target.value)} />
                           <select className="field" value={itemForm.shippingDimensionUnit} onChange={(event) => onFieldChange("shippingDimensionUnit", event.target.value)}>
                             <option value="in">in</option><option value="cm">cm</option>
                           </select>
                         </div>
+                        {renderRequirementNote("package size")}
                       </label>
                       <label className="label">
                         Resale min
@@ -619,7 +730,7 @@ export function InventoryDetailView({
                     </label>
                   </div>
 
-                  <div className="listing-form-section">
+                  <div className={cx("listing-form-section", fieldIsMissing("eBay category mapping") && "listing-form-section-missing")}>
                     <div className="listing-form-section-heading">
                       <h3>Platform-specific adjustments</h3>
                       <p className="muted">Base item data stays in charge. These cards only appear for the marketplaces you selected and only change that marketplace.</p>
@@ -661,14 +772,54 @@ export function InventoryDetailView({
                                   eBay price override
                                   <input className="field" min="0" step="0.01" type="number" value={itemForm.ebayPrice} onChange={(event) => onFieldChange("ebayPrice", event.target.value)} />
                                 </label>
-                                <div className="muted listing-override-note">
+                                <div className={cx("muted", "listing-override-note", fieldIsMissing("eBay category mapping") && "listing-override-note-missing")}>
                                   eBay category mapping and store category stay in <strong>Advanced eBay settings</strong> below.
                                 </div>
+                                {renderRequirementNote("eBay category mapping")}
                               </div>
                             ) : null}
 
                             {state.platform === "DEPOP" ? (
                               <div className="listing-platform-adjustment-fields">
+                                <label className="label">
+                                  Depop department
+                                  <select className={cx("field", fieldIsMissing("Depop department") && "field-missing")} value={itemForm.depopDepartment} onChange={(event) => onFieldChange("depopDepartment", event.target.value)}>
+                                    <option value="">Select department</option>
+                                    {depopDepartmentOptions.map((option) => (
+                                      <option key={option} value={option}>{option}</option>
+                                    ))}
+                                  </select>
+                                  {renderRequirementNote("Depop department")}
+                                </label>
+                                <label className="label">
+                                  Depop product type
+                                  <select className={cx("field", fieldIsMissing("Depop product type") && "field-missing")} value={itemForm.depopProductType} onChange={(event) => onFieldChange("depopProductType", event.target.value)}>
+                                    <option value="">Select product type</option>
+                                    {depopProductTypeOptions.map((option) => (
+                                      <option key={option} value={option}>{option}</option>
+                                    ))}
+                                  </select>
+                                  {renderRequirementNote("Depop product type")}
+                                </label>
+                                <label className="label">
+                                  Depop condition
+                                  <select className="field" value={itemForm.depopCondition} onChange={(event) => onFieldChange("depopCondition", event.target.value)}>
+                                    <option value="">Use shared condition</option>
+                                    {depopConditionOptions.map((option) => (
+                                      <option key={option} value={option}>{option}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label className="label">
+                                  Depop shipping
+                                  <select className={cx("field", fieldIsMissing("Depop shipping") && "field-missing")} value={itemForm.depopShippingMode} onChange={(event) => onFieldChange("depopShippingMode", event.target.value)}>
+                                    <option value="">Select shipping</option>
+                                    {depopShippingModeOptions.map((option) => (
+                                      <option key={option.value} value={option.value}>{option.label}</option>
+                                    ))}
+                                  </select>
+                                  {renderRequirementNote("Depop shipping")}
+                                </label>
                                 <label className="label">
                                   Depop price override
                                   <input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} />
@@ -722,95 +873,99 @@ export function InventoryDetailView({
                       <Button disabled={pending || postReadyPlatforms.length === 0} kind="secondary" onClick={() => onPublishLinked(postReadyPlatforms)} type="button">Post selected</Button>
                     </div>
                   </div>
+
+                  <div className="listing-form-section">
+                    <div className="listing-form-section-heading">
+                      <h3>Advanced</h3>
+                      <p className="muted">Less-used controls and debug detail stay here so the main workflow stays focused.</p>
+                    </div>
+                    <div className="detail-advanced-stack">
+                      <details className={cx("detail-advanced-panel", fieldIsMissing("eBay category mapping") && "detail-advanced-panel-missing")}>
+                        <summary>Advanced eBay settings</summary>
+                        <div className="detail-advanced-content">
+                          {!ebayDraft ? (
+                            <div className="muted">Generate an eBay draft first, then adjust advanced eBay-only fields here if needed.</div>
+                          ) : (
+                            <form className="stack" onSubmit={onSaveEbayDraft}>
+                              <label className="label">eBay title<input className="field" name="generatedTitle" required value={ebayDraftForm.generatedTitle} onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)} /></label>
+                              <label className="label">eBay price<input className="field" min="0" name="generatedPrice" required step="0.01" type="number" value={ebayDraftForm.generatedPrice} onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)} /></label>
+                              <label className="label">eBay category ID<input className="field" name="ebayCategoryId" placeholder="15724" value={ebayDraftForm.ebayCategoryId} onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)} /></label>
+                              <label className="label">eBay store category ID<input className="field" name="ebayStoreCategoryId" placeholder="Optional" value={ebayDraftForm.ebayStoreCategoryId} onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)} /></label>
+                              <div className="actions">
+                                <Button disabled={pending} type="submit">Save eBay settings</Button>
+                                {ebayDraft.reviewStatus !== "APPROVED" ? <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">Approve eBay draft</Button> : null}
+                              </div>
+                            </form>
+                          )}
+                          {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
+                          {ebayPreflight ? (
+                            <div className="stack">
+                              <OperatorHintCard hint={ebayPreflight.hint} />
+                              <div className="notice">{ebayPreflight.summary}</div>
+                            </div>
+                          ) : null}
+                        </div>
+                      </details>
+
+                      <details className="detail-advanced-panel">
+                        <summary>Automation details</summary>
+                        <div className="detail-advanced-content">
+                          <div className="inventory-preflight-meta">
+                            <span>{extensionConnected ? "Browser automation connected" : extensionInstalled ? "Browser automation detected" : "Browser automation missing"}</span>
+                            <span>Pending tasks: {extensionPendingCount}</span>
+                          </div>
+                          <div className="actions">
+                            <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Refresh row state</Button>
+                          </div>
+                          <div className="activity-list">
+                            {recentExtensionTasks.length === 0 ? <div className="muted">No recent browser-side work for this item.</div> : null}
+                            {recentExtensionTasks.map((task) => (
+                              <div className="activity-row" key={task.id}>
+                                <div>
+                                  <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
+                                  <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
+                                </div>
+                                <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </details>
+
+                      <details className="detail-advanced-panel">
+                        <summary>History and item tools</summary>
+                        <div className="detail-advanced-content stack">
+                          {continuityNotice ? (
+                            <div className="muted detail-advanced-note">
+                              {continuityNotice}
+                              {lastSyncedLabel ? ` Last checked ${lastSyncedLabel}.` : ""}
+                            </div>
+                          ) : null}
+                          <div className="actions">
+                            <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)} type="button">
+                              <Smartphone size={16} /> Continue on mobile
+                            </Button>
+                            <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)} type="button">Delete item</Button>
+                          </div>
+                          <div className="activity-list">
+                            {historyRows.length === 0 ? <div className="muted">No history yet. Draft, listing, and sale activity will show up here.</div> : null}
+                            {historyRows.map((row) => (
+                              <div className="activity-row" key={row.id}>
+                                <div>
+                                  <strong>{row.label}</strong>
+                                  <div className="muted">{row.detail}</div>
+                                </div>
+                                <div className="muted">{row.meta}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
                   </form>
                 </div>
               </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard eyebrow="Advanced" title="Less-used controls and debug detail">
-            <div className="detail-advanced-stack">
-              <details className="detail-advanced-panel">
-                <summary>Advanced eBay settings</summary>
-                <div className="detail-advanced-content">
-                  {!ebayDraft ? (
-                    <div className="muted">Generate an eBay draft first, then adjust advanced eBay-only fields here if needed.</div>
-                  ) : (
-                    <form className="stack" onSubmit={onSaveEbayDraft}>
-                      <label className="label">eBay title<input className="field" name="generatedTitle" required value={ebayDraftForm.generatedTitle} onChange={(event) => onEbayDraftFormChange("generatedTitle", event.target.value)} /></label>
-                      <label className="label">eBay price<input className="field" min="0" name="generatedPrice" required step="0.01" type="number" value={ebayDraftForm.generatedPrice} onChange={(event) => onEbayDraftFormChange("generatedPrice", event.target.value)} /></label>
-                      <label className="label">eBay category ID<input className="field" name="ebayCategoryId" placeholder="15724" value={ebayDraftForm.ebayCategoryId} onChange={(event) => onEbayDraftFormChange("ebayCategoryId", event.target.value)} /></label>
-                      <label className="label">eBay store category ID<input className="field" name="ebayStoreCategoryId" placeholder="Optional" value={ebayDraftForm.ebayStoreCategoryId} onChange={(event) => onEbayDraftFormChange("ebayStoreCategoryId", event.target.value)} /></label>
-                      <div className="actions">
-                        <Button disabled={pending} type="submit">Save eBay settings</Button>
-                        {ebayDraft.reviewStatus !== "APPROVED" ? <Button disabled={pending} kind="secondary" onClick={onApproveEbayDraft} type="button">Approve eBay draft</Button> : null}
-                      </div>
-                    </form>
-                  )}
-                  {ebayPreflightError ? <div className="notice">{ebayPreflightError}</div> : null}
-                  {ebayPreflight ? (
-                    <div className="stack">
-                      <OperatorHintCard hint={ebayPreflight.hint} />
-                      <div className="notice">{ebayPreflight.summary}</div>
-                    </div>
-                  ) : null}
-                </div>
-              </details>
-
-              <details className="detail-advanced-panel">
-                <summary>Automation details</summary>
-                <div className="detail-advanced-content">
-                  <div className="inventory-preflight-meta">
-                    <span>{extensionConnected ? "Browser automation connected" : extensionInstalled ? "Browser automation detected" : "Browser automation missing"}</span>
-                    <span>Pending tasks: {extensionPendingCount}</span>
-                  </div>
-                  <div className="actions">
-                    <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Refresh row state</Button>
-                  </div>
-                  <div className="activity-list">
-                    {recentExtensionTasks.length === 0 ? <div className="muted">No recent browser-side work for this item.</div> : null}
-                    {recentExtensionTasks.map((task) => (
-                      <div className="activity-row" key={task.id}>
-                        <div>
-                          <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
-                          <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
-                        </div>
-                        <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </details>
-
-              <details className="detail-advanced-panel">
-                <summary>History and item tools</summary>
-                <div className="detail-advanced-content stack">
-                  {continuityNotice ? (
-                    <div className="muted detail-advanced-note">
-                      {continuityNotice}
-                      {lastSyncedLabel ? ` Last checked ${lastSyncedLabel}.` : ""}
-                    </div>
-                  ) : null}
-                  <div className="actions">
-                    <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)} type="button">
-                      <Smartphone size={16} /> Continue on mobile
-                    </Button>
-                    <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)} type="button">Delete item</Button>
-                  </div>
-                  <div className="activity-list">
-                    {historyRows.length === 0 ? <div className="muted">No history yet. Draft, listing, and sale activity will show up here.</div> : null}
-                    {historyRows.map((row) => (
-                      <div className="activity-row" key={row.id}>
-                        <div>
-                          <strong>{row.label}</strong>
-                          <div className="muted">{row.detail}</div>
-                        </div>
-                        <div className="muted">{row.meta}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </details>
             </div>
           </SectionCard>
         </div>

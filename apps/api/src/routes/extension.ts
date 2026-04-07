@@ -157,6 +157,36 @@ function buildUniversalListing(item: Awaited<ReturnType<typeof findInventoryItem
   const labels = Array.isArray(itemAttributes.labels)
     ? itemAttributes.labels.filter((value): value is string => typeof value === "string")
     : [];
+  const itemMarketplaceOverrides =
+    itemAttributes.marketplaceOverrides && typeof itemAttributes.marketplaceOverrides === "object"
+      ? (itemAttributes.marketplaceOverrides as Record<string, unknown>)
+      : {};
+  const itemPlatformOverride =
+    itemMarketplaceOverrides[platform] && typeof itemMarketplaceOverrides[platform] === "object"
+      ? (itemMarketplaceOverrides[platform] as Record<string, unknown>)
+      : null;
+  const itemPlatformOverrideAttributes =
+    itemPlatformOverride?.attributes && typeof itemPlatformOverride.attributes === "object"
+      ? (itemPlatformOverride.attributes as Record<string, unknown>)
+      : {};
+  const draftMarketplaceOverride = approvedDraft
+    ? {
+        title: approvedDraft.generatedTitle,
+        description: approvedDraft.generatedDescription,
+        price: approvedDraft.generatedPrice,
+        attributes: draftAttributes
+      }
+    : null;
+  const mergedMarketplaceOverride = itemPlatformOverride
+    ? {
+        ...itemPlatformOverride,
+        ...(draftMarketplaceOverride ?? {}),
+        attributes: {
+          ...itemPlatformOverrideAttributes,
+          ...(draftMarketplaceOverride?.attributes ?? {})
+        }
+      }
+    : draftMarketplaceOverride;
 
   return {
     inventoryItemId: item.id,
@@ -178,13 +208,19 @@ function buildUniversalListing(item: Awaited<ReturnType<typeof findInventoryItem
       kind: index === 0 ? "PRIMARY" : "GALLERY",
       alt: approvedDraft?.generatedTitle ?? item.title
     })),
-    marketplaceOverrides: approvedDraft
+    marketplaceOverrides: mergedMarketplaceOverride
       ? {
           [platform]: {
-            title: approvedDraft.generatedTitle,
-            description: approvedDraft.generatedDescription,
-            price: approvedDraft.generatedPrice,
-            attributes: draftAttributes
+            ...(mergedMarketplaceOverride as Record<string, unknown>),
+            attributes: (
+              mergedMarketplaceOverride &&
+              typeof mergedMarketplaceOverride === "object" &&
+              "attributes" in mergedMarketplaceOverride &&
+              mergedMarketplaceOverride.attributes &&
+              typeof mergedMarketplaceOverride.attributes === "object"
+                ? (mergedMarketplaceOverride.attributes as Record<string, unknown>)
+                : {}
+            ) as Record<string, unknown>
           }
         }
       : {},

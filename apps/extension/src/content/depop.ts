@@ -123,17 +123,250 @@ function normalizeSelectorValue(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function resolveMarketplaceValue(listing: Record<string, unknown>, field: string) {
+function resolveDepopOverride(listing: Record<string, unknown>) {
   const marketplaceOverrides =
     listing.marketplaceOverrides && typeof listing.marketplaceOverrides === "object"
       ? (listing.marketplaceOverrides as Record<string, unknown>)
       : null;
-  const depopOverride =
-    marketplaceOverrides?.DEPOP && typeof marketplaceOverrides.DEPOP === "object"
-      ? (marketplaceOverrides.DEPOP as Record<string, unknown>)
-      : null;
 
+  return marketplaceOverrides?.DEPOP && typeof marketplaceOverrides.DEPOP === "object"
+    ? (marketplaceOverrides.DEPOP as Record<string, unknown>)
+    : null;
+}
+
+function resolveDepopOverrideAttributes(listing: Record<string, unknown>) {
+  const depopOverride = resolveDepopOverride(listing);
+
+  return depopOverride?.attributes && typeof depopOverride.attributes === "object"
+    ? (depopOverride.attributes as Record<string, unknown>)
+    : null;
+}
+
+function resolveMarketplaceValue(listing: Record<string, unknown>, field: string) {
+  const depopOverride = resolveDepopOverride(listing);
   return depopOverride?.[field] ?? listing[field];
+}
+
+function resolveDepopAttribute(listing: Record<string, unknown>, field: string) {
+  const depopOverrideAttributes = resolveDepopOverrideAttributes(listing);
+
+  return depopOverrideAttributes?.[field] ?? null;
+}
+
+function mapDepopCondition(value: string) {
+  const normalized = value.trim().toLowerCase();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.includes("brand new") || normalized === "new" || normalized.includes("new with")) {
+    return "Brand new";
+  }
+
+  if (normalized.includes("like new")) {
+    return "Like new";
+  }
+
+  if (normalized.includes("excellent")) {
+    return "Used - Excellent";
+  }
+
+  if (normalized.includes("good")) {
+    return "Used - Good";
+  }
+
+  if (normalized.includes("fair")) {
+    return "Used - Fair";
+  }
+
+  return "Used - Good";
+}
+
+function mapDepopShippingMode(value: string) {
+  const normalized = value.trim().toUpperCase();
+
+  if (normalized === "OWN_SHIPPING") {
+    return "My own shipping";
+  }
+
+  if (normalized === "DEPOP_SHIPPING") {
+    return "Depop shipping";
+  }
+
+  return value;
+}
+
+function getPreferredBrand(listing: Record<string, unknown>) {
+  const brandValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "brand"));
+  return brandValue || "unbranded";
+}
+
+function getSharedCondition(listing: Record<string, unknown>) {
+  const overrideCondition = normalizeSelectorValue(resolveDepopAttribute(listing, "condition"));
+  const listingCondition = normalizeSelectorValue(resolveMarketplaceValue(listing, "condition"));
+
+  return mapDepopCondition(overrideCondition || listingCondition);
+}
+
+function findDropdownTriggerByText(labels: string[]) {
+  const normalizedLabels = labels.map((label) => label.trim().toLowerCase());
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>("button, [role='button'], [aria-haspopup='listbox'], [aria-haspopup='dialog']")
+  ).filter((candidate) => isVisible(candidate));
+
+  return (
+    candidates.find((candidate) =>
+      normalizedLabels.some((label) => {
+        const text = `${textContent(candidate)} ${candidate.getAttribute("aria-label") ?? ""}`.toLowerCase();
+        return text.includes(label);
+      })
+    ) ?? null
+  );
+}
+
+async function openAndSelectOptionByTriggerText(labels: string[], optionText: string) {
+  const trigger = findDropdownTriggerByText(labels);
+
+  if (!trigger) {
+    return false;
+  }
+
+  trigger.click();
+  await sleep(250);
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "[role='option'], [role='menuitem'], [role='listbox'] [role='button'], [data-testid*='option'], li, button, div"
+    )
+  ).filter((candidate) => isVisible(candidate));
+  const normalizedOptionText = optionText.trim().toLowerCase();
+  const match =
+    candidates.find((candidate) => textContent(candidate).toLowerCase() === normalizedOptionText) ??
+    candidates.find((candidate) => textContent(candidate).toLowerCase().includes(normalizedOptionText));
+
+  if (!match) {
+    return false;
+  }
+
+  match.click();
+  await sleep(150);
+  return true;
+}
+
+async function selectDepopOption(input: {
+  triggerSelectors: string[];
+  triggerLabels: string[];
+  optionText: string;
+}) {
+  const optionText = input.optionText.trim();
+
+  if (!optionText) {
+    return false;
+  }
+
+  const selectedFromSelector =
+    input.triggerSelectors.length > 0 ? await openAndSelectOption(input.triggerSelectors, optionText) : false;
+
+  if (selectedFromSelector) {
+    return true;
+  }
+
+  return openAndSelectOptionByTriggerText(input.triggerLabels, optionText);
+}
+
+function appendMissingField(target: string[], field: string) {
+  if (!target.includes(field)) {
+    target.push(field);
+  }
+}
+
+function itemNeedsSizingLike(productType: string, listing: Record<string, unknown>) {
+  const haystack = `${productType} ${normalizeSelectorValue(resolveMarketplaceValue(listing, "category"))} ${normalizeSelectorValue(resolveMarketplaceValue(listing, "title"))}`.toLowerCase();
+  return ["jacket", "coat", "top", "shoe", "dress", "pants", "hoodie", "shirt", "sweater", "shorts", "skirt", "bag"].some((token) =>
+    haystack.includes(token)
+  );
+}
+
+function ensureCoreTextFields(input: {
+  listing: Record<string, unknown>;
+  titleField: HTMLInputElement | null;
+  descriptionField: HTMLTextAreaElement | HTMLElement | null;
+  priceField: HTMLInputElement | null;
+  fieldsApplied: string[];
+  missingFields: string[];
+}) {
+  const titleValue = normalizeSelectorValue(resolveMarketplaceValue(input.listing, "title"));
+  const descriptionValue = buildDepopDescription(input.listing);
+  const priceSource = resolveMarketplaceValue(input.listing, "price");
+  const price =
+    typeof priceSource === "number"
+      ? priceSource
+      : typeof priceSource === "string" && priceSource.trim()
+        ? Number(priceSource)
+        : null;
+
+  if (titleValue && input.titleField) {
+    setNativeValue(input.titleField, titleValue);
+    input.fieldsApplied.push("title");
+  } else if (!titleValue) {
+    appendMissingField(input.missingFields, "title");
+  }
+
+  if (descriptionValue && input.descriptionField) {
+    setNativeValue(input.descriptionField, descriptionValue);
+    input.fieldsApplied.push("description");
+  } else if (!descriptionValue) {
+    appendMissingField(input.missingFields, "description");
+  }
+
+  if (price != null && Number.isFinite(price) && input.priceField) {
+    setNativeValue(input.priceField, price.toFixed(2));
+    input.fieldsApplied.push("price");
+  } else if (price == null || !Number.isFinite(price)) {
+    appendMissingField(input.missingFields, "price");
+  }
+
+  return {
+    titleValue,
+    price
+  };
+}
+
+function resolveCreateFlowFieldNames(listing: Record<string, unknown>) {
+  return {
+    department: normalizeSelectorValue(resolveDepopAttribute(listing, "department")),
+    productType: normalizeSelectorValue(resolveDepopAttribute(listing, "productType")),
+    shippingMode: mapDepopShippingMode(normalizeSelectorValue(resolveDepopAttribute(listing, "shippingMode"))),
+    condition: getSharedCondition(listing),
+    size: normalizeSelectorValue(resolveMarketplaceValue(listing, "size")),
+    brand: getPreferredBrand(listing)
+  };
+}
+
+function resolveDepopMissingFields(listing: Record<string, unknown>, fields: ReturnType<typeof resolveCreateFlowFieldNames>) {
+  const missingFields: string[] = [];
+
+  if (!fields.department) {
+    appendMissingField(missingFields, "department");
+  }
+
+  if (!fields.productType) {
+    appendMissingField(missingFields, "product type");
+  }
+
+  if (!fields.shippingMode) {
+    appendMissingField(missingFields, "shipping");
+  }
+
+  if (!fields.condition) {
+    appendMissingField(missingFields, "condition");
+  }
+
+  if (itemNeedsSizingLike(fields.productType, listing) && !fields.size) {
+    appendMissingField(missingFields, "size");
+  }
+
+  return missingFields;
 }
 
 function fileNameFromUrl(url: string, index: number) {
@@ -256,20 +489,8 @@ async function applyDepopListing(payload: { listing?: Record<string, unknown> | 
   const listing = payload.listing ?? {};
   const fieldsApplied: string[] = [];
   const missingFields: string[] = [];
-
-  const titleValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "title"));
-  const priceSource = resolveMarketplaceValue(listing, "price");
-  const descriptionValue = buildDepopDescription(listing);
-  const brandValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "brand"));
-  const categoryValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "category"));
-  const conditionValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "condition"));
-  const sizeValue = normalizeSelectorValue(resolveMarketplaceValue(listing, "size"));
-  const price =
-    typeof priceSource === "number"
-      ? priceSource
-      : typeof priceSource === "string" && priceSource.trim()
-        ? Number(priceSource)
-        : null;
+  const depopFields = resolveCreateFlowFieldNames(listing);
+  const gatingMissingFields = resolveDepopMissingFields(listing, depopFields);
 
   const createFlowDetected =
     /\/sell\b|\/products\/create\b|\/drafts\b|\/edit\b/i.test(window.location.pathname) ||
@@ -321,98 +542,112 @@ async function applyDepopListing(payload: { listing?: Record<string, unknown> | 
     "input[aria-label*='Price']",
     "input[inputmode='decimal']"
   ]);
+  const { titleValue, price } = ensureCoreTextFields({
+    listing,
+    titleField,
+    descriptionField,
+    priceField,
+    fieldsApplied,
+    missingFields
+  });
 
-  if (titleValue && titleField) {
-    setNativeValue(titleField, titleValue);
-    fieldsApplied.push("title");
-  } else {
-    missingFields.push("title");
+  const brandApplied = await selectDepopOption({
+    triggerSelectors: [
+      "button[aria-label*='Brand']",
+      "[data-testid*='brand'] button",
+      "[aria-labelledby*='brand']",
+      "button[name*='brand']"
+    ],
+    triggerLabels: ["brand"],
+    optionText: depopFields.brand
+  });
+  if (brandApplied) {
+    fieldsApplied.push("brand");
   }
 
-  if (descriptionValue && descriptionField) {
-    setNativeValue(descriptionField, descriptionValue);
-    fieldsApplied.push("description");
-  } else {
-    missingFields.push("description");
+  const departmentApplied = depopFields.department
+    ? await selectDepopOption({
+        triggerSelectors: [
+          "button[aria-label*='Department']",
+          "[data-testid*='department'] button",
+          "[aria-labelledby*='department']",
+          "button[name*='department']"
+        ],
+        triggerLabels: ["department"],
+        optionText: depopFields.department
+      })
+    : false;
+  if (departmentApplied) {
+    fieldsApplied.push("department");
   }
 
-  if (price != null && Number.isFinite(price) && priceField) {
-    setNativeValue(priceField, price.toFixed(2));
-    fieldsApplied.push("price");
-  } else {
-    missingFields.push("price");
+  const productTypeApplied = depopFields.productType
+    ? await selectDepopOption({
+        triggerSelectors: [
+          "button[aria-label*='Product type']",
+          "button[aria-label*='Category']",
+          "[data-testid*='product-type'] button",
+          "[data-testid*='category'] button",
+          "[aria-labelledby*='product']",
+          "[aria-labelledby*='category']",
+          "button[name*='product']",
+          "button[name*='category']"
+        ],
+        triggerLabels: ["product type", "category"],
+        optionText: depopFields.productType
+      })
+    : false;
+  if (productTypeApplied) {
+    fieldsApplied.push("product type");
   }
 
-  if (brandValue) {
-    const brandApplied = await openAndSelectOption(
-      [
-        "button[aria-label*='Brand']",
-        "[data-testid*='brand'] button",
-        "[aria-labelledby*='brand']",
-        "button[name*='brand']"
-      ],
-      brandValue
-    );
-
-    if (brandApplied) {
-      fieldsApplied.push("brand");
-    } else {
-      missingFields.push("brand");
-    }
+  const conditionApplied = depopFields.condition
+    ? await selectDepopOption({
+        triggerSelectors: [
+          "button[aria-label*='Condition']",
+          "[data-testid*='condition'] button",
+          "[aria-labelledby*='condition']",
+          "button[name*='condition']"
+        ],
+        triggerLabels: ["condition"],
+        optionText: depopFields.condition
+      })
+    : false;
+  if (conditionApplied) {
+    fieldsApplied.push("condition");
   }
 
-  if (categoryValue) {
-    const categoryApplied = await openAndSelectOption(
-      [
-        "button[aria-label*='Category']",
-        "[data-testid*='category'] button",
-        "[aria-labelledby*='category']",
-        "button[name*='category']"
-      ],
-      categoryValue
-    );
-
-    if (categoryApplied) {
-      fieldsApplied.push("category");
-    } else {
-      missingFields.push("category");
-    }
+  const sizeApplied = depopFields.size
+    ? await selectDepopOption({
+        triggerSelectors: [
+          "button[aria-label*='Size']",
+          "[data-testid*='size'] button",
+          "[aria-labelledby*='size']",
+          "button[name*='size']"
+        ],
+        triggerLabels: ["size"],
+        optionText: depopFields.size
+      })
+    : false;
+  if (sizeApplied) {
+    fieldsApplied.push("size");
   }
 
-  if (conditionValue) {
-    const conditionApplied = await openAndSelectOption(
-      [
-        "button[aria-label*='Condition']",
-        "[data-testid*='condition'] button",
-        "[aria-labelledby*='condition']",
-        "button[name*='condition']"
-      ],
-      conditionValue
-    );
-
-    if (conditionApplied) {
-      fieldsApplied.push("condition");
-    } else {
-      missingFields.push("condition");
-    }
-  }
-
-  if (sizeValue) {
-    const sizeApplied = await openAndSelectOption(
-      [
-        "button[aria-label*='Size']",
-        "[data-testid*='size'] button",
-        "[aria-labelledby*='size']",
-        "button[name*='size']"
-      ],
-      sizeValue
-    );
-
-    if (sizeApplied) {
-      fieldsApplied.push("size");
-    } else {
-      missingFields.push("size");
-    }
+  const shippingApplied = depopFields.shippingMode
+    ? await selectDepopOption({
+        triggerSelectors: [
+          "button[aria-label*='Shipping']",
+          "button[aria-label*='Delivery']",
+          "[data-testid*='shipping'] button",
+          "[aria-labelledby*='shipping']",
+          "button[name*='shipping']"
+        ],
+        triggerLabels: ["shipping", "delivery"],
+        optionText: depopFields.shippingMode
+      })
+    : false;
+  if (shippingApplied) {
+    fieldsApplied.push("shipping");
   }
 
   const photoUpload = await uploadListingPhotos(listing);
@@ -422,7 +657,27 @@ async function applyDepopListing(payload: { listing?: Record<string, unknown> | 
       fieldsApplied.push("photos");
     }
   } else {
-    missingFields.push("photos");
+    appendMissingField(missingFields, "photos");
+  }
+
+  if (gatingMissingFields.includes("department") && !departmentApplied) {
+    appendMissingField(missingFields, "department");
+  }
+
+  if (gatingMissingFields.includes("product type") && !productTypeApplied) {
+    appendMissingField(missingFields, "product type");
+  }
+
+  if (gatingMissingFields.includes("shipping") && !shippingApplied) {
+    appendMissingField(missingFields, "shipping");
+  }
+
+  if (gatingMissingFields.includes("condition") && !conditionApplied) {
+    appendMissingField(missingFields, "condition");
+  }
+
+  if (gatingMissingFields.includes("size") && !sizeApplied) {
+    appendMissingField(missingFields, "size");
   }
 
   if (fieldsApplied.length === 0) {

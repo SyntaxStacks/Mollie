@@ -1906,6 +1906,14 @@ body {
 .listing-universal-form {
   display: grid;
   gap: 1rem;
+  align-content: start;
+  min-width: 0;
+}
+
+.listing-universal-form > .stack,
+.listing-universal-form form.stack,
+.detail-advanced-stack {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .listing-marketplace-rail {
@@ -1932,6 +1940,13 @@ body {
 .listing-form-section {
   display: grid;
   gap: 1rem;
+}
+
+.listing-form-section-missing {
+  border-color: rgba(185, 28, 28, 0.18);
+  background:
+    radial-gradient(circle at top right, rgba(239, 68, 68, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.86);
 }
 
 .listing-form-section-heading {
@@ -2029,6 +2044,27 @@ body {
   line-height: 1.55;
 }
 
+.listing-override-note-missing {
+  color: #991b1b;
+}
+
+.label-missing {
+  color: #991b1b;
+}
+
+.field-missing {
+  border-color: rgba(185, 28, 28, 0.45);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.listing-field-requirement-note {
+  margin-top: 0.1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #991b1b;
+}
+
 .listing-dimension-grid,
 .listing-price-override-grid {
   display: grid;
@@ -2074,13 +2110,22 @@ body {
 .detail-advanced-stack {
   display: grid;
   gap: 0.9rem;
+  width: 100%;
 }
 
 .detail-advanced-panel {
+  width: 100%;
   border-radius: 22px;
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.78);
   overflow: clip;
+}
+
+.detail-advanced-panel-missing {
+  border-color: rgba(185, 28, 28, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(239, 68, 68, 0.08), transparent 34%),
+    rgba(255, 255, 255, 0.86);
 }
 
 .detail-advanced-panel summary {

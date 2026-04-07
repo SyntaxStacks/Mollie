@@ -82,7 +82,11 @@ export default function InventoryDetailPage() {
     depopPrice: "",
     poshmarkPrice: "",
     whatnotPrice: "",
-    depopTags: ""
+    depopTags: "",
+    depopDepartment: "",
+    depopProductType: "",
+    depopCondition: "",
+    depopShippingMode: ""
   });
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["EBAY"]);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -225,7 +229,11 @@ export default function InventoryDetailPage() {
         ? depopOverrideAttributes.tags.join(", ")
         : Array.isArray(data.item.attributesJson?.tags)
           ? data.item.attributesJson.tags.join(", ")
-          : ""
+          : "",
+      depopDepartment: typeof depopOverrideAttributes.department === "string" ? depopOverrideAttributes.department : "",
+      depopProductType: typeof depopOverrideAttributes.productType === "string" ? depopOverrideAttributes.productType : "",
+      depopCondition: typeof depopOverrideAttributes.condition === "string" ? depopOverrideAttributes.condition : "",
+      depopShippingMode: typeof depopOverrideAttributes.shippingMode === "string" ? depopOverrideAttributes.shippingMode : ""
     });
   }, [data?.item]);
 
@@ -507,12 +515,22 @@ export default function InventoryDetailPage() {
       .map((entry) => entry.trim())
       .filter(Boolean);
 
-    if (depopTags.length > 0) {
+    if (
+      depopTags.length > 0 ||
+      itemForm.depopDepartment.trim() ||
+      itemForm.depopProductType.trim() ||
+      itemForm.depopCondition.trim() ||
+      itemForm.depopShippingMode.trim()
+    ) {
       marketplaceOverrides.DEPOP = {
         ...(marketplaceOverrides.DEPOP ?? {}),
         attributes: {
           ...((marketplaceOverrides.DEPOP?.attributes as Record<string, unknown> | undefined) ?? {}),
-          tags: depopTags
+          ...(depopTags.length > 0 ? { tags: depopTags } : {}),
+          ...(itemForm.depopDepartment.trim() ? { department: itemForm.depopDepartment.trim() } : {}),
+          ...(itemForm.depopProductType.trim() ? { productType: itemForm.depopProductType.trim() } : {}),
+          ...(itemForm.depopCondition.trim() ? { condition: itemForm.depopCondition.trim() } : {}),
+          ...(itemForm.depopShippingMode.trim() ? { shippingMode: itemForm.depopShippingMode.trim() } : {})
         }
       };
     }
@@ -775,6 +793,36 @@ export default function InventoryDetailPage() {
     }
   }
 
+  function scrollToListingFixTarget() {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const target = document.querySelector<HTMLElement>(
+      ".field-missing, .label-missing, .detail-advanced-panel-missing, .listing-form-section-missing"
+    );
+
+    if (!target) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const details = target.closest("details");
+    if (details instanceof HTMLDetailsElement) {
+      details.open = true;
+    }
+
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    const focusTarget =
+      (target.matches("input, textarea, select, button, summary") ? target : null) ??
+      target.querySelector<HTMLElement>("input, textarea, select, button, summary");
+
+    window.setTimeout(() => {
+      focusTarget?.focus?.({ preventScroll: true });
+    }, 220);
+  }
+
   function handleMarketplaceAction(platform: string, action: MarketplaceActionKind) {
     if (action === "open_listing") {
       const listing = data?.item.platformListings.find((entry) => entry.platform === platform);
@@ -826,7 +874,7 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "fix_details") {
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      scrollToListingFixTarget();
       return;
     }
 
@@ -901,6 +949,116 @@ export default function InventoryDetailPage() {
 
     startTransition(async () => {
       try {
+        const existingAttributes =
+          data?.item.attributesJson && typeof data.item.attributesJson === "object"
+            ? (data.item.attributesJson as Record<string, unknown>)
+            : {};
+        const existingMarketplacePriceOverrides =
+          existingAttributes.marketplacePriceOverrides && typeof existingAttributes.marketplacePriceOverrides === "object"
+            ? ({ ...(existingAttributes.marketplacePriceOverrides as Record<string, unknown>) })
+            : {};
+        const existingMarketplaceOverrides =
+          existingAttributes.marketplaceOverrides && typeof existingAttributes.marketplaceOverrides === "object"
+            ? ({ ...(existingAttributes.marketplaceOverrides as Record<string, unknown>) })
+            : {};
+        const nextMarketplacePriceOverrides = { ...existingMarketplacePriceOverrides };
+        const nextMarketplaceOverrides = { ...existingMarketplaceOverrides };
+        const setPriceOverride = (platform: Platform, rawValue: string) => {
+          const trimmed = rawValue.trim();
+
+          if (trimmed) {
+            nextMarketplacePriceOverrides[platform] = Number(trimmed);
+          } else {
+            delete nextMarketplacePriceOverrides[platform];
+          }
+        };
+        const updatePlatformPriceOverride = (platform: Platform, rawValue: string) => {
+          const trimmed = rawValue.trim();
+          const existingOverride =
+            nextMarketplaceOverrides[platform] && typeof nextMarketplaceOverrides[platform] === "object"
+              ? ({ ...(nextMarketplaceOverrides[platform] as Record<string, unknown>) })
+              : {};
+
+          if (trimmed) {
+            existingOverride.price = Number(trimmed);
+          } else {
+            delete existingOverride.price;
+          }
+
+          if (Object.keys(existingOverride).length === 0) {
+            delete nextMarketplaceOverrides[platform];
+            return;
+          }
+
+          nextMarketplaceOverrides[platform] = existingOverride;
+        };
+
+        setPriceOverride("EBAY", itemForm.ebayPrice);
+        setPriceOverride("DEPOP", itemForm.depopPrice);
+        setPriceOverride("POSHMARK", itemForm.poshmarkPrice);
+        setPriceOverride("WHATNOT", itemForm.whatnotPrice);
+
+        updatePlatformPriceOverride("EBAY", itemForm.ebayPrice);
+        updatePlatformPriceOverride("POSHMARK", itemForm.poshmarkPrice);
+        updatePlatformPriceOverride("WHATNOT", itemForm.whatnotPrice);
+
+        const existingDepopOverride =
+          nextMarketplaceOverrides.DEPOP && typeof nextMarketplaceOverrides.DEPOP === "object"
+            ? ({ ...(nextMarketplaceOverrides.DEPOP as Record<string, unknown>) })
+            : {};
+        const existingDepopAttributes =
+          existingDepopOverride.attributes && typeof existingDepopOverride.attributes === "object"
+            ? ({ ...(existingDepopOverride.attributes as Record<string, unknown>) })
+            : {};
+        delete existingDepopAttributes.tags;
+        delete existingDepopAttributes.department;
+        delete existingDepopAttributes.productType;
+        delete existingDepopAttributes.condition;
+        delete existingDepopAttributes.shippingMode;
+
+        if (itemForm.depopPrice.trim()) {
+          existingDepopOverride.price = Number(itemForm.depopPrice);
+        } else {
+          delete existingDepopOverride.price;
+        }
+
+        const depopTags = itemForm.depopTags
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+
+        if (depopTags.length > 0) {
+          existingDepopAttributes.tags = depopTags;
+        }
+
+        if (itemForm.depopDepartment.trim()) {
+          existingDepopAttributes.department = itemForm.depopDepartment.trim();
+        }
+
+        if (itemForm.depopProductType.trim()) {
+          existingDepopAttributes.productType = itemForm.depopProductType.trim();
+        }
+
+        if (itemForm.depopCondition.trim()) {
+          existingDepopAttributes.condition = itemForm.depopCondition.trim();
+        }
+
+        if (itemForm.depopShippingMode.trim()) {
+          existingDepopAttributes.shippingMode = itemForm.depopShippingMode.trim();
+        }
+
+        if (Object.keys(existingDepopAttributes).length > 0) {
+          existingDepopOverride.attributes = existingDepopAttributes;
+        } else {
+          delete existingDepopOverride.attributes;
+        }
+
+        if (Object.keys(existingDepopOverride).length > 0) {
+          nextMarketplaceOverrides.DEPOP = existingDepopOverride;
+        } else {
+          delete nextMarketplaceOverrides.DEPOP;
+        }
+
         const response = await fetch(`${API_BASE_URL}/api/inventory/${params.id}`, {
           method: "PATCH",
           headers: {
@@ -920,7 +1078,7 @@ export default function InventoryDetailPage() {
             estimatedResaleMax: itemForm.estimatedResaleMax.trim() ? Number(itemForm.estimatedResaleMax) : null,
             priceRecommendation: itemForm.priceRecommendation.trim() ? Number(itemForm.priceRecommendation) : null,
             attributes: {
-              ...(data?.item.attributesJson ?? {}),
+              ...existingAttributes,
               description: itemForm.description.trim(),
               tags: itemForm.tags
                 .split(",")
@@ -937,62 +1095,8 @@ export default function InventoryDetailPage() {
               shippingHeight: itemForm.shippingHeight.trim() ? Number(itemForm.shippingHeight) : null,
               shippingDimensionUnit: itemForm.shippingDimensionUnit,
               freeShipping: itemForm.freeShipping,
-              marketplacePriceOverrides: {
-                ...(typeof data?.item.attributesJson?.marketplacePriceOverrides === "object" &&
-                data?.item.attributesJson?.marketplacePriceOverrides
-                  ? (data.item.attributesJson.marketplacePriceOverrides as Record<string, unknown>)
-                  : {}),
-                ...(itemForm.ebayPrice.trim() ? { EBAY: Number(itemForm.ebayPrice) } : {}),
-                ...(itemForm.depopPrice.trim() ? { DEPOP: Number(itemForm.depopPrice) } : {}),
-                ...(itemForm.poshmarkPrice.trim() ? { POSHMARK: Number(itemForm.poshmarkPrice) } : {}),
-                ...(itemForm.whatnotPrice.trim() ? { WHATNOT: Number(itemForm.whatnotPrice) } : {})
-              },
-              marketplaceOverrides: {
-                ...(typeof data?.item.attributesJson?.marketplaceOverrides === "object" &&
-                data?.item.attributesJson?.marketplaceOverrides
-                  ? (data.item.attributesJson.marketplaceOverrides as Record<string, unknown>)
-                  : {}),
-                ...(itemForm.ebayPrice.trim()
-                  ? {
-                      EBAY: {
-                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.EBAY as Record<string, unknown> | undefined) ?? {}),
-                        price: Number(itemForm.ebayPrice)
-                      }
-                    }
-                  : {}),
-                ...(itemForm.depopPrice.trim() || itemForm.depopTags.trim()
-                  ? {
-                      DEPOP: {
-                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.DEPOP as Record<string, unknown> | undefined) ?? {}),
-                        ...(itemForm.depopPrice.trim() ? { price: Number(itemForm.depopPrice) } : {}),
-                        attributes: {
-                          ...((((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.DEPOP as Record<string, unknown> | undefined)
-                            ?.attributes as Record<string, unknown> | undefined) ?? {}),
-                          tags: itemForm.depopTags
-                            .split(",")
-                            .map((entry) => entry.trim())
-                            .filter(Boolean)
-                        }
-                      }
-                    }
-                  : {}),
-                ...(itemForm.poshmarkPrice.trim()
-                  ? {
-                      POSHMARK: {
-                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.POSHMARK as Record<string, unknown> | undefined) ?? {}),
-                        price: Number(itemForm.poshmarkPrice)
-                      }
-                    }
-                  : {}),
-                ...(itemForm.whatnotPrice.trim()
-                  ? {
-                      WHATNOT: {
-                        ...(((data?.item.attributesJson?.marketplaceOverrides as Record<string, unknown> | undefined)?.WHATNOT as Record<string, unknown> | undefined) ?? {}),
-                        price: Number(itemForm.whatnotPrice)
-                      }
-                    }
-                  : {})
-              }
+              marketplacePriceOverrides: nextMarketplacePriceOverrides,
+              marketplaceOverrides: nextMarketplaceOverrides
             }
           })
         });

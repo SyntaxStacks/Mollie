@@ -290,6 +290,18 @@ function humanizeExtensionField(field: string) {
       return "brand";
     case "category":
       return "category";
+    case "department":
+    case "depop department":
+      return "Depop department";
+    case "product type":
+    case "product_type":
+    case "depop product type":
+      return "Depop product type";
+    case "shipping":
+    case "shipping mode":
+    case "shipping_mode":
+    case "depop shipping":
+      return "Depop shipping";
     case "condition":
       return "condition";
     case "size":
@@ -336,6 +348,12 @@ function marketplaceFieldHasValue(item: InventoryListLikeItem, platform: string,
       return hasValue(override?.brand) || hasValue(item.brand);
     case "category":
       return hasValue(override?.category) || hasValue(item.category);
+    case "Depop department":
+      return hasValue(overrideAttributes?.department);
+    case "Depop product type":
+      return hasValue(overrideAttributes?.productType);
+    case "Depop shipping":
+      return hasValue(overrideAttributes?.shippingMode);
     case "condition":
       return hasValue(override?.condition) || hasValue(item.condition);
     case "size":
@@ -384,9 +402,13 @@ function getPlatformRequirements(input: {
   genericFlags: ListingReadinessFlag[];
   draft?: ListingDraftLike | null;
 }): PlatformRequirements {
-  const required = input.genericFlags
+  const genericRequired = input.genericFlags
     .filter((flag) => flag !== "duplicate_candidate")
     .map(humanizeGenericRequirement);
+  const required =
+    input.platform === "DEPOP"
+      ? genericRequired.filter((requirement) => requirement !== "title" && requirement !== "category")
+      : [...genericRequired];
   const recommended: string[] = [];
   const attributes = getItemAttributes(input.item);
   const draftAttributes =
@@ -415,19 +437,33 @@ function getPlatformRequirements(input: {
   }
 
   if (input.platform === "DEPOP") {
+    const depopAttributes = getMarketplaceOverrideAttributes(input.item, "DEPOP");
+
     if (!description) {
       required.push("description");
     }
 
+    if (!hasValue(depopAttributes?.department)) {
+      required.push("Depop department");
+    }
+
+    if (!hasValue(depopAttributes?.productType)) {
+      required.push("Depop product type");
+    }
+
+    if (!hasValue(depopAttributes?.shippingMode)) {
+      required.push("Depop shipping");
+    }
+
     const sharedTags = getStringArray(attributes.tags);
-    const depopTags = getStringArray(getMarketplaceOverrideAttributes(input.item, "DEPOP")?.tags);
+    const depopTags = getStringArray(depopAttributes?.tags);
 
     if (sharedTags.length === 0 && depopTags.length === 0) {
       recommended.push("Depop discovery tags");
     }
 
     if (itemNeedsSizing(input.item) && !hasValue(input.item.size)) {
-      recommended.push("size");
+      required.push("size");
     }
   }
 

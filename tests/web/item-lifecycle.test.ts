@@ -10,7 +10,20 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
       title: "Vintage denim jacket",
       category: "Jackets",
       condition: "Good used condition",
+      size: "L",
       priceRecommendation: 58,
+      attributesJson: {
+        description: "",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Jackets",
+              shippingMode: "DEPOP_SHIPPING"
+            }
+          }
+        }
+      },
       images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
       listingDrafts: [
         {
@@ -31,7 +44,7 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
           needsInputReason: "Depop still needs a few required fields before publish.",
           lastErrorMessage: "Depop still needs a few required fields before publish.",
           resultJson: {
-            missingFields: ["description", "category"]
+            missingFields: ["description", "product_type"]
           }
         }
       ]
@@ -85,9 +98,19 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
       title: "Vintage denim jacket",
       category: "Jackets",
       condition: "Good used condition",
+      size: "L",
       priceRecommendation: 58,
       attributesJson: {
-        description: "A clean vintage denim jacket ready to list."
+        description: "A clean vintage denim jacket ready to list.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Jackets",
+              shippingMode: "DEPOP_SHIPPING"
+            }
+          }
+        }
       },
       images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
       listingDrafts: [
@@ -159,7 +182,16 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
       size: "8 Count (Pack of 1)",
       priceRecommendation: 10,
       attributesJson: {
-        description: "Biore pore refining bubbling nose mask."
+        description: "Biore pore refining bubbling nose mask.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Other",
+              productType: "Beauty & Personal Care",
+              shippingMode: "DEPOP_SHIPPING"
+            }
+          }
+        }
       },
       images: [{ id: "img-1", url: "https://images.example.com/biore.jpg", position: 0 }],
       listingDrafts: [
@@ -181,7 +213,7 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
           needsInputReason: "Depop opened the final publish step, but Mollie could not confirm that the listing went live.",
           lastErrorMessage: "Depop publish needs another browser pass.",
           resultJson: {
-            missingFields: ["description", "title", "price", "category", "size"]
+            missingFields: ["description", "title", "price", "department", "product_type", "shipping"]
           }
         }
       ]
@@ -229,12 +261,16 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
       title: "Burberry wool coat",
       category: "Coats",
       condition: "Excellent used condition",
+      size: "M",
       priceRecommendation: 240,
       attributesJson: {
         description: "Warm Burberry wool coat in excellent condition.",
         marketplaceOverrides: {
           DEPOP: {
             attributes: {
+              department: "Women",
+              productType: "Coats",
+              shippingMode: "DEPOP_SHIPPING",
               tags: ["burberry", "wool", "coat"]
             }
           }
@@ -291,9 +327,19 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
       title: "Vintage leather jacket",
       category: "Jackets",
       condition: "Good used condition",
+      size: "L",
       priceRecommendation: 95,
       attributesJson: {
-        description: "Broken-in leather jacket with clean lining."
+        description: "Broken-in leather jacket with clean lining.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Jackets",
+              shippingMode: "DEPOP_SHIPPING"
+            }
+          }
+        }
       },
       images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
       listingDrafts: [],
@@ -329,7 +375,7 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
   assert.equal(depop.actionLabel, "Generate draft");
   assert.equal(depop.actionKind, "generate_draft");
   assert.deepEqual(depop.missingRequirements, []);
-  assert.deepEqual(depop.recommendedRequirements, ["Depop discovery tags", "size"]);
+  assert.deepEqual(depop.recommendedRequirements, ["Depop discovery tags"]);
   assert.equal(depop.summary, "Ready for Depop browser draft prep");
 });
 
