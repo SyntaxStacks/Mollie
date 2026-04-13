@@ -556,17 +556,17 @@ export function InventoryDetailView({
                       <p className="muted">Add photos here once, then reuse them across marketplace targets.</p>
                       {renderRequirementNote("photos")}
                     </div>
-                    <div className="scan-import-grid">
-                      <label className={cx("label", fieldIsMissing("photos") && "label-missing")}>
-                        Upload image
-                        <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
-                      </label>
-                      <label className="label">
-                        Position
-                        <input className="field" defaultValue="0" min="0" name="position" type="number" />
-                      </label>
-                    </div>
                     <form className="stack inventory-image-form" onSubmit={onAddImage}>
+                      <div className="scan-import-grid">
+                        <label className={cx("label", fieldIsMissing("photos") && "label-missing")}>
+                          Upload image
+                          <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
+                        </label>
+                        <label className="label">
+                          Position
+                          <input className="field" defaultValue="0" min="0" name="position" type="number" />
+                        </label>
+                      </div>
                       <Button data-testid="inventory-upload-submit" disabled={pending} type="submit">
                         <Camera size={16} /> {pending ? "Uploading..." : "Upload image"}
                       </Button>

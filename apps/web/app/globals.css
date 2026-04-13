@@ -2445,3 +2445,1145 @@ body {
     order: initial;
   }
 }
+
+:root {
+  --background: #ffffff;
+  --foreground: #000000;
+  --muted-bg: #f5f5f5;
+  --muted-foreground: #525252;
+  --border-light: #e5e5e5;
+  --bg: var(--background);
+  --surface: var(--background);
+  --surface-strong: var(--background);
+  --text: var(--foreground);
+  --muted: var(--muted-foreground);
+  --accent: var(--foreground);
+  --accent-2: var(--foreground);
+  --line: var(--foreground);
+  --shadow: none;
+}
+
+body * {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html,
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body), Georgia, serif;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  position: relative;
+  background-image:
+    repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0, 0, 0, 0.015) 1px, rgba(0, 0, 0, 0.015) 2px),
+    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.12'/%3E%3C/svg%3E");
+  background-size: 100% 4px, 40px 40px, 40px 40px, 256px 256px;
+  background-attachment: fixed;
+}
+
+::selection {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-display), Georgia, serif;
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+code,
+pre,
+.sidebar-kicker,
+.eyebrow,
+.app-topbar-meta,
+.inventory-filter-chip,
+.app-status-pill,
+.profit-badge,
+.marketplace-meta-pill,
+.listing-marketplace-pill,
+.queue-header-count,
+.scan-productivity-card span,
+.table th,
+.item-card-meta,
+.public-doc-footer,
+.secondary-link-button,
+.public-doc-link {
+  font-family: var(--font-mono), "JetBrains Mono", monospace;
+}
+
+a {
+  text-decoration-color: rgba(0, 0, 0, 0.32);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-color: var(--foreground);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 3px solid var(--foreground);
+  outline-offset: 3px;
+}
+
+button,
+input,
+textarea,
+select {
+  color: var(--foreground);
+}
+
+.skip-link {
+  position: absolute;
+  left: 1rem;
+  top: 1rem;
+  z-index: 100;
+  padding: 0.8rem 1rem;
+  border: 2px solid var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+  text-decoration: none;
+  transform: translateY(-180%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.sidebar-kicker,
+.eyebrow {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.muted,
+.sidebar-copy,
+.public-doc-summary,
+.public-doc-section p,
+.public-doc-section li,
+.queue-header-description,
+.item-card-meta,
+.item-card-marketplaces,
+.marketplace-status-copy,
+.marketplace-missing-inline,
+.queue-header-copy p,
+.scan-shortcut-card span,
+.scan-pulse-card p,
+.sell-queue-summary-card p,
+.activity-summary-card p,
+.activity-row .muted,
+.public-doc-footer .muted {
+  color: var(--muted-foreground);
+}
+
+.field,
+.textarea,
+.select {
+  border: 0;
+  border-bottom: 2px solid var(--foreground);
+  background: transparent;
+  padding: 0.9rem 0.15rem;
+}
+
+.field::placeholder,
+.textarea::placeholder {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.field:focus,
+.textarea:focus,
+.select:focus {
+  outline: none;
+  border-bottom-width: 4px;
+}
+
+.label {
+  color: var(--foreground);
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.checkbox-row {
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.checkbox-row input,
+.table input[type="checkbox"],
+.marketplace-selection-toggle span {
+  width: 1.15rem;
+  height: 1.15rem;
+  border: 2px solid var(--foreground);
+  background: var(--background);
+}
+
+.notice,
+.notice.success,
+.execution-notice-success {
+  border: 2px solid var(--foreground);
+  color: var(--foreground);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 245, 245, 0.9)),
+    repeating-linear-gradient(45deg, transparent, transparent 20px, rgba(0, 0, 0, 0.03) 20px, rgba(0, 0, 0, 0.03) 22px);
+}
+
+.notice.success,
+.execution-notice-success {
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255, 255, 255, 0.08) 1px, rgba(255, 255, 255, 0.08) 2px),
+    var(--foreground);
+  color: var(--background);
+}
+
+.danger {
+  color: var(--foreground);
+  font-style: italic;
+}
+
+.table {
+  background: var(--background);
+}
+
+.table th,
+.table td {
+  padding: 1rem 0.5rem;
+  border-bottom: 1px solid var(--foreground);
+}
+
+.table th {
+  color: var(--muted-foreground);
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+}
+
+.table tbody tr:hover {
+  background: var(--muted-bg);
+}
+
+.center-state {
+  padding: 2rem;
+  color: var(--foreground);
+}
+
+.app-shell {
+  background: transparent;
+  padding-bottom: 6rem;
+}
+
+.app-shell-immersive {
+  background: transparent;
+}
+
+.app-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding: 1.5rem 1.25rem 1rem;
+  border-bottom: 4px solid var(--foreground);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.app-brand-lockup {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.app-brand-mark {
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.55rem;
+  border: 2px solid var(--foreground);
+  background: var(--background);
+  flex: none;
+}
+
+.app-brand-block h1 {
+  margin-top: 0.15rem;
+  font-size: clamp(3rem, 10vw, 7rem);
+  line-height: 0.85;
+  letter-spacing: -0.06em;
+}
+
+.app-topbar-meta {
+  align-items: center;
+  gap: 0.9rem;
+  margin-top: 0.6rem;
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-topbar-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8rem;
+}
+
+.app-topbar-context::after {
+  content: "";
+  width: 4.5rem;
+  height: 2px;
+  background: var(--foreground);
+}
+
+.app-topbar-actions {
+  align-self: stretch;
+}
+
+.app-utility-link,
+.primary-tab-link,
+.mobile-tab-link,
+.scan-shortcut-card,
+.inventory-filter-chip,
+.sell-queue-summary-card,
+.activity-summary-card,
+.item-card,
+.marketplace-status-row,
+.lookup-candidate-card,
+.listing-template-card,
+.activity-row {
+  transition:
+    background-color 100ms linear,
+    color 100ms linear,
+    border-color 100ms linear,
+    transform 100ms linear;
+}
+
+.app-utility-link,
+.primary-tab-link,
+.mobile-tab-link,
+.scan-shortcut-card {
+  border: 2px solid var(--foreground);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.app-utility-link.active,
+.primary-tab-link.active,
+.mobile-tab-link.active,
+.scan-shortcut-card:hover,
+.scan-shortcut-card:focus-visible {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.primary-tab-nav {
+  grid-auto-columns: 1fr;
+  padding: 1rem 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.primary-tab-link,
+.mobile-tab-link {
+  justify-content: space-between;
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mobile-tab-bar {
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255, 255, 255, 0.08) 1px, rgba(255, 255, 255, 0.08) 2px),
+    var(--foreground);
+  border-top: 4px solid var(--foreground);
+}
+
+.mobile-tab-link {
+  color: var(--background);
+  border-color: rgba(255, 255, 255, 0.2);
+  background: transparent;
+}
+
+.mobile-tab-link.active {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.app-settings-dropdown {
+  border: 2px solid var(--foreground);
+  background: var(--background);
+  padding: 0.8rem;
+}
+
+.app-settings-link {
+  border: 1px solid var(--border-light);
+  color: var(--foreground);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.app-settings-link:hover,
+.app-settings-link.active {
+  background: var(--foreground);
+  color: var(--background);
+  transform: none;
+}
+
+.app-settings-footer {
+  border-top: 2px solid var(--foreground);
+}
+
+.app-main {
+  width: min(100%, 72rem);
+  margin: 0 auto;
+  padding: 1.75rem 1.25rem 3rem;
+}
+
+.page-stack {
+  gap: 2rem;
+}
+
+.page-stack > * + * {
+  border-top: 4px solid var(--foreground);
+  padding-top: 1.75rem;
+}
+
+.rs-card,
+.section-card,
+.scan-home-hero,
+.public-doc-hero,
+.public-doc-card,
+.handoff-modal,
+.scan-result-sheet,
+.source-search-panel,
+.market-observation-card,
+.lookup-candidate-meta-item,
+.barcode-scanner-camera-controls,
+.connect-prompt-card,
+.listing-form-toolbar,
+.listing-rail-summary,
+.listing-form-section,
+.listing-table-shell,
+.listing-selection-empty-state,
+.listing-overrides-callout,
+.listing-requirement-card,
+.listing-platform-adjustment-card,
+.detail-image-card,
+.detail-advanced-panel,
+.inventory-image-card {
+  border: 2px solid var(--foreground);
+  background: var(--background);
+}
+
+.scan-home,
+.scan-home-hero,
+.detail-page-stack {
+  gap: 1.5rem;
+}
+
+.scan-home-hero {
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.scan-home-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 8px;
+  background: var(--foreground);
+}
+
+.queue-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.queue-header-copy {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.queue-header-rule {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.queue-header-rule-square {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid var(--foreground);
+  flex: none;
+}
+
+.queue-header-rule-line {
+  width: min(10rem, 100%);
+  height: 4px;
+  background: var(--foreground);
+}
+
+.queue-header h3 {
+  margin: 0;
+  max-width: 12ch;
+  font-size: clamp(2.4rem, 6vw, 5rem);
+  line-height: 0.92;
+  letter-spacing: -0.05em;
+}
+
+.scan-home-hero .queue-header h3 {
+  max-width: 10ch;
+  font-size: clamp(4.2rem, 12vw, 9.4rem);
+}
+
+.queue-header-description {
+  margin: 0;
+  max-width: 42ch;
+  font-size: 1.08rem;
+  line-height: 1.65;
+}
+
+.queue-header-count {
+  display: grid;
+  justify-items: end;
+  align-self: stretch;
+  padding: 1rem 1rem 0.9rem;
+  min-width: 8rem;
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255, 255, 255, 0.08) 1px, rgba(255, 255, 255, 0.08) 2px),
+    var(--foreground);
+  color: var(--background);
+}
+
+.queue-header-count strong {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(3rem, 8vw, 6rem);
+  line-height: 0.8;
+  letter-spacing: -0.05em;
+  font-weight: 600;
+}
+
+.queue-header-count span {
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.scan-productivity-strip {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  border: 2px solid var(--foreground);
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255, 255, 255, 0.08) 1px, rgba(255, 255, 255, 0.08) 2px),
+    var(--foreground);
+  color: var(--background);
+}
+
+.scan-productivity-card {
+  border-left: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  padding: 1rem 1.15rem;
+}
+
+.scan-productivity-card:first-child {
+  border-left: 0;
+}
+
+.scan-productivity-card span {
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.scan-productivity-card strong {
+  margin-top: 0.45rem;
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 0.85;
+  letter-spacing: -0.05em;
+}
+
+.scan-shortcut-card {
+  align-items: flex-start;
+  min-height: 100%;
+  padding: 1.15rem;
+}
+
+.scan-shortcut-card strong,
+.scan-pulse-card strong {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: 1.45rem;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.scan-shortcut-card strong {
+  margin-bottom: 0.35rem;
+}
+
+.scan-shortcut-card:hover strong,
+.scan-shortcut-card:hover span,
+.sell-queue-summary-card:hover p,
+.activity-summary-card:hover p,
+.item-card:hover .item-card-meta,
+.item-card:hover .item-card-marketplaces,
+.marketplace-status-row:hover .marketplace-status-copy,
+.marketplace-status-row:hover .marketplace-missing-inline,
+.lookup-candidate-card:hover .muted {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+.scan-pulse-card,
+.sell-queue-summary-card,
+.activity-summary-card,
+.item-card,
+.marketplace-status-row,
+.lookup-candidate-card,
+.activity-row {
+  border: 2px solid var(--foreground);
+  background: var(--background);
+}
+
+.scan-pulse-card,
+.sell-queue-summary-card,
+.activity-summary-card {
+  padding: 1rem 1.15rem;
+}
+
+.sell-queue-summary-card,
+.activity-summary-card {
+  gap: 0.55rem;
+}
+
+.sell-queue-summary-card:hover,
+.activity-summary-card:hover,
+.item-card:hover,
+.marketplace-status-row:hover,
+.lookup-candidate-card:hover,
+.activity-row:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.sell-queue-summary-card.active {
+  background: var(--foreground);
+  color: var(--background);
+  border-width: 4px;
+}
+
+.sell-queue-summary-topline,
+.activity-summary-topline {
+  color: var(--muted-foreground);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sell-queue-summary-card:hover .sell-queue-summary-topline,
+.activity-summary-card:hover .activity-summary-topline,
+.sell-queue-summary-card.active .sell-queue-summary-topline {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sell-queue-summary-card strong,
+.activity-summary-card strong {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(2.25rem, 5vw, 3.6rem);
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+}
+
+.inventory-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.inventory-toolbar .inventory-search {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  border-bottom: 2px solid var(--foreground);
+  width: 100%;
+}
+
+.inventory-toolbar .inventory-search .field {
+  border: 0;
+  padding-left: 0;
+}
+
+.inventory-filter-chips {
+  display: flex;
+  gap: 0.75rem;
+  grid-column: 1 / -1;
+  overflow-x: auto;
+}
+
+.inventory-filter-chip {
+  border: 1px solid var(--foreground);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.75rem 1rem;
+  white-space: nowrap;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.inventory-filter-chip.active,
+.inventory-filter-chip:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.inventory-bucket-grid,
+.scan-shortcuts,
+.activity-grid,
+.scan-pulse-grid {
+  gap: 1rem;
+}
+
+.inventory-bucket-count,
+.app-status-pill,
+.profit-badge,
+.marketplace-meta-pill,
+.listing-marketplace-pill,
+.item-card-market-summary,
+.item-card-blocker,
+.item-card-market-chip,
+.missing-field-chip,
+.lookup-confidence-pill {
+  border: 1px solid var(--foreground);
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.45rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.queue-header-count,
+.inventory-bucket-count {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.inventory-bucket-count {
+  min-width: 3.2rem;
+  justify-content: center;
+}
+
+.app-status-pill-success,
+.app-status-pill-accent,
+.profit-badge-strong,
+.item-card-blocker {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.app-status-pill-warning,
+.profit-badge-soft,
+.lookup-confidence-medium {
+  border-style: dashed;
+}
+
+.app-status-pill-danger,
+.profit-badge-risk,
+.lookup-confidence-low {
+  border-style: double;
+}
+
+.profit-badge-neutral,
+.app-status-pill-neutral {
+  color: var(--muted-foreground);
+  border-color: var(--border-light);
+}
+
+.missing-fields-panel {
+  border: 2px solid var(--foreground);
+  background:
+    repeating-linear-gradient(45deg, transparent, transparent 24px, rgba(0, 0, 0, 0.04) 24px, rgba(0, 0, 0, 0.04) 26px),
+    var(--background);
+}
+
+.missing-fields-panel-ready {
+  background:
+    repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255, 255, 255, 0.08) 1px, rgba(255, 255, 255, 0.08) 2px),
+    var(--foreground);
+  color: var(--background);
+}
+
+.missing-fields-panel-ready .eyebrow,
+.missing-fields-panel-ready .missing-field-chip {
+  color: var(--background);
+}
+
+.missing-fields-list {
+  gap: 0.5rem;
+}
+
+.item-card {
+  grid-template-columns: 124px minmax(0, 1fr);
+  padding: 1rem;
+}
+
+.item-card-body {
+  gap: 0.8rem;
+}
+
+.item-card-image,
+.lookup-candidate-image,
+.lookup-candidate-thumb,
+.detail-primary-image {
+  border: 2px solid var(--foreground);
+  filter: grayscale(1);
+  transition:
+    transform 300ms ease,
+    filter 300ms ease,
+    border-width 100ms linear;
+}
+
+.item-card:hover .item-card-image,
+.lookup-candidate-card:hover .lookup-candidate-image,
+.lookup-candidate-card:hover .lookup-candidate-thumb {
+  border-width: 4px;
+  filter: grayscale(0);
+  transform: scale(1.03);
+}
+
+.item-card-title,
+.detail-item-title {
+  font-family: var(--font-display), Georgia, serif;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  line-height: 0.96;
+  letter-spacing: -0.04em;
+}
+
+.item-card-meta,
+.item-card-badges,
+.item-card-marketplaces {
+  gap: 0.5rem;
+}
+
+.item-card-marketplaces,
+.item-card-meta {
+  font-size: 0.76rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.marketplace-status-row {
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.marketplace-status-row-selected {
+  border-width: 4px;
+}
+
+.marketplace-status-meta {
+  gap: 0.55rem;
+}
+
+.marketplace-selection-toggle span {
+  box-shadow: none;
+}
+
+.marketplace-selection-toggle input:checked + span {
+  background: var(--foreground);
+  border-color: var(--foreground);
+}
+
+.marketplace-blocker-inline {
+  color: var(--foreground);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.action-rail {
+  border: 2px solid var(--foreground);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.activity-list {
+  gap: 0;
+}
+
+.activity-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--foreground);
+}
+
+.activity-row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.source-search-panel,
+.market-observation-card,
+.lookup-candidate-card,
+.lookup-candidate-meta-item,
+.lookup-candidate-image,
+.lookup-candidate-thumb,
+.connect-prompt-card,
+.detail-advanced-panel,
+.detail-image-card,
+.listing-template-card {
+  background: var(--background);
+}
+
+.source-search-field {
+  border: 0;
+  border-bottom: 2px solid var(--foreground);
+  background: transparent;
+  padding: 0 0.15rem;
+}
+
+.source-search-field .field {
+  border: 0;
+}
+
+.secondary-link-button,
+.public-doc-link {
+  border: 2px solid var(--foreground);
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 46px;
+  padding: 0.85rem 1rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.secondary-link-button:hover,
+.public-doc-link:hover,
+.secondary-link-button:focus-visible,
+.public-doc-link:focus-visible {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.lookup-candidate-card-selected {
+  border-width: 4px;
+}
+
+.lookup-candidate-meta-item {
+  gap: 0.25rem;
+}
+
+.lookup-candidate-meta-item .muted {
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.scan-result-sheet {
+  border-width: 2px;
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.scan-result-sheet::before {
+  width: 96px;
+  height: 4px;
+  background: var(--foreground);
+}
+
+.handoff-modal-backdrop {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.handoff-modal {
+  padding: 1.2rem;
+}
+
+.barcode-scanner-video-shell {
+  border: 2px solid var(--foreground);
+  background: var(--foreground);
+}
+
+.barcode-scanner-guide {
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+.barcode-scanner-status {
+  border: 2px solid var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+  font-weight: 500;
+}
+
+.public-doc-page {
+  max-width: 72rem;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.public-doc-hero,
+.public-doc-card {
+  padding: 1.5rem;
+}
+
+.public-doc-hero {
+  display: grid;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.public-doc-brand h1 {
+  font-size: clamp(3rem, 10vw, 7rem);
+  line-height: 0.86;
+  letter-spacing: -0.06em;
+}
+
+.public-doc-footer {
+  gap: 0.8rem;
+  border-top: 4px solid var(--foreground);
+  padding-top: 1rem;
+}
+
+.public-doc-footer-links,
+.public-link-row {
+  gap: 0.7rem 1rem;
+}
+
+.barcode-scanner-overlay {
+  background:
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.44), rgba(0, 0, 0, 0.12) 16%, rgba(0, 0, 0, 0.12) 84%, rgba(0, 0, 0, 0.44)),
+    linear-gradient(to right, rgba(0, 0, 0, 0.48), rgba(0, 0, 0, 0.1) 18%, rgba(0, 0, 0, 0.1) 82%, rgba(0, 0, 0, 0.48));
+}
+
+.barcode-scanner-detected-outline polygon {
+  fill: rgba(255, 255, 255, 0.08);
+  stroke: rgba(255, 255, 255, 0.9);
+  filter: none;
+}
+
+.sell-item-layout,
+.detail-sell-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 769px) {
+  .scan-shortcuts,
+  .activity-grid,
+  .detail-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scan-pulse-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .inventory-bucket-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sell-item-layout {
+    grid-template-columns: minmax(0, 0.72fr) minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .public-doc-hero {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-topbar {
+    padding: 1rem;
+  }
+
+  .app-brand-block h1 {
+    font-size: clamp(2.75rem, 18vw, 5rem);
+  }
+
+  .app-main {
+    padding: 1rem 1rem 7rem;
+  }
+
+  .page-stack > * + * {
+    padding-top: 1.25rem;
+  }
+
+  .queue-header {
+    grid-template-columns: 1fr;
+  }
+
+  .queue-header-count {
+    justify-items: start;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .scan-home-hero .queue-header h3 {
+    font-size: clamp(3.2rem, 16vw, 5.4rem);
+  }
+
+  .scan-productivity-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .scan-productivity-card:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .scan-productivity-card:nth-child(4) {
+    border-top: 1px solid rgba(255, 255, 255, 0.2);
+  }
+
+  .inventory-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .activity-row,
+  .marketplace-status-row,
+  .item-card-topline,
+  .item-card-footer {
+    flex-direction: column;
+  }
+
+  .item-card,
+  .sell-item-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .public-doc-page {
+    padding: 1rem 1rem 2rem;
+  }
+
+  .public-doc-brand h1 {
+    font-size: clamp(2.8rem, 18vw, 5rem);
+  }
+}

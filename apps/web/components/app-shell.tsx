@@ -71,12 +71,20 @@ export function AppShell({
 
   return (
     <div className={`app-shell${chrome === "immersive" ? " app-shell-immersive" : ""}`}>
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
       <header className="app-topbar">
         <div className="app-brand-block">
-          <p className="sidebar-kicker">Resale operating system</p>
-          <h1>Mollie</h1>
+          <div className="app-brand-lockup">
+            <span aria-hidden="true" className="app-brand-mark" />
+            <div>
+              <p className="sidebar-kicker">Resale operating system</p>
+              <h1>Mollie</h1>
+            </div>
+          </div>
           <div className="app-topbar-meta">
-            <span>{title}</span>
+            <span className="app-topbar-context">{title}</span>
             <span>{auth.workspace?.name ?? "No workspace"}</span>
           </div>
         </div>
@@ -147,7 +155,9 @@ export function AppShell({
         })}
       </nav>
 
-      <main className="app-main">{children}</main>
+      <main className="app-main" id="main-content">
+        {children}
+      </main>
 
       <nav aria-label="Primary mobile" className="mobile-tab-bar">
         {primaryNavItems.map((item) => {

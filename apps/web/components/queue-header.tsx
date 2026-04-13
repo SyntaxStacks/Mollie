@@ -11,12 +11,19 @@ export function QueueHeader({
 }) {
   return (
     <div className="queue-header">
-      <div>
+      <div className="queue-header-copy">
         <p className="eyebrow">Queue</p>
+        <div aria-hidden="true" className="queue-header-rule">
+          <span className="queue-header-rule-square" />
+          <span className="queue-header-rule-line" />
+        </div>
         <h3>{title}</h3>
-        <p className="queue-header-copy">{description}</p>
+        <p className="queue-header-description">{description}</p>
       </div>
-      <div className="queue-header-count">{count}</div>
+      <div aria-label={`${count} items in queue`} className="queue-header-count">
+        <strong>{count}</strong>
+        <span>items</span>
+      </div>
     </div>
   );
 }

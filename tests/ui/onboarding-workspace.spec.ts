@@ -1,4 +1,4 @@
-import { devices, expect, test, type Page } from "@playwright/test";
+import { devices, expect, test, type Page, type TestInfo } from "@playwright/test";
 
 function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
@@ -34,12 +34,13 @@ async function onboardOperator(page: Page, options?: { workspaceName?: string })
   await page.getByRole("button", { name: /create workspace/i }).click();
 
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /camera-first intake/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
   await expect(page.getByText(workspaceName)).toBeVisible();
 }
 
 async function createInventoryItem(page: Page, title: string) {
   await page.goto("/");
+  await page.getByRole("tab", { name: /manual\/source lookup/i }).click();
   await page.getByTestId("scan-identify-barcode").fill("012345678905");
   await page.getByTestId("scan-identify-submit").click();
   await expect(page.getByTestId("scan-identify-candidate-0")).toBeVisible();
@@ -48,6 +49,15 @@ async function createInventoryItem(page: Page, title: string) {
   await page.getByTestId("scan-identify-condition").fill("Good used condition");
   await page.getByTestId("scan-identify-create").click();
   await expect(page).toHaveURL(/\/inventory\/.+/);
+}
+
+async function attachRouteScreenshot(page: Page, testInfo: TestInfo, name: string) {
+  const path = testInfo.outputPath(`${name}.png`);
+  await page.screenshot({ path, fullPage: true });
+  await testInfo.attach(name, {
+    path,
+    contentType: "image/png"
+  });
 }
 
 test("logged-out operators can access the onboarding form without a redirect trap", async ({ page }) => {
@@ -85,7 +95,32 @@ test("operators can onboard, create a workspace, and get redirected into the app
 
   await page.goto("/workspace");
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /camera-first intake/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
+});
+
+test("redesigned core routes render after onboarding", async ({ page }, testInfo) => {
+  await onboardOperator(page, {
+    workspaceName: "UI Route Smoke Workspace"
+  });
+
+  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
+  await expect(page.getByText(/fill what matters\./i)).toBeVisible();
+  await attachRouteScreenshot(page, testInfo, "route-scan");
+
+  await page.goto("/inventory");
+  await expect(page.getByRole("heading", { name: /photo-first item management/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /inventory built for finish-and-sell work/i })).toBeVisible();
+  await attachRouteScreenshot(page, testInfo, "route-inventory");
+
+  await page.goto("/sell");
+  await expect(page.getByRole("heading", { name: /queue-based selling/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /desktop listing management/i })).toBeVisible();
+  await attachRouteScreenshot(page, testInfo, "route-sell");
+
+  await page.goto("/activity");
+  await expect(page.getByRole("heading", { name: /operational feed/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /suggested moves/i })).toBeVisible();
+  await attachRouteScreenshot(page, testInfo, "route-activity");
 });
 
 test("desktop inventory detail exposes a continue-on-mobile handoff with the canonical item url", async ({ page, baseURL }) => {
@@ -96,6 +131,7 @@ test("desktop inventory detail exposes a continue-on-mobile handoff with the can
   });
 
   await createInventoryItem(page, title);
+  await page.getByText("History and item tools", { exact: true }).click();
   await page.getByTestId("continue-on-mobile-trigger").click();
 
   await expect(page.getByRole("dialog", { name: /continue on mobile/i })).toBeVisible();
@@ -111,14 +147,15 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
   });
 
   await page.goto("/");
+  await page.getByRole("tab", { name: /manual\/source lookup/i }).click();
   await page.getByTestId("scan-identify-barcode").fill("012345678905");
   await page.getByTestId("scan-identify-submit").click();
   const firstCandidate = page.getByTestId("scan-identify-candidate-0");
   await expect(firstCandidate).toBeVisible();
   await expect(firstCandidate.getByText(/amazon enriched/i)).toBeVisible();
   await page.getByTestId("scan-identify-accept-0").click();
-  await expect(page.getByText(/^accepted source$/i)).toBeVisible();
-  await expect(page.getByText(/valid starting point for this item/i)).toBeVisible();
+  await expect(page.getByText(/^source reference$/i)).toBeVisible();
+  await expect(page.getByText(/mollie used this source to prefill the fields below/i)).toBeVisible();
   await page.getByTestId("scan-identify-title").fill(title);
   await page.getByTestId("scan-identify-condition").fill("Good used condition");
   await page.getByTestId("scan-identify-amazon-price").fill("39.99");
@@ -140,16 +177,10 @@ test("operators can start a helper-assisted automation vendor sign-in from marke
   });
 
   await page.goto("/marketplaces");
-  await page.getByRole("button", { name: /connect depop/i }).click();
-
-  await expect(page.getByRole("dialog", { name: /connect depop/i })).toBeVisible();
-  await page.getByLabel(/account label in mollie/i).fill("Main Depop account");
-  await page.getByRole("button", { name: /start secure depop sign-in/i }).click();
-
-  await expect(page.getByText(/depop sign-in is ready to start/i)).toBeVisible();
-  await expect(page.getByText(/sign in to depop/i)).toBeVisible();
-  await expect(page.getByRole("button", { name: /open secure sign-in/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /refresh status/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /login required/i }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: /open depop login/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^recheck login$/i }).first()).toBeVisible();
+  await expect(page.getByText(/please log in to your depop account in another tab/i)).toBeVisible();
 });
 
 test.describe("inventory continuity on mobile", () => {
@@ -170,13 +201,15 @@ test.describe("inventory continuity on mobile", () => {
 
     await createInventoryItem(page, title);
 
-    const photoHeading = page.getByRole("heading", { name: /keep the item sellable/i });
+    const photoHeading = page.getByRole("heading", { name: /^photos$/i });
     const summaryHeading = page.getByRole("heading", { name: new RegExp(title, "i") });
+    const listingHeading = page.getByRole("heading", { name: /choose marketplaces first, then fill one listing form/i });
 
     await expect(photoHeading).toBeVisible();
     await expect(summaryHeading).toBeVisible();
-    await expect(page.getByRole("heading", { name: /what is live, blocked, or waiting/i })).toBeVisible();
-    const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /keep the item sellable/i }) }).first();
+    await expect(listingHeading).toBeVisible();
+    const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /^photos$/i }) }).first();
+    const uploadForm = photoCard.locator("form.inventory-image-form");
     const startingImageCount = await page.locator(".detail-image-card").count();
 
     await page.setInputFiles('input[name="image"]', {
@@ -184,9 +217,14 @@ test.describe("inventory continuity on mobile", () => {
       mimeType: "image/png",
       buffer: tinyPng
     });
-    await photoCard.getByTestId("inventory-upload-submit").click();
+    const uploadResponsePromise = page.waitForResponse((response) => {
+      return response.request().method() === "POST" && /\/api\/inventory\/.+\/images\/upload$/.test(response.url());
+    });
+    await uploadForm.evaluate((node) => (node as HTMLFormElement).requestSubmit());
+    const uploadResponse = await uploadResponsePromise;
 
-    await expect(page.getByText(/image uploaded/i)).toBeVisible();
+    expect(uploadResponse.ok()).toBeTruthy();
+    await expect(page.getByText(/^image uploaded$/i)).toBeVisible();
     await expect(page.locator(".detail-image-card")).toHaveCount(startingImageCount + 1);
     await page.reload();
     await expect(photoHeading).toBeVisible();

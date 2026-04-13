@@ -924,7 +924,6 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
     setSelectedCandidate(candidate);
     setManualEntryEnabled(true);
-    setEntryMode("CODE");
     setLookupError(null);
     setLookupQuery((current) => current || candidate.title);
     setManualSourceUrl((current) => choosePrefillValue(current, candidate.productUrl ?? "", [previousCandidate?.productUrl ?? ""]));
@@ -957,6 +956,11 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   }
 
   function handleManualLookupStart() {
+    if (barcode.trim()) {
+      runLookup(barcode);
+      return;
+    }
+
     setLookupResult(null);
     setLookupError(null);
     setSubmitError(null);
@@ -1630,39 +1634,24 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           </div>
 
           {entryMode === "CODE" ? (
-            <div className="scan-import-grid">
-              <label className="label">
-                Barcode
-                <div className="scan-field-row">
-                  <input
-                    className="field"
-                    data-testid="scan-identify-barcode"
-                    inputMode="numeric"
-                    placeholder="Scan or type barcode"
-                    required
-                    value={barcode}
-                    onChange={(event) => setBarcode(event.target.value)}
-                  />
-                  {scannerSupported ? (
-                    <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
-                      <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
-                    </Button>
-                  ) : null}
+            <div className="market-observation-card">
+              <div className="split">
+                <div>
+                  <p className="eyebrow">Scanner-first intake</p>
+                  <strong>Open the camera and let Mollie look up the code live</strong>
                 </div>
-              </label>
-              <div className="label">
-                Identify
-                <div className="scan-field-row">
-                  <Button
-                    data-testid="scan-identify-submit"
-                    disabled={lookupPending || !barcode.trim()}
-                    kind="secondary"
-                    onClick={handleLookup}
-                    type="button"
-                  >
-                    <Search size={16} /> {lookupPending ? "Identifying..." : "Find product match"}
+                <div className="market-observation-value">Camera path</div>
+              </div>
+              <div className="scan-import-hint">
+                <ScanBarcode size={16} />
+                <span>Use the printed barcode when it is available. If scanning is weak or you need to paste a code, switch to manual/source lookup.</span>
+              </div>
+              <div className="actions">
+                {scannerSupported ? (
+                  <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
+                    <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
                   </Button>
-                </div>
+                ) : null}
               </div>
             </div>
           ) : (
@@ -1675,15 +1664,37 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                 onQueryChange={setLookupQuery}
                 onSourceUrlChange={setManualSourceUrl}
               />
+              <label className="label">
+                Barcode fallback
+                <div className="scan-field-row">
+                  <input
+                    className="field"
+                    data-testid="scan-identify-barcode"
+                    inputMode="numeric"
+                    placeholder="Paste or type barcode"
+                    value={barcode}
+                    onChange={(event) => setBarcode(event.target.value)}
+                  />
+                  <Button
+                    data-testid="scan-identify-submit"
+                    disabled={lookupPending || !barcode.trim()}
+                    kind="secondary"
+                    onClick={handleLookup}
+                    type="button"
+                  >
+                    <Search size={16} /> {lookupPending ? "Identifying..." : "Find product match"}
+                  </Button>
+                </div>
+              </label>
               <div className="actions">
                 <Button
                   data-testid="scan-identify-manual-start"
-                  disabled={!lookupQuery.trim() && !manualSourceUrl.trim()}
+                  disabled={!barcode.trim() && !lookupQuery.trim() && !manualSourceUrl.trim()}
                   kind="secondary"
                   onClick={handleManualLookupStart}
                   type="button"
                 >
-                  <Sparkles size={16} /> Prefill from manual lookup
+                  <Sparkles size={16} /> {barcode.trim() ? "Run barcode fallback" : "Prefill from manual lookup"}
                 </Button>
               </div>
             </div>

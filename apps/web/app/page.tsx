@@ -53,6 +53,8 @@ export default function ScanPage() {
     <ProtectedView>
       <AppShell chrome="immersive" title="Scan">
         <section className="scan-home">
+          {auth.token ? <BarcodeImportCard presentation="scan" token={auth.token} /> : null}
+
           <div className="scan-home-hero">
             <QueueHeader
               count={readyToListCount}
@@ -117,8 +119,6 @@ export default function ScanPage() {
               </Link>
             </div>
           </div>
-
-          {auth.token ? <BarcodeImportCard presentation="scan" token={auth.token} /> : null}
 
           <SectionCard eyebrow="Queue pulse" title="Why scan stays the home screen">
             <div className="scan-pulse-grid">
