@@ -105,6 +105,19 @@ export function normalizeIdentifier(identifier: string) {
     .replace(/[^A-Z0-9\-_.+/]/g, "");
 }
 
+function isValidIsbn10(value: string) {
+  if (!/^\d{9}[\dX]$/.test(value)) {
+    return false;
+  }
+
+  const checksum = value.split("").reduce((sum, character, index) => {
+    const digit = character === "X" ? 10 : Number(character);
+    return sum + digit * (10 - index);
+  }, 0);
+
+  return checksum % 11 === 0;
+}
+
 export function classifyIdentifier(identifier: string): CatalogIdentifierType {
   const normalized = normalizeIdentifier(identifier);
 
@@ -120,7 +133,7 @@ export function classifyIdentifier(identifier: string): CatalogIdentifierType {
     return "EAN";
   }
 
-  if (/^\d{9}[\dX]$/.test(normalized)) {
+  if (isValidIsbn10(normalized)) {
     return "ISBN";
   }
 

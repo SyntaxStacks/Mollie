@@ -25,7 +25,7 @@ function wrapCatalogError(app: ApiApp, error: unknown): never {
 }
 
 function invalidIdentifierMessage() {
-  return "Scan or enter a UPC, EAN, ISBN, or Code 128 barcode. QR code links are not supported in this step.";
+  return "Scan or enter a supported barcode. QR code links are not supported in this step.";
 }
 
 export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
@@ -39,7 +39,7 @@ export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
     const identifier = body.identifier?.trim() || body.barcode?.trim();
 
     if (!identifier) {
-      throw app.httpErrors.badRequest("Provide a UPC, EAN, ISBN, or Code 128 barcode");
+      throw app.httpErrors.badRequest("Provide a supported barcode");
     }
 
     let result;

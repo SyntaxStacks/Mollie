@@ -653,7 +653,7 @@ export const catalogLookupRequestSchema = z
     identifierType: z.enum(catalogIdentifierTypes).optional().nullable()
   })
   .refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
-    message: "Provide a UPC, EAN, ISBN, or Code 128 barcode"
+    message: "Provide a supported barcode"
   });
 
 export const productLookupBarcodeRequestSchema = z.object({
@@ -709,7 +709,7 @@ export const inventoryBarcodeImportSchema = z.object({
   generateDrafts: z.boolean().default(false),
   draftPlatforms: z.array(z.enum(platforms)).default([...platforms])
 }).refine((input) => Boolean(input.identifier?.trim() || input.barcode?.trim()), {
-  message: "Provide a UPC, EAN, ISBN, or Code 128 barcode",
+  message: "Provide a supported barcode",
   path: ["identifier"]
 });
 

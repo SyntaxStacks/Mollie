@@ -177,7 +177,7 @@ export function ManualInventoryItemForm({ token, open, onClose, existingItems }:
           <div className="scan-import-grid">
             <label className="label">
               Identifier
-              <input className="field" placeholder="Optional UPC, EAN, ISBN, or Code 128" value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
+              <input className="field" placeholder="Optional barcode or product code" value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
             </label>
             <label className="label">
               Title

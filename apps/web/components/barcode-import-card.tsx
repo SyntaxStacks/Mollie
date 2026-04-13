@@ -59,6 +59,8 @@ type CameraDeviceOption = {
   label: string;
 };
 
+const BARCODE_DETECTOR_FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "itf", "codabar"] as const;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -200,6 +202,19 @@ function normalizeImageUrls(value: string) {
   return [...new Set(value.split(/[\r\n,]+/).map((entry) => entry.trim()).filter(Boolean))];
 }
 
+function isValidIsbn10(value: string) {
+  if (!/^\d{9}[\dX]$/.test(value)) {
+    return false;
+  }
+
+  const checksum = value.split("").reduce((sum, character, index) => {
+    const digit = character === "X" ? 10 : Number(character);
+    return sum + digit * (10 - index);
+  }, 0);
+
+  return checksum % 11 === 0;
+}
+
 function normalizeIdentifierInput(value: string) {
   const trimmed = value.trim().toUpperCase();
 
@@ -231,7 +246,7 @@ function classifyIdentifierInput(value: string) {
     return "EAN";
   }
 
-  if (/^\d{9}[\dX]$/.test(normalized)) {
+  if (isValidIsbn10(normalized)) {
     return "ISBN";
   }
 
@@ -261,6 +276,17 @@ function barcodeFormatToIdentifierType(value: string | null | undefined) {
     return "UPC" as const;
   }
 
+  if (
+    normalized === "itf" ||
+    normalized === "codabar" ||
+    normalized === "rss_14" ||
+    normalized === "rss-14" ||
+    normalized === "rss_expanded" ||
+    normalized === "rss-expanded"
+  ) {
+    return "CODE128" as const;
+  }
+
   return null;
 }
 
@@ -268,17 +294,17 @@ function barcodeInputError(value: string) {
   const trimmed = value.trim();
 
   if (!trimmed) {
-    return "Scan or enter a UPC, EAN, ISBN, or Code 128 barcode.";
+    return "Scan or enter a supported barcode.";
   }
 
   if (/^https?:\/\//i.test(trimmed) || trimmed.includes("www.") || trimmed.includes("/")) {
-    return "That looked like a QR code link, not a UPC, EAN, ISBN, or Code 128 barcode. Point the camera at the printed barcode instead.";
+    return "That looked like a QR code link, not a supported barcode. Point the camera at the printed barcode instead.";
   }
 
   const normalized = normalizeIdentifierInput(trimmed);
 
   if (!normalized || classifyIdentifierInput(normalized) === "UNKNOWN") {
-    return "Scan or enter a UPC, EAN, ISBN, or Code 128 barcode. QR code links are not supported in this step.";
+    return "Scan or enter a supported barcode. QR code links are not supported in this step.";
   }
 
   return null;
@@ -321,6 +347,31 @@ function sourceMarketForUrl(value: string | null | undefined) {
   }
 
   return "OTHER" as const;
+}
+
+async function createZxingReader() {
+  const [{ BrowserMultiFormatReader }, { BarcodeFormat, DecodeHintType }] = await Promise.all([
+    import("@zxing/browser"),
+    import("@zxing/library")
+  ]);
+  const hints = new Map();
+  hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+    BarcodeFormat.EAN_13,
+    BarcodeFormat.EAN_8,
+    BarcodeFormat.UPC_A,
+    BarcodeFormat.UPC_E,
+    BarcodeFormat.CODE_128,
+    BarcodeFormat.ITF,
+    BarcodeFormat.CODABAR,
+    BarcodeFormat.RSS_14,
+    BarcodeFormat.RSS_EXPANDED
+  ]);
+  hints.set(DecodeHintType.TRY_HARDER, true);
+
+  return new BrowserMultiFormatReader(hints, {
+    delayBetweenScanAttempts: 120,
+    delayBetweenScanSuccess: 400
+  });
 }
 
 export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeImportCardProps) {
@@ -489,11 +540,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     }
 
     let active = true;
-    let animationFrame = 0;
     let scannerControls: { stop: () => void } | null = null;
     let stream: MediaStream | null = null;
-    let detectionInFlight = false;
-    let scanIteration = 0;
 
     async function beginScan() {
       try {
@@ -508,100 +556,32 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           return;
         }
 
-        const BarcodeDetector = window.BarcodeDetector;
-
-        if (BarcodeDetector) {
-          const videoConstraint = selectedCameraId
-            ? {
-                deviceId: {
-                  exact: selectedCameraId
-                }
+        const videoConstraint = selectedCameraId
+          ? {
+              deviceId: {
+                exact: selectedCameraId
               }
-            : {
-                facingMode: {
-                  ideal: "environment"
-                }
-              };
-
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: videoConstraint
-          });
-
-          if (!active) {
-            return;
-          }
-
-          previewElement.srcObject = stream;
-          await previewElement.play();
-          await refreshAvailableCameras();
-
-          const detector = new BarcodeDetector({
-            formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
-          });
-
-          const scanFrame = async () => {
-            if (!active || detectionInFlight || scanResolvedRef.current) {
-              animationFrame = window.requestAnimationFrame(scanFrame);
-              return;
             }
-
-            detectionInFlight = true;
-
-            try {
-              const cropFrame = getScannerCropFrame(previewElement);
-              const useFullFrame = scanIteration % 5 === 0 || !cropFrame;
-              const detected = await detector.detect(useFullFrame ? previewElement : cropFrame.canvas);
-              const match = detected.find((candidate) => candidate.rawValue?.trim());
-              const code = match?.rawValue?.trim();
-
-              if (code) {
-                const overlayPoints = match
-                  ? buildOverlayPolygonFromDetectorMatch(match, {
-                      frameWidth: previewElement.videoWidth,
-                      frameHeight: previewElement.videoHeight,
-                      offsetX: useFullFrame ? 0 : cropFrame?.offsetX,
-                      offsetY: useFullFrame ? 0 : cropFrame?.offsetY
-                    })
-                  : null;
-                revealScannerOutline(overlayPoints);
-                setScannerStatus("Barcode spotted. Hold steady...");
-                handleBarcodeDetected(code, barcodeFormatToIdentifierType(match?.format));
-                return;
+          : {
+              facingMode: {
+                ideal: "environment"
               }
-            } catch {
-              setScannerError("Could not read the barcode yet. Hold the label flatter and closer.");
-            } finally {
-              detectionInFlight = false;
-              scanIteration += 1;
-            }
+            };
 
-            animationFrame = window.requestAnimationFrame(scanFrame);
-          };
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraint
+        });
 
-          animationFrame = window.requestAnimationFrame(scanFrame);
+        if (!active) {
           return;
         }
 
-        const [
-          { BrowserMultiFormatReader },
-          { BarcodeFormat, ChecksumException, DecodeHintType, FormatException, NotFoundException }
-        ] = await Promise.all([
-          import("@zxing/browser"),
-          import("@zxing/library")
-        ]);
-        const hints = new Map();
-        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
-          BarcodeFormat.EAN_13,
-          BarcodeFormat.EAN_8,
-          BarcodeFormat.UPC_A,
-          BarcodeFormat.UPC_E,
-          BarcodeFormat.CODE_128
-        ]);
-        hints.set(DecodeHintType.TRY_HARDER, true);
-        const reader = new BrowserMultiFormatReader(hints, {
-          delayBetweenScanAttempts: 120,
-          delayBetweenScanSuccess: 400
-        });
+        previewElement.srcObject = stream;
+        await previewElement.play();
+        await refreshAvailableCameras();
+
+        const reader = await createZxingReader();
+        const { ChecksumException, FormatException, NotFoundException } = await import("@zxing/library");
 
         scannerControls = await reader.decodeFromConstraints(
           {
@@ -655,9 +635,6 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     return () => {
       active = false;
       scanResolvedRef.current = false;
-      if (animationFrame) {
-        window.cancelAnimationFrame(animationFrame);
-      }
       if (scannerOutlineResetRef.current) {
         window.clearTimeout(scannerOutlineResetRef.current);
         scannerOutlineResetRef.current = null;
@@ -694,7 +671,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       const image = await createImageBitmap(file);
       try {
         const detector = new BarcodeDetector({
-          formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+          formats: [...BARCODE_DETECTOR_FORMATS]
         });
         const detected = await detector.detect(image);
           const match = detected.find((candidate) => candidate.rawValue?.trim());
@@ -711,8 +688,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       }
     }
 
-    const { BrowserMultiFormatReader } = await import("@zxing/browser");
-    const reader = new BrowserMultiFormatReader();
+    const reader = await createZxingReader();
     const objectUrl = URL.createObjectURL(file);
 
     try {
@@ -821,7 +797,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
 
     if (BarcodeDetector) {
       const detector = new BarcodeDetector({
-        formats: ["ean_13", "ean_8", "upc_a", "upc_e", "code_128"]
+        formats: [...BARCODE_DETECTOR_FORMATS]
       });
       const detected = await detector.detect(canvas);
       const match = detected.find((candidate) => candidate.rawValue?.trim());
@@ -835,8 +811,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       }
     }
 
-    const { BrowserMultiFormatReader } = await import("@zxing/browser");
-    const reader = new BrowserMultiFormatReader();
+    const reader = await createZxingReader();
     const result = reader.decodeFromCanvas(canvas);
     const code = result.getText().trim();
 
@@ -2057,7 +2032,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
               </Button>
             </div>
             <p className="handoff-copy">
-              Hold the barcode inside the frame. Mollie will search as soon as it reads a UPC, EAN, ISBN, or Code 128 barcode.
+              Hold the barcode inside the frame. Mollie will search as soon as it reads a supported barcode.
             </p>
             {availableCameras.length > 1 ? (
               <div className="barcode-scanner-camera-controls">
