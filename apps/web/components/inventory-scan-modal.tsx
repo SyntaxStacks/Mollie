@@ -1,33 +1,22 @@
 "use client";
 
-import { Camera, ScanBarcode, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { X } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 import { Button } from "@reselleros/ui";
 
 import { BarcodeImportCard } from "./barcode-import-card";
-import { VisualIdentifyCard } from "./visual-identify-card";
-
-type ScanModalMode = "barcode" | "photo";
 
 export function InventoryScanModal({
   token,
   open,
-  initialMode = "barcode",
   onClose
 }: {
   token: string;
   open: boolean;
-  initialMode?: ScanModalMode;
   onClose: () => void;
 }) {
-  const [mode, setMode] = useState<ScanModalMode>(initialMode);
-
-  useEffect(() => {
-    if (open) {
-      setMode(initialMode);
-    }
-  }, [initialMode, open]);
+  const router = useRouter();
 
   if (!open) {
     return null;
@@ -36,56 +25,40 @@ export function InventoryScanModal({
   return (
     <div className="handoff-modal-backdrop" role="presentation" onClick={onClose}>
       <div
-        aria-labelledby="inventory-scan-modal-title"
+        aria-label="Inventory scan"
         aria-modal="true"
-        className="handoff-modal scan-intake-modal"
+        className="handoff-modal scan-intake-modal inventory-scan-modal-shell"
         role="dialog"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="handoff-modal-header">
-          <div>
-            <p className="eyebrow">Inventory intake</p>
-            <h3 id="inventory-scan-modal-title">Scan item into inventory</h3>
-          </div>
-          <Button kind="ghost" onClick={onClose} type="button">
-            <X size={16} /> Close
+        <div className="inventory-scan-modal-header">
+          <Button
+            aria-label="Close scan modal"
+            className="inventory-scan-modal-close"
+            kind="ghost"
+            onClick={onClose}
+            type="button"
+          >
+            <X size={16} />
           </Button>
         </div>
 
-        <p className="handoff-copy">
-          Keep scan inside inventory. Use barcode lookup when a printed code exists, or switch to computer vision when the
-          item has no barcode.
-        </p>
-
-        <div className="intake-path-switch" role="tablist" aria-label="Inventory scan mode">
-          <button
-            aria-selected={mode === "barcode"}
-            className={`intake-path-button${mode === "barcode" ? " active" : ""}`}
-            onClick={() => setMode("barcode")}
-            role="tab"
-            type="button"
-          >
-            <ScanBarcode size={16} />
-            <span>Identify by code</span>
-          </button>
-          <button
-            aria-selected={mode === "photo"}
-            className={`intake-path-button${mode === "photo" ? " active" : ""}`}
-            onClick={() => setMode("photo")}
-            role="tab"
-            type="button"
-          >
-            <Camera size={16} />
-            <span>Identify by photo</span>
-          </button>
+        <div className="scan-intake-modal-body inventory-scan-modal-body">
+          <BarcodeImportCard autoOpenCameraOnMount presentation="scan-minimal" token={token} />
         </div>
 
-        <div className="scan-intake-modal-body">
-          {mode === "barcode" ? (
-            <BarcodeImportCard autoOpenCameraOnMount presentation="scan" token={token} />
-          ) : (
-            <VisualIdentifyCard presentation="scan" token={token} />
-          )}
+        <div className="inventory-scan-modal-actions">
+          <Button
+            className="inventory-scan-modal-manual"
+            kind="secondary"
+            onClick={() => {
+              onClose();
+              router.push("/inventory/create");
+            }}
+            type="button"
+          >
+            Manual creation
+          </Button>
         </div>
       </div>
     </div>

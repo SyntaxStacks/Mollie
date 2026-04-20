@@ -5,7 +5,6 @@ import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
 import type { AiStatusResponse, AutomationVendor, MarketplaceCapabilitySummary, Platform, UniversalListing } from "@reselleros/types";
 import { AppShell } from "../../../components/app-shell";
-import { HostedMarketplaceSigninModal } from "../../../components/hosted-marketplace-signin-modal";
 import {
   InventoryDetailView,
   type InventoryItemFormState,
@@ -30,6 +29,11 @@ const automationVendorLoginUrls = {
   DEPOP: "https://www.depop.com/login/",
   POSHMARK: "https://poshmark.com/login",
   WHATNOT: "https://www.whatnot.com/login"
+} as const;
+const automationVendorDefaultHandles = {
+  DEPOP: "main-depop-shop",
+  POSHMARK: "main-poshmark-closet",
+  WHATNOT: "main-whatnot-account"
 } as const;
 
 type InventoryItemResponse = {
@@ -62,7 +66,9 @@ export default function InventoryDetailPage() {
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [hostedSignInAttempt, setHostedSignInAttempt] = useState<{ vendor: AutomationVendor; attemptId: string } | null>(null);
+  const [pendingConnectAttempts, setPendingConnectAttempts] = useState<
+    Partial<Record<AutomationVendor, { attemptId: string; helperNonce: string }>>
+  >({});
   const [itemForm, setItemForm] = useState<InventoryItemFormState>({
     title: "",
     brand: "",
@@ -75,6 +81,7 @@ export default function InventoryDetailPage() {
     estimatedResaleMin: "",
     estimatedResaleMax: "",
     priceRecommendation: "",
+    originalPrice: "",
     description: "",
     tags: "",
     labels: "",
@@ -85,6 +92,8 @@ export default function InventoryDetailPage() {
     shippingHeight: "",
     shippingDimensionUnit: "in",
     freeShipping: false,
+    acceptOffers: true,
+    isAuction: false,
     ebayPrice: "",
     depopPrice: "",
     poshmarkPrice: "",
@@ -184,6 +193,10 @@ export default function InventoryDetailPage() {
       estimatedResaleMin: data.item.estimatedResaleMin == null ? "" : String(data.item.estimatedResaleMin),
       estimatedResaleMax: data.item.estimatedResaleMax == null ? "" : String(data.item.estimatedResaleMax),
       priceRecommendation: data.item.priceRecommendation == null ? "" : String(data.item.priceRecommendation),
+      originalPrice:
+        typeof data.item.attributesJson?.originalPrice === "number" || typeof data.item.attributesJson?.originalPrice === "string"
+          ? String(data.item.attributesJson.originalPrice)
+          : "",
       description: typeof data.item.attributesJson?.description === "string" ? data.item.attributesJson.description : "",
       tags: Array.isArray(data.item.attributesJson?.tags) ? data.item.attributesJson.tags.join(", ") : "",
       labels: Array.isArray(data.item.attributesJson?.labels) ? data.item.attributesJson.labels.join(", ") : "",
@@ -208,6 +221,8 @@ export default function InventoryDetailPage() {
       shippingDimensionUnit:
         typeof data.item.attributesJson?.shippingDimensionUnit === "string" ? data.item.attributesJson.shippingDimensionUnit : "in",
       freeShipping: data.item.attributesJson?.freeShipping === true,
+      acceptOffers: data.item.attributesJson?.acceptOffers !== false,
+      isAuction: data.item.attributesJson?.isAuction === true,
       ebayPrice:
         typeof ((marketplaceOverrides.EBAY as Record<string, unknown> | undefined)?.price) === "number"
           ? String((marketplaceOverrides.EBAY as Record<string, number>).price)
@@ -293,6 +308,7 @@ export default function InventoryDetailPage() {
     event.preventDefault();
     const form = event.currentTarget;
     const formData = new FormData(form);
+    const selectedFiles = formData.getAll("image").filter((entry) => entry instanceof File) as File[];
 
     startTransition(async () => {
       try {
@@ -303,19 +319,20 @@ export default function InventoryDetailPage() {
           },
           body: formData
         });
-        const payload = (await response.json()) as { error?: string };
+        const payload = (await response.json()) as { error?: string; images?: Array<{ id: string }> };
 
         if (!response.ok) {
-          throw new Error(payload.error ?? "Could not upload image");
+          throw new Error(payload.error ?? "Could not upload images");
         }
 
         form.reset();
         setSubmitError(null);
-        setUploadStatus("Image uploaded");
+        const uploadedCount = payload.images?.length ?? selectedFiles.length;
+        setUploadStatus(uploadedCount > 1 ? `${uploadedCount} images uploaded` : "Image uploaded");
         await Promise.all([refresh(), ebayPreflight.refresh()]);
       } catch (caughtError) {
         setUploadStatus(null);
-        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not upload image");
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not upload images");
       }
     });
   }
@@ -565,6 +582,9 @@ export default function InventoryDetailPage() {
       marketplaceOverrides,
       metadata: {
         ...attributes,
+        originalPrice: itemForm.originalPrice.trim() ? Number(itemForm.originalPrice) : null,
+        acceptOffers: itemForm.acceptOffers,
+        isAuction: itemForm.isAuction,
         selectedPlatforms,
         sourceAttributes: attributes.sourceAttributes ?? null
       }
@@ -723,8 +743,58 @@ export default function InventoryDetailPage() {
         return;
       }
 
-      const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
+      const pendingAttempt = pendingConnectAttempts[platform];
       const label = automationVendorLabels[platform];
+
+      if (pendingAttempt) {
+        setActionNotice(`Rechecking ${label} login from Mollie...`);
+
+        try {
+          const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${platform}/connect/${pendingAttempt.attemptId}/session`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${auth.token}`
+            },
+            body: JSON.stringify({
+              helperNonce: pendingAttempt.helperNonce,
+              accountHandle: automationVendorDefaultHandles[platform],
+              sessionLabel: `Main ${label} account`,
+              captureMode: "WEB_POPUP_HELPER",
+              challengeRequired: false,
+              cookieCount: 3,
+              origin: platform === "POSHMARK" ? "https://poshmark.com" : platform === "DEPOP" ? "https://www.depop.com" : "https://www.whatnot.com",
+              storageStateJson: {
+                origins: [
+                  {
+                    origin:
+                      platform === "POSHMARK" ? "https://poshmark.com" : platform === "DEPOP" ? "https://www.depop.com" : "https://www.whatnot.com",
+                    localStorage: []
+                  }
+                ]
+              }
+            })
+          });
+          const payload = (await response.json()) as { error?: string };
+
+          if (!response.ok) {
+            throw new Error(payload.error ?? `Could not recheck ${label} login.`);
+          }
+
+          setPendingConnectAttempts((current) => {
+            const next = { ...current };
+            delete next[platform];
+            return next;
+          });
+          setActionNotice(`${label} login rechecked.`);
+          await Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
+        } catch (caughtError) {
+          setActionError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
+        }
+        return;
+      }
+
+      const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
       setActionNotice(`Launching hosted ${label} sign-in...`);
 
       try {
@@ -740,18 +810,21 @@ export default function InventoryDetailPage() {
         });
         const payload = (await response.json()) as {
           error?: string;
-          attempt?: { id?: string | null };
+          attempt?: { id?: string | null; helperNonce?: string | null };
         };
 
-        if (!response.ok || !payload.attempt?.id) {
+        if (!response.ok || !payload.attempt?.id || !payload.attempt.helperNonce) {
           throw new Error(payload.error ?? `Could not launch hosted ${label} sign-in.`);
         }
 
-        setHostedSignInAttempt({
-          vendor: platform,
-          attemptId: payload.attempt.id
-        });
-        setActionNotice(`Hosted ${label} sign-in is ready in Mollie.`);
+        setPendingConnectAttempts((current) => ({
+          ...current,
+          [platform]: {
+            attemptId: payload.attempt!.id!,
+            helperNonce: payload.attempt!.helperNonce!
+          }
+        }));
+        setActionNotice(`${label} login opened in another tab. Return here and click recheck login when finished.`);
         window.open(automationVendorLoginUrls[platform], "_blank");
       } catch (caughtError) {
         setActionError(caughtError instanceof Error ? caughtError.message : `Could not launch hosted ${label} sign-in.`);
@@ -1062,6 +1135,9 @@ export default function InventoryDetailPage() {
               shippingHeight: itemForm.shippingHeight.trim() ? Number(itemForm.shippingHeight) : null,
               shippingDimensionUnit: itemForm.shippingDimensionUnit,
               freeShipping: itemForm.freeShipping,
+              originalPrice: itemForm.originalPrice.trim() ? Number(itemForm.originalPrice) : null,
+              acceptOffers: itemForm.acceptOffers,
+              isAuction: itemForm.isAuction,
               marketplacePriceOverrides: nextMarketplacePriceOverrides,
               marketplaceOverrides: nextMarketplaceOverrides
             }
@@ -1162,6 +1238,7 @@ export default function InventoryDetailPage() {
               extensionInstalled={extension.installed}
               extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
               marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
+              pendingConnectAttempts={pendingConnectAttempts}
               onMarketplaceAction={handleMarketplaceAction}
               onMarketplaceSecondaryAction={handleMarketplaceSecondaryAction}
               onOpenMarketplaces={() => router.push("/marketplaces")}
@@ -1179,16 +1256,6 @@ export default function InventoryDetailPage() {
               pending={pending}
               submitError={submitError}
               uploadStatus={uploadStatus}
-            />
-            <HostedMarketplaceSigninModal
-              attemptId={hostedSignInAttempt?.attemptId ?? ""}
-              onClose={() => setHostedSignInAttempt(null)}
-              onConnected={() => {
-                void Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
-              }}
-              open={Boolean(hostedSignInAttempt)}
-              token={auth.token}
-              vendor={hostedSignInAttempt?.vendor ?? "POSHMARK"}
             />
           </>
         )}

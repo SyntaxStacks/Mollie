@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState, useTransition } from "react";
 import {
-  Camera,
   ChevronDown,
   Download,
   ExternalLink,
@@ -34,7 +33,6 @@ type InventoryItemView = InventoryListLikeItem & {
 
 type SortKey = "createdAt" | "title" | "priceRecommendation" | "sku" | "origin" | "sold";
 type SortDirection = "asc" | "desc";
-type ScanModalMode = "barcode" | "photo";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const inventoryBuckets = ["All", "Unlisted", "Ready to List", "Listed", "Sold", "Needs Fix"] as const;
@@ -114,7 +112,6 @@ function InventoryPageContent() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scanModalOpen, setScanModalOpen] = useState(false);
-  const [scanModalMode, setScanModalMode] = useState<ScanModalMode>("barcode");
   const [pending, startTransition] = useTransition();
 
   function updateInventoryLocation(mutator: (params: URLSearchParams) => void) {
@@ -123,11 +120,10 @@ function InventoryPageContent() {
     router.replace(buildInventoryHref(nextParams));
   }
 
-  function openScanModal(mode: ScanModalMode = "barcode") {
-    setScanModalMode(mode);
+  function openScanModal() {
     setScanModalOpen(true);
     updateInventoryLocation((params) => {
-      params.set("scan", mode);
+      params.set("scan", "barcode");
     });
   }
 
@@ -146,7 +142,6 @@ function InventoryPageContent() {
 
     const requestedScan = searchParams.get("scan");
     setScanModalOpen(Boolean(requestedScan));
-    setScanModalMode(requestedScan === "photo" ? "photo" : "barcode");
 
     const requestedBucket = searchParams.get("bucket");
     if (requestedBucket && inventoryBuckets.includes(requestedBucket as (typeof inventoryBuckets)[number])) {
@@ -460,11 +455,8 @@ function InventoryPageContent() {
                   <Plus size={16} /> New item
                 </Button>
               </Link>
-              <Button kind="secondary" onClick={() => openScanModal("barcode")} type="button">
+              <Button kind="secondary" onClick={openScanModal} type="button">
                 <ScanBarcode size={16} /> Scan code
-              </Button>
-              <Button kind="secondary" onClick={() => openScanModal("photo")} type="button">
-                <Camera size={16} /> Take photo
               </Button>
               <Link href="/imports">
                 <Button kind="secondary" type="button">
@@ -640,7 +632,7 @@ function InventoryPageContent() {
         </section>
 
         {auth.token ? (
-          <InventoryScanModal initialMode={scanModalMode} onClose={closeScanModal} open={scanModalOpen} token={auth.token} />
+          <InventoryScanModal onClose={closeScanModal} open={scanModalOpen} token={auth.token} />
         ) : null}
       </AppShell>
     </ProtectedView>

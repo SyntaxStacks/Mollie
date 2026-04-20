@@ -48,6 +48,7 @@ export type InventoryItemFormState = {
   estimatedResaleMin: string;
   estimatedResaleMax: string;
   priceRecommendation: string;
+  originalPrice: string;
   description: string;
   tags: string;
   labels: string;
@@ -58,6 +59,8 @@ export type InventoryItemFormState = {
   shippingHeight: string;
   shippingDimensionUnit: string;
   freeShipping: boolean;
+  acceptOffers: boolean;
+  isAuction: boolean;
   ebayPrice: string;
   depopPrice: string;
   poshmarkPrice: string;
@@ -166,6 +169,7 @@ type InventoryDetailViewProps = {
   extensionPendingCount: number;
   onRefreshExtension: () => void;
   marketplaceAccounts: MarketplaceAccountLike[];
+  pendingConnectAttempts?: Partial<Record<string, { attemptId: string; helperNonce: string }>>;
   extensionCapabilities: MarketplaceCapabilitySummary[];
   selectedPlatforms: Array<"EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT">;
   onTogglePlatform: (platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT", checked: boolean) => void;
@@ -441,6 +445,7 @@ export function InventoryDetailView({
   extensionPendingCount,
   onRefreshExtension,
   marketplaceAccounts,
+  pendingConnectAttempts,
   extensionCapabilities,
   selectedPlatforms,
   onTogglePlatform,
@@ -457,11 +462,15 @@ export function InventoryDetailView({
   const [photoWorkspaceMessage, setPhotoWorkspaceMessage] = useState<string | null>(null);
   const [backgroundPreviewIds, setBackgroundPreviewIds] = useState<string[]>([]);
   const itemActionsRef = useRef<HTMLDivElement | null>(null);
+  const marketplaceRailRef = useRef<HTMLElement | null>(null);
+  const detailEditorMainRef = useRef<HTMLDivElement | null>(null);
+  const detailSidebarRef = useRef<HTMLDivElement | null>(null);
   const marketStatuses = getMarketplaceStatusSummaries(item, {
     marketplaceAccounts,
     capabilitySummary: extensionCapabilities,
     extensionInstalled,
-    extensionConnected
+    extensionConnected,
+    pendingConnectAttempts
   });
   const selectedMarketStatuses = marketStatuses.filter((state) =>
     selectedPlatforms.includes(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")
@@ -545,6 +554,15 @@ export function InventoryDetailView({
   const allBackgroundPreviewsActive =
     item.images.length > 0 && item.images.every((image) => backgroundPreviewIdSet.has(image.id));
   const activePhoto = photoDetailId ? item.images.find((entry) => entry.id === photoDetailId) ?? null : null;
+
+  useEffect(() => {
+    const columns = [marketplaceRailRef.current, detailEditorMainRef.current, detailSidebarRef.current];
+    for (const column of columns) {
+      if (column) {
+        column.scrollTop = 0;
+      }
+    }
+  }, [item.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -683,8 +701,9 @@ export function InventoryDetailView({
         {uploadStatus ? <div className="notice success">{uploadStatus}</div> : null}
         {aiMessage ? <div className="notice success">{aiMessage}</div> : null}
 
+        <div className="detail-editor-workspace">
         <div className="listing-workbench-layout detail-editor-layout">
-            <aside className="listing-marketplace-rail">
+            <aside className="listing-marketplace-rail" ref={marketplaceRailRef}>
               <div className="listing-rail-summary">
                 <div className="listing-rail-summary-copy">
                   <p className="eyebrow">Marketplace targets</p>
@@ -710,8 +729,8 @@ export function InventoryDetailView({
               </div>
             </aside>
 
-            <div className="detail-editor-main">
-                <div className={cx("listing-form-section", "listing-photo-section", fieldIsMissing("photos") && "listing-form-section-missing")}>
+            <div className="detail-editor-main" ref={detailEditorMainRef}>
+                <div className={cx("listing-form-section", "listing-photo-panel", fieldIsMissing("photos") && "listing-form-section-missing")}>
                   <div className="listing-form-section-heading listing-photo-section-heading">
                     <div className="listing-photo-section-heading-copy">
                       <h3>Photos</h3>
@@ -849,12 +868,13 @@ export function InventoryDetailView({
                     <form className="listing-photo-add-card inventory-image-form" onSubmit={onAddImage}>
                       <label className={cx("listing-photo-add-input", fieldIsMissing("photos") && "listing-photo-add-input-missing")}>
                         <Camera size={24} />
-                        <strong>Add or drag photo</strong>
-                        <span className="muted">Upload another angle, detail shot, or packaging view.</span>
+                        <strong>Add or drag photos</strong>
+                        <span className="muted">Upload multiple angles, detail shots, or packaging views at once.</span>
                         <input
                           accept="image/png,image/jpeg,image/webp,image/gif"
                           className="listing-photo-file-input"
                           name="image"
+                          multiple
                           required
                           type="file"
                           onChange={(event) => {
@@ -949,13 +969,13 @@ export function InventoryDetailView({
                   <div
                     className={cx(
                       "listing-form-section",
-                      (fieldIsMissing("price") || fieldIsMissing("shipping weight") || fieldIsMissing("package size")) &&
+                      fieldIsMissing("price") &&
                         "listing-form-section-missing"
                     )}
                   >
                     <div className="listing-form-section-heading">
-                      <h3>Shipping</h3>
-                      <p className="muted">Complete shipping once here so eBay and other structured marketplaces are easier to post.</p>
+                      <h3>Price</h3>
+                      <p className="muted">Set the core asking price here. Marketplace-specific price overrides still live below.</p>
                     </div>
                     <div className="scan-import-grid">
                       <label className={cx("label", "listing-ai-field", fieldIsMissing("price") && "label-missing")}>
@@ -971,9 +991,46 @@ export function InventoryDetailView({
                         {renderRequirementNote("price")}
                       </label>
                       <label className="label">
+                        Original price
+                        <input className="field" min="0" step="0.01" type="number" value={itemForm.originalPrice} onChange={(event) => onFieldChange("originalPrice", event.target.value)} />
+                      </label>
+                      <label className="label">
                         Buy cost
                         <input className="field" min="0" step="0.01" type="number" value={itemForm.costBasis} onChange={(event) => onFieldChange("costBasis", event.target.value)} />
                       </label>
+                      <label className="label">
+                        Resale min
+                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMin} onChange={(event) => onFieldChange("estimatedResaleMin", event.target.value)} />
+                      </label>
+                      <label className="label">
+                        Resale max
+                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMax} onChange={(event) => onFieldChange("estimatedResaleMax", event.target.value)} />
+                      </label>
+                    </div>
+                    <div className="listing-price-options-grid">
+                      <label className="checkbox-row listing-price-toggle">
+                        <input checked={itemForm.acceptOffers} onChange={(event) => onFieldChange("acceptOffers", event.target.checked)} type="checkbox" />
+                        <span>Accept offers</span>
+                      </label>
+                      <label className="checkbox-row listing-price-toggle">
+                        <input checked={itemForm.isAuction} onChange={(event) => onFieldChange("isAuction", event.target.checked)} type="checkbox" />
+                        <span>Is auction</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div
+                    className={cx(
+                      "listing-form-section",
+                      (fieldIsMissing("shipping weight") || fieldIsMissing("package size")) &&
+                        "listing-form-section-missing"
+                    )}
+                  >
+                    <div className="listing-form-section-heading">
+                      <h3>Shipping</h3>
+                      <p className="muted">Complete shipping once here so eBay and other structured marketplaces are easier to post.</p>
+                    </div>
+                    <div className="scan-import-grid">
                       <label className={cx("label", fieldIsMissing("shipping weight") && "label-missing")}>
                         Shipping weight
                         <div className="scan-field-row">
@@ -995,14 +1052,6 @@ export function InventoryDetailView({
                           </select>
                         </div>
                         {renderRequirementNote("package size")}
-                      </label>
-                      <label className="label">
-                        Resale min
-                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMin} onChange={(event) => onFieldChange("estimatedResaleMin", event.target.value)} />
-                      </label>
-                      <label className="label">
-                        Resale max
-                        <input className="field" min="0" step="0.01" type="number" value={itemForm.estimatedResaleMax} onChange={(event) => onFieldChange("estimatedResaleMax", event.target.value)} />
                       </label>
                     </div>
                     <label className="checkbox-row">
@@ -1224,7 +1273,7 @@ export function InventoryDetailView({
 
             </div>
 
-            <aside className="detail-editor-sidebar">
+            <aside className="detail-editor-sidebar" ref={detailSidebarRef}>
               <div className="detail-editor-sidebar-card">
                 <div className="detail-editor-sidebar-card-topline">
                   <div>
@@ -1305,6 +1354,7 @@ export function InventoryDetailView({
             </div>
           </div>
         </ActionRail>
+        </div>
       </section>
 
       <ContinueOnMobileModal onClose={() => setHandoffOpen(false)} open={handoffOpen} title={item.title} url={handoffUrl} />

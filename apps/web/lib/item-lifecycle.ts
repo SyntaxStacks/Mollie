@@ -129,6 +129,7 @@ export type MarketplaceStatusOptions = {
   capabilitySummary?: MarketplaceCapabilitySummary[];
   extensionInstalled?: boolean;
   extensionConnected?: boolean;
+  pendingConnectAttempts?: Partial<Record<string, { attemptId: string; helperNonce: string }>>;
 };
 
 type ListingDraftLike = NonNullable<InventoryListLikeItem["listingDrafts"]>[number];
@@ -853,6 +854,7 @@ function actionForState(input: {
   blocker: string | null;
   needsBrowserInput: boolean;
   extensionTaskAction?: string | null;
+  pendingConnectAttempt?: boolean;
 }): {
   actionLabel: string;
   actionKind: MarketplaceActionKind;
@@ -912,9 +914,11 @@ function actionForState(input: {
       return {
         actionLabel:
           input.platform === "POSHMARK" || input.platform === "DEPOP" || input.platform === "WHATNOT"
-            ? "Open login"
+            ? input.pendingConnectAttempt
+              ? "Recheck login"
+              : "Open login"
             : "Recheck login",
-        actionKind: "connect_account" as const
+        actionKind: input.pendingConnectAttempt ? ("check_again" as const) : ("connect_account" as const)
       };
     }
 
@@ -1018,6 +1022,7 @@ export function getMarketplaceStatusSummaries(
     );
     const missingRequirements = uniqueStrings([...requirements.required, ...extensionTaskMissingFields]);
     const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
+    const pendingConnectAttempt = options.pendingConnectAttempts?.[platform] ?? null;
     const account =
       options.marketplaceAccounts?.find((candidate) => candidate.platform === platform && candidate.status === "CONNECTED") ??
       options.marketplaceAccounts?.find((candidate) => candidate.platform === platform) ??
@@ -1046,6 +1051,11 @@ export function getMarketplaceStatusSummaries(
     let summary = readinessCopy.summary;
     let blocker = readinessCopy.blocker;
 
+    if (pendingConnectAttempt && !account) {
+      summary = `Login started for ${platform}. Recheck from Mollie once sign-in is complete.`;
+      blocker = connectionDetail.blocker;
+    }
+
     if (!blocker && (connectionDetail.blocker || extensionDetail.extensionBlocker) && listingState !== "published" && listingState !== "sold") {
       blocker = connectionDetail.blocker ?? extensionDetail.extensionBlocker;
     }
@@ -1061,15 +1071,26 @@ export function getMarketplaceStatusSummaries(
       account,
       blocker,
       needsBrowserInput,
-      extensionTaskAction: extensionTask?.action ?? null
+      extensionTaskAction: extensionTask?.action ?? null,
+      pendingConnectAttempt: Boolean(pendingConnectAttempt)
     });
 
     let secondaryActionLabel: string | null = null;
     let secondaryActionKind: MarketplaceActionKind | null = null;
 
     if (!account) {
-      secondaryActionLabel = "Check again";
-      secondaryActionKind = "connect_account";
+      secondaryActionLabel =
+        platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT"
+          ? pendingConnectAttempt
+            ? "Open login"
+            : "Check again"
+          : "Check again";
+      secondaryActionKind =
+        platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT"
+          ? pendingConnectAttempt
+            ? "connect_account"
+            : "connect_account"
+          : "connect_account";
     } else if (capabilityDetail.extensionRequired && !options.extensionConnected) {
       secondaryActionLabel = "Check again";
       secondaryActionKind = "check_extension";

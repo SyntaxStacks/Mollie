@@ -13,7 +13,7 @@ import { SourceSearchPanel } from "./source-search-panel";
 
 type BarcodeImportCardProps = {
   token: string;
-  presentation?: "embedded" | "scan";
+  presentation?: "embedded" | "scan" | "scan-minimal";
   autoOpenCameraOnMount?: boolean;
 };
 
@@ -377,7 +377,8 @@ async function createZxingReader() {
 
 export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCameraOnMount = false }: BarcodeImportCardProps) {
   const router = useRouter();
-  const scanMode = presentation === "scan";
+  const minimalScanMode = presentation === "scan-minimal";
+  const scanMode = presentation === "scan" || minimalScanMode;
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const acceptedMatchRef = useRef<HTMLDivElement | null>(null);
@@ -1271,7 +1272,7 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
   const inlineScannerActive = scanMode && scannerOpen;
   const scannerPanel = (
     <>
-      {scanMode ? (
+      {scanMode && !minimalScanMode ? (
         <div className="barcode-scanner-inline-header">
           <div>
             <p className="eyebrow">Live camera</p>
@@ -1282,10 +1283,12 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
           </Button>
         </div>
       ) : null}
-      <p className={scanMode ? "muted" : "handoff-copy"}>
-        Hold the barcode inside the frame. Mollie will search as soon as it reads a supported barcode.
-      </p>
-      {availableCameras.length > 1 ? (
+      {!minimalScanMode ? (
+        <p className={scanMode ? "muted" : "handoff-copy"}>
+          Hold the barcode inside the frame. Mollie will search as soon as it reads a supported barcode.
+        </p>
+      ) : null}
+      {availableCameras.length > 1 && !minimalScanMode ? (
         <div className="barcode-scanner-camera-controls">
           <div className="barcode-scanner-camera-copy">
             <span className="eyebrow">Camera</span>
@@ -1322,7 +1325,7 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
         </div>
       ) : null}
       {liveScannerReady ? (
-        <div className="barcode-scanner-video-shell">
+        <div className={`barcode-scanner-video-shell${minimalScanMode ? " barcode-scanner-video-shell-minimal" : ""}`}>
           <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
           <div className="barcode-scanner-overlay" aria-hidden="true">
             {scannerOutlinePoints ? (
@@ -1339,35 +1342,43 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
           </div>
         </div>
       ) : (
-        <div className="barcode-scanner-video-shell barcode-scanner-video-shell-static">
-          <div className="barcode-scanner-static-copy">
-            <Camera size={20} />
-            <span>This browser is using the photo-based scanner fallback. Use the button below to capture a barcode photo.</span>
-          </div>
+        <div
+          className={`barcode-scanner-video-shell barcode-scanner-video-shell-static${minimalScanMode ? " barcode-scanner-video-shell-minimal" : ""}`}
+        >
+          {!minimalScanMode ? (
+            <div className="barcode-scanner-static-copy">
+              <Camera size={20} />
+              <span>This browser is using the photo-based scanner fallback. Use the button below to capture a barcode photo.</span>
+            </div>
+          ) : null}
         </div>
       )}
-      <div className="barcode-scanner-status">
-        {lookupPending
-          ? "Barcode found. Looking up product..."
-          : liveScannerReady
-            ? scannerStatus
-            : "Live camera preview is unavailable here. Use the photo capture fallback below."}
-      </div>
-      {scannerError ? <div className="notice">{scannerError}</div> : null}
-      <div className="actions">
-        {liveScannerReady ? (
-          <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
-            <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
-          </Button>
-        ) : null}
-        <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
-          <Camera size={16} /> Take barcode photo instead
-        </Button>
-      </div>
-      <div className="scan-import-hint">
-        <Camera size={16} />
-        <span>If Mollie locks onto the barcode, it will draw a box around it before searching. If live scanning still struggles, take a barcode photo instead, or type the code manually.</span>
-      </div>
+      {!minimalScanMode ? (
+        <>
+          <div className="barcode-scanner-status">
+            {lookupPending
+              ? "Barcode found. Looking up product..."
+              : liveScannerReady
+                ? scannerStatus
+                : "Live camera preview is unavailable here. Use the photo capture fallback below."}
+          </div>
+          {scannerError ? <div className="notice">{scannerError}</div> : null}
+          <div className="actions">
+            {liveScannerReady ? (
+              <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
+                <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
+              </Button>
+            ) : null}
+            <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
+              <Camera size={16} /> Take barcode photo instead
+            </Button>
+          </div>
+          <div className="scan-import-hint">
+            <Camera size={16} />
+            <span>If Mollie locks onto the barcode, it will draw a box around it before searching. If live scanning still struggles, take a barcode photo instead, or type the code manually.</span>
+          </div>
+        </>
+      ) : null}
     </>
   );
   const reviewContent = (
@@ -1738,6 +1749,33 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
       {submitError ? <div className="notice">{submitError}</div> : null}
     </>
   );
+
+  if (minimalScanMode) {
+    return (
+      <>
+        <div className="barcode-scanner-minimal">{scannerPanel}</div>
+
+        {scanMode ? (
+          <ScanResultSheet
+            open={resultSheetOpen}
+            subtitle={lookupResult ? identifierTypeLabel(lookupResult.identifierType) : manualEntryEnabled ? "Manual review" : undefined}
+            title={selectedCandidate ? "Review this item and move on" : lookupResult ? "Choose the right match" : "Finish this item"}
+          >
+            {reviewContent}
+          </ScanResultSheet>
+        ) : null}
+
+        <input
+          accept="image/*"
+          capture="environment"
+          hidden
+          onChange={handleCameraCapture}
+          ref={cameraInputRef}
+          type="file"
+        />
+      </>
+    );
+  }
 
   return (
     <>

@@ -1997,11 +1997,18 @@ body {
   cursor: pointer;
 }
 
+.detail-editor-workspace {
+  display: grid;
+  gap: 1rem;
+  min-height: 0;
+}
+
 .detail-editor-layout {
   display: grid;
   gap: 1rem;
   grid-template-columns: minmax(260px, 0.74fr) minmax(0, 1.48fr) minmax(260px, 0.82fr);
-  align-items: start;
+  align-items: stretch;
+  min-height: 0;
 }
 
 .listing-marketplace-rail,
@@ -2011,6 +2018,7 @@ body {
   gap: 1rem;
   align-content: start;
   min-width: 0;
+  min-height: 0;
 }
 
 .detail-editor-main form.stack,
@@ -2018,19 +2026,9 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.listing-marketplace-rail {
-  position: sticky;
-  top: 6.5rem;
-}
-
 .listing-rail-back-button {
   width: 100%;
   justify-content: center;
-}
-
-.detail-editor-sidebar {
-  position: sticky;
-  top: 6.5rem;
 }
 
 .detail-editor-sidebar-card {
@@ -2109,6 +2107,46 @@ body {
   background:
     radial-gradient(circle at top right, rgba(248, 113, 113, 0.18), transparent 26%),
     linear-gradient(180deg, #2a2629, #221f22);
+}
+
+.listing-photo-panel {
+  --photo-accent: #9c7bff;
+  --photo-surface: #252529;
+  --photo-surface-strong: #32323a;
+  --photo-surface-soft: rgba(255, 255, 255, 0.06);
+  --photo-border: rgba(16, 34, 24, 0.1);
+  background:
+    radial-gradient(circle at top right, rgba(156, 123, 255, 0.08), transparent 28%),
+    rgba(255, 255, 255, 0.88);
+}
+
+.listing-photo-panel.listing-form-section-missing {
+  background:
+    radial-gradient(circle at top right, rgba(248, 113, 113, 0.12), transparent 28%),
+    rgba(255, 255, 255, 0.9);
+}
+
+.listing-photo-panel .listing-field-requirement-note {
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(185, 28, 28, 0.08);
+}
+
+.listing-photo-panel .listing-photo-toolbar-button {
+  border-color: rgba(16, 34, 24, 0.12);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text);
+}
+
+.listing-photo-panel .listing-photo-toolbar-button:hover,
+.listing-photo-panel .listing-photo-toolbar-button:focus-visible,
+.listing-photo-panel .listing-photo-toolbar-button-active {
+  border-color: rgba(156, 123, 255, 0.58);
+  background: rgba(156, 123, 255, 0.1);
+}
+
+.listing-photo-panel .listing-photo-workspace-note {
+  color: var(--text);
 }
 
 .listing-photo-section .muted,
@@ -2633,6 +2671,20 @@ body {
   gap: 0.75rem;
 }
 
+.listing-price-options-grid {
+  display: grid;
+  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.listing-price-toggle {
+  min-height: 3.4rem;
+  padding: 0.9rem 1rem;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.78);
+}
+
 .listing-dimension-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -2737,6 +2789,30 @@ body {
   justify-content: flex-end;
 }
 
+@media (min-width: 1101px) {
+  .detail-editor-workspace {
+    grid-template-rows: minmax(0, 1fr) auto;
+    height: calc(100vh - 15rem);
+  }
+
+  .listing-marketplace-rail,
+  .detail-editor-main,
+  .detail-editor-sidebar {
+    overflow-y: auto;
+    overscroll-behavior: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    padding-right: 0;
+  }
+
+  .listing-marketplace-rail::-webkit-scrollbar,
+  .detail-editor-main::-webkit-scrollbar,
+  .detail-editor-sidebar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
 @media (max-width: 1380px) {
   .detail-editor-layout {
     grid-template-columns: minmax(260px, 0.84fr) minmax(0, 1.16fr);
@@ -2799,10 +2875,17 @@ body {
   .listing-marketplace-rail,
   .detail-editor-sidebar {
     position: static;
+    overflow: visible;
+    padding-right: 0;
   }
 
   .detail-editor-sidebar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-editor-main {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .listing-photo-detail-meta {
@@ -2850,6 +2933,10 @@ body {
 
   .inventory-detail-shell {
     gap: 1rem;
+  }
+
+  .detail-editor-workspace {
+    height: auto;
   }
 
   .inventory-meta-grid {
@@ -4707,10 +4794,24 @@ select {
   align-items: start;
 }
 
+.inventory-create-rail-stack {
+  display: grid;
+  gap: 1rem;
+}
+
 .inventory-create-sidebar,
 .inventory-create-form {
   display: grid;
   gap: 1rem;
+}
+
+.inventory-create-mode-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.76);
 }
 
 .inventory-create-panel {
@@ -4775,6 +4876,13 @@ select {
   margin-top: 1rem;
 }
 
+.inventory-create-page .source-search-panel {
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: none;
+}
+
 .inventory-create-grid-span-2 {
   grid-column: 1 / -1;
 }
@@ -4795,18 +4903,7 @@ select {
 }
 
 .inventory-create-action-rail {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: center;
-  padding: 1.1rem;
-  border-radius: 24px;
-  border: 1px solid var(--line);
-  background:
-    radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 243, 0.92));
-  color: var(--text);
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+  color: inherit;
 }
 
 .inventory-create-action-rail .muted {
@@ -4815,13 +4912,7 @@ select {
 }
 
 .inventory-create-page .action-rail {
-  position: static;
-  bottom: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  backdrop-filter: none;
-  z-index: auto;
+  position: sticky;
 }
 
 .inventory-create-action-rail .actions {
@@ -4832,6 +4923,52 @@ select {
   width: min(1080px, 100%);
   max-height: min(92vh, 980px);
   overflow-y: auto;
+}
+
+.inventory-scan-modal-shell {
+  width: min(960px, 100%);
+  max-height: min(92vh, 860px);
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+}
+
+.inventory-scan-modal-header {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inventory-scan-modal-close {
+  min-width: 0;
+  padding-inline: 0.75rem;
+}
+
+.inventory-scan-modal-body {
+  min-height: 0;
+}
+
+.inventory-scan-modal-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.inventory-scan-modal-manual {
+  min-width: min(320px, 100%);
+  justify-content: center;
+}
+
+.barcode-scanner-minimal {
+  display: grid;
+  gap: 0;
+}
+
+.barcode-scanner-video-shell-minimal {
+  min-height: min(64vh, 640px);
+  border-radius: 24px;
+}
+
+.barcode-scanner-video-shell-minimal .barcode-scanner-video {
+  min-height: min(64vh, 640px);
 }
 
 @media (max-width: 1100px) {

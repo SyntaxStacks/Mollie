@@ -683,50 +683,79 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       throw app.httpErrors.notFound("Inventory item not found");
     }
 
-    const file = await request.file({
+    const parts = request.parts({
       limits: {
-        files: 1,
+        files: 24,
         fileSize: maxInventoryImageBytes
       }
     });
+    const files: Array<{
+      filename: string;
+      mimetype: string;
+      buffer: Buffer;
+    }> = [];
+    let position = 0;
 
-    if (!file) {
-      throw app.httpErrors.badRequest("Choose an image file to upload");
+    for await (const part of parts) {
+      if (part.type === "field" && part.fieldname === "position" && typeof part.value === "string") {
+        position = Number(part.value);
+        continue;
+      }
+
+      if (part.type !== "file") {
+        continue;
+      }
+
+      if (!acceptedImageContentTypes.has(part.mimetype)) {
+        throw app.httpErrors.unsupportedMediaType("Upload JPG, PNG, WEBP, or GIF images only");
+      }
+
+      files.push({
+        filename: part.filename,
+        mimetype: part.mimetype,
+        buffer: await part.toBuffer()
+      });
     }
 
-    if (!acceptedImageContentTypes.has(file.mimetype)) {
-      throw app.httpErrors.unsupportedMediaType("Upload a JPG, PNG, WEBP, or GIF image");
+    if (files.length === 0) {
+      throw app.httpErrors.badRequest("Choose one or more image files to upload");
     }
-
-    const positionValue = file.fields.position;
-    const position =
-      positionValue && "value" in positionValue && typeof positionValue.value === "string"
-        ? Number(positionValue.value)
-        : 0;
 
     if (!Number.isFinite(position) || position < 0) {
       throw app.httpErrors.badRequest("Position must be a non-negative number");
     }
 
-    const upload = await uploadInventoryImage({
-      workspaceId: workspace.id,
-      inventoryItemId: params.id,
-      filename: file.filename,
-      contentType: file.mimetype,
-      buffer: await file.toBuffer(),
-      publicBaseUrl: resolveApiPublicBaseUrl(request)
-    });
+    const publicBaseUrl = resolveApiPublicBaseUrl(request);
+    const createdImages = [];
 
-    const createdImage = await addInventoryImageForWorkspace(workspace.id, item.id, {
-      url: upload.url,
-      kind: "ORIGINAL",
-      position,
-      width: null,
-      height: null
-    });
+    for (const [index, file] of files.entries()) {
+      const upload = await uploadInventoryImage({
+        workspaceId: workspace.id,
+        inventoryItemId: params.id,
+        filename: file.filename,
+        contentType: file.mimetype,
+        buffer: file.buffer,
+        publicBaseUrl
+      });
 
-    if (!createdImage) {
-      throw app.httpErrors.notFound("Inventory item not found");
+      const createdImage = await addInventoryImageForWorkspace(workspace.id, item.id, {
+        url: upload.url,
+        kind: "ORIGINAL",
+        position: position + index,
+        width: null,
+        height: null
+      });
+
+      if (!createdImage) {
+        throw app.httpErrors.notFound("Inventory item not found");
+      }
+
+      createdImages.push({
+        image: createdImage.image,
+        storageKey: upload.storageKey,
+        contentType: upload.contentType,
+        size: upload.size
+      });
     }
 
     await recordAuditLog({
@@ -736,13 +765,20 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       targetType: "inventory_item",
       targetId: item.id,
       metadata: {
-        storageKey: upload.storageKey,
-        contentType: upload.contentType,
-        size: upload.size
+        imageCount: createdImages.length,
+        uploads: createdImages.map((entry) => ({
+          imageId: entry.image.id,
+          storageKey: entry.storageKey,
+          contentType: entry.contentType,
+          size: entry.size
+        }))
       }
     });
 
-    return { image: createdImage.image };
+    return {
+      image: createdImages[0]?.image ?? null,
+      images: createdImages.map((entry) => entry.image)
+    };
   });
 
   app.delete("/api/inventory/:id/images/:imageId", async (request) => {

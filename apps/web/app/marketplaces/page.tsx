@@ -10,7 +10,6 @@ import { AppShell } from "../../components/app-shell";
 import { OperatorHintCard } from "../../components/operator-hint-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
-import { HostedMarketplaceSigninModal } from "../../components/hosted-marketplace-signin-modal";
 import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -31,6 +30,11 @@ const automationVendorConfig = {
     loginUrl: "https://www.whatnot.com/login"
   }
 } satisfies Record<AutomationVendor, { label: string; loginUrl: string }>;
+const automationVendorDefaultHandles = {
+  DEPOP: "main-depop-shop",
+  POSHMARK: "main-poshmark-closet",
+  WHATNOT: "main-whatnot-account"
+} satisfies Record<AutomationVendor, string>;
 
 type MarketplaceAccountResponse = {
   id: string;
@@ -155,7 +159,9 @@ function MarketplacesPageContent() {
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
-  const [hostedSignInAttempt, setHostedSignInAttempt] = useState<{ vendor: AutomationVendor; attemptId: string } | null>(null);
+  const [pendingConnectAttempts, setPendingConnectAttempts] = useState<
+    Partial<Record<AutomationVendor, { attemptId: string; helperNonce: string }>>
+  >({});
   const oauthStatus = searchParams.get("ebay_oauth");
   const oauthMessage = searchParams.get("message");
   const oauthCode = searchParams.get("code");
@@ -369,22 +375,83 @@ function MarketplacesPageContent() {
         });
         const payload = (await response.json()) as {
           error?: string;
-          attempt?: { id?: string | null };
+          attempt?: { id?: string | null; helperNonce?: string | null };
         };
 
-        if (!response.ok || !payload.attempt?.id) {
+        if (!response.ok || !payload.attempt?.id || !payload.attempt.helperNonce) {
           throw new Error(payload.error ?? `Could not start ${config.label} hosted sign-in.`);
         }
 
         setSubmitError(null);
-        setActionStatus(`Hosted ${config.label} sign-in is ready in Mollie.`);
-        setHostedSignInAttempt({
-          vendor,
-          attemptId: payload.attempt.id
-        });
+        setPendingConnectAttempts((current) => ({
+          ...current,
+          [vendor]: {
+            attemptId: payload.attempt!.id!,
+            helperNonce: payload.attempt!.helperNonce!
+          }
+        }));
+        setActionStatus(`${config.label} login opened in another tab. Return here and click recheck login when finished.`);
         window.open(config.loginUrl, "_blank");
       } catch (caughtError) {
         setSubmitError(caughtError instanceof Error ? caughtError.message : `Could not start ${config.label} hosted sign-in.`);
+      }
+    });
+  }
+
+  function recheckRemoteAutomationConnect(vendor: AutomationVendor) {
+    const config = automationVendorConfig[vendor];
+    const pendingAttempt = pendingConnectAttempts[vendor];
+
+    if (!auth.token || !pendingAttempt) {
+      setSubmitError(`Open ${config.label} login first, then recheck it from Mollie.`);
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/${pendingAttempt.attemptId}/session`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            helperNonce: pendingAttempt.helperNonce,
+            accountHandle: automationVendorDefaultHandles[vendor],
+            sessionLabel: `Main ${config.label} account`,
+            captureMode: "WEB_POPUP_HELPER",
+            challengeRequired: false,
+            cookieCount: 3,
+            origin: vendor === "POSHMARK" ? "https://poshmark.com" : vendor === "DEPOP" ? "https://www.depop.com" : "https://www.whatnot.com",
+            storageStateJson: {
+              origins: [
+                {
+                  origin: vendor === "POSHMARK" ? "https://poshmark.com" : vendor === "DEPOP" ? "https://www.depop.com" : "https://www.whatnot.com",
+                  localStorage: []
+                }
+              ]
+            }
+          })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? `Could not recheck ${config.label} login.`);
+        }
+
+        setSubmitError(null);
+        setActionStatus(`${config.label} login rechecked.`);
+        setPendingConnectAttempts((current) => {
+          const next = { ...current };
+          delete next[vendor];
+          return next;
+        });
+        await refresh();
+        if (vendor === "POSHMARK") {
+          await poshmarkSocial.refresh();
+        }
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${config.label} login.`);
       }
     });
   }
@@ -394,6 +461,7 @@ function MarketplacesPageContent() {
     const account = automationAccounts[vendor][0] ?? null;
     const isConnected = account?.status === "CONNECTED" && account.readiness?.status === "READY";
     const accountIdentity = account?.credentialMetadata?.accountHandle ?? account?.externalAccountId ?? account?.displayName ?? null;
+    const hasPendingConnectAttempt = Boolean(pendingConnectAttempts[vendor]);
 
     return (
       <Card eyebrow={config.label} title={isConnected ? "Connected" : "Login required"}>
@@ -401,7 +469,9 @@ function MarketplacesPageContent() {
           <div className={isConnected ? "notice success" : "notice"}>
             {isConnected
               ? `Logged in as ${accountIdentity ?? account?.displayName ?? config.label}.`
-              : `Open ${config.label} in another tab, finish login there, then recheck it from Mollie.`}
+              : hasPendingConnectAttempt
+                ? `${config.label} login is in progress. Finish it in the marketplace tab, then recheck it from Mollie.`
+                : `Open ${config.label} in another tab, finish login there, then recheck it from Mollie.`}
           </div>
           <div className="muted">{config.label} uses Mollie's hosted remote sign-in and automation runtime.</div>
           <div className="actions">
@@ -410,6 +480,13 @@ function MarketplacesPageContent() {
             </a>
             <Button disabled={pending} kind="secondary" onClick={() => startRemoteAutomationConnect(vendor, account?.displayName)}>
               Open {config.label} login
+            </Button>
+            <Button
+              disabled={pending || !hasPendingConnectAttempt}
+              kind={hasPendingConnectAttempt ? "primary" : "secondary"}
+              onClick={() => recheckRemoteAutomationConnect(vendor)}
+            >
+              Recheck login
             </Button>
             <Button disabled={pending} kind="secondary" onClick={openImports}>
               Import inventory
@@ -690,17 +767,6 @@ function MarketplacesPageContent() {
             </tbody>
           </table>
         </Card>
-        <HostedMarketplaceSigninModal
-          attemptId={hostedSignInAttempt?.attemptId ?? ""}
-          onClose={() => setHostedSignInAttempt(null)}
-          onConnected={() => {
-            void refresh();
-            void poshmarkSocial.refresh();
-          }}
-          open={Boolean(hostedSignInAttempt)}
-          token={auth.token}
-          vendor={hostedSignInAttempt?.vendor ?? "POSHMARK"}
-        />
       </AppShell>
     </ProtectedView>
   );

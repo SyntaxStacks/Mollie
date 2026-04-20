@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowLeft, Camera, ExternalLink, Plus, Search, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 
 import { Button } from "@reselleros/ui";
 
@@ -39,6 +39,20 @@ function splitCsv(value: string) {
     .filter(Boolean);
 }
 
+function formatCurrencyInput(value: string) {
+  const parsed = Number(value || 0);
+
+  if (!Number.isFinite(parsed)) {
+    return "$0";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: parsed % 1 === 0 ? 0 : 2
+  }).format(parsed);
+}
+
 export function InventoryCreateWorkspace({ token, existingItems }: InventoryCreateWorkspaceProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -60,6 +74,9 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
   const [description, setDescription] = useState("");
   const [labels, setLabels] = useState("");
   const [internalNote, setInternalNote] = useState("");
+  const marketplaceRailRef = useRef<HTMLElement | null>(null);
+  const detailEditorMainRef = useRef<HTMLDivElement | null>(null);
+  const detailSidebarRef = useRef<HTMLDivElement | null>(null);
 
   const duplicateMatches = useMemo(() => {
     const normalizedIdentifier = normalizeIdentifier(identifier);
@@ -79,6 +96,24 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
       })
       .slice(0, 3);
   }, [existingItems, identifier, title]);
+
+  const workingTitle = title.trim() || "New inventory item";
+  const sourceMode = lookupQuery.trim() || sourceUrl.trim() ? "Manual lookup" : "Manual entry";
+  const nextStep = title.trim() ? "Create item and move into listing work" : "Name the item and capture the shared facts";
+  const duplicateSummary =
+    duplicateMatches.length === 0
+      ? "No likely duplicates"
+      : `${duplicateMatches.length} possible duplicate${duplicateMatches.length === 1 ? "" : "s"}`;
+  const resaleRangeLabel = `${formatCurrencyInput(estimatedResaleMin)}-${formatCurrencyInput(estimatedResaleMax)}`;
+
+  useEffect(() => {
+    const columns = [marketplaceRailRef.current, detailEditorMainRef.current, detailSidebarRef.current];
+    for (const column of columns) {
+      if (column) {
+        column.scrollTop = 0;
+      }
+    }
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -156,274 +191,302 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
   }
 
   return (
-    <div className="inventory-create-page">
-      <section className="inventory-create-hero">
-        <div className="inventory-create-hero-copy">
-          <p className="eyebrow">Create inventory</p>
-          <h2>Build the item record once, then finish the listing where it sells.</h2>
+    <section className="inventory-create-page detail-page-stack detail-editor-page">
+      <div className="detail-editor-header">
+        <div className="detail-editor-titleblock">
+          <p className="eyebrow">Listing workspace</p>
+          <h2 className="detail-editor-title">{workingTitle}</h2>
           <p className="muted">
-            Use manual or source lookup here, or jump to scan when you have a barcode and want the fastest path into Mollie.
+            Start the item in the same workspace shape you use later: intake on the left, shared listing in the center,
+            and snapshot context on the right.
           </p>
         </div>
-        <div className="inventory-create-hero-actions">
+        <div className="detail-editor-header-actions">
           <Link href="/inventory">
-            <Button kind="ghost" type="button">
-              <ArrowLeft size={16} /> Back to inventory
-            </Button>
+            <Button kind="ghost" type="button">Inventory</Button>
           </Link>
           <Link href="/inventory?scan=barcode">
-            <Button type="button">
-              <Camera size={16} /> Scan item instead
+            <Button kind="secondary" type="button">
+              <Camera size={16} /> Scan instead
             </Button>
           </Link>
         </div>
-      </section>
+      </div>
 
-      <div className="inventory-create-layout">
-        <aside className="inventory-create-sidebar inventory-create-intake-rail">
-          <section className="inventory-create-panel inventory-create-mode-card">
-            <div className="inventory-create-mode-header">
-              <Camera size={18} />
-              <div>
-                <strong>Start from scan</strong>
-                <p className="muted">Use the camera when the item has a code, or when you want photos and price signals before saving.</p>
-              </div>
-            </div>
-            <Link className="secondary-link-button" href="/inventory?scan=barcode">
-              <Camera size={16} /> Open scanner
-            </Link>
-          </section>
+      {error ? <div className="notice">{error}</div> : null}
 
-          <section className="inventory-create-panel inventory-create-mode-card inventory-create-mode-card-active">
-            <div className="inventory-create-mode-header">
-              <Search size={18} />
-              <div>
-                <strong>Manual and source lookup</strong>
-                <p className="muted">Research the item, prefill what you trust, then create the inventory record without leaving the workflow.</p>
+      <div className="detail-editor-workspace">
+        <div className="listing-workbench-layout detail-editor-layout">
+          <aside className="listing-marketplace-rail inventory-create-intake-rail" ref={marketplaceRailRef}>
+            <div className="listing-rail-summary">
+              <div className="listing-rail-summary-copy">
+                <p className="eyebrow">Create path</p>
+                <strong>{sourceMode === "Manual lookup" ? "Researching before save" : "Create the shared item first"}</strong>
+                <p className="muted listing-rail-helper">
+                  This page now mirrors item detail so the same left-center-right workflow carries from intake into listing.
+                </p>
               </div>
-            </div>
-          </section>
-
-          <section className="inventory-create-panel inventory-create-mode-card">
-            <div className="inventory-create-mode-header">
-              <Sparkles size={18} />
-              <div>
-                <strong>Create now, enrich later</strong>
-                <p className="muted">Mollie does not need the perfect listing yet. Save the item, then add photos and marketplace detail on the item page.</p>
-              </div>
-            </div>
-          </section>
-        </aside>
-
-        <form className="inventory-create-form" onSubmit={handleSubmit}>
-          <section className="inventory-create-panel inventory-create-photo-panel">
-            <div className="inventory-create-section-heading">
-              <div>
-                <p className="eyebrow">Photos</p>
-                <h3>Add images after save or start from scan now</h3>
-              </div>
-              <Link className="secondary-link-button" href="/inventory?scan=barcode">
-                <Camera size={16} /> Scan with camera
+              <Link href="/inventory">
+                <Button kind="ghost" type="button">
+                  <ArrowLeft size={16} /> Back
+                </Button>
               </Link>
             </div>
-            <div className="inventory-create-photo-dropzone">
-              <Plus size={28} />
-              <strong>No photos attached yet</strong>
-              <p className="muted">The item detail page supports image upload and ordering. This screen focuses on getting the record created fast.</p>
-            </div>
-          </section>
 
-          <SourceSearchPanel
-            description="Search for the product in another tab, paste the strongest source URL you find, and use those details as editable prefills rather than automatic truth."
-            query={lookupQuery}
-            sourceUrl={sourceUrl}
-            title="Manual/source lookup"
-            onQueryChange={setLookupQuery}
-            onSourceUrlChange={setSourceUrl}
-          />
+            <div className="inventory-create-rail-stack">
+              <section className="inventory-create-mode-card inventory-create-mode-card-active">
+                <div className="inventory-create-mode-header">
+                  <Search size={18} />
+                  <div>
+                    <strong>Manual/source lookup</strong>
+                    <p className="muted">
+                      Research the item, keep only the facts you trust, and start the shared record without leaving the workspace.
+                    </p>
+                  </div>
+                </div>
+              </section>
 
-          <section className="inventory-create-panel">
-            <div className="inventory-create-section-heading">
-              <div>
-                <p className="eyebrow">Core item</p>
-                <h3>Capture the shared listing details once</h3>
-              </div>
-            </div>
-            <div className="inventory-create-grid">
-              <label className="label inventory-create-grid-span-2">
-                Title
-                <input className="field" required value={title} onChange={(event) => setTitle(event.target.value)} />
-              </label>
-              <label className="label">
-                Brand
-                <input className="field" value={brand} onChange={(event) => setBrand(event.target.value)} />
-              </label>
-              <label className="label">
-                Identifier
-                <input className="field" placeholder="Optional UPC, EAN, or store code" value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
-              </label>
-              <label className="label">
-                Category
-                <input className="field" required value={category} onChange={(event) => setCategory(event.target.value)} />
-              </label>
-              <label className="label">
-                Condition
-                <input className="field" required value={condition} onChange={(event) => setCondition(event.target.value)} />
-              </label>
-              <label className="label">
-                Size
-                <input className="field" value={size} onChange={(event) => setSize(event.target.value)} />
-              </label>
-              <label className="label">
-                Color
-                <input className="field" value={color} onChange={(event) => setColor(event.target.value)} />
-              </label>
-              <label className="label">
-                Quantity
-                <input className="field" min="1" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
-              </label>
-              <label className="label inventory-create-grid-span-2">
-                Description
-                <textarea className="field textarea-field" placeholder="Shared listing copy, measurements, flaws, or source notes you want to keep with the item." value={description} onChange={(event) => setDescription(event.target.value)} />
-              </label>
-            </div>
-          </section>
+              <section className="inventory-create-mode-card">
+                <div className="inventory-create-mode-header">
+                  <Camera size={18} />
+                  <div>
+                    <strong>Start from scan</strong>
+                    <p className="muted">Use scan when you have a barcode and want the fastest route into inventory.</p>
+                  </div>
+                </div>
+                <Link className="secondary-link-button" href="/inventory?scan=barcode">
+                  <Camera size={16} /> Open scanner
+                </Link>
+              </section>
 
-          <section className="inventory-create-panel">
-            <div className="inventory-create-section-heading">
-              <div>
-                <p className="eyebrow">Pricing and notes</p>
-                <h3>Save enough context to move directly into sell work</h3>
-              </div>
+              <section className="inventory-create-mode-card">
+                <div className="inventory-create-mode-header">
+                  <Sparkles size={18} />
+                  <div>
+                    <strong>Enrich after save</strong>
+                    <p className="muted">
+                      Photos, marketplace setup, and posting controls all open in the same workspace right after creation.
+                    </p>
+                  </div>
+                </div>
+              </section>
             </div>
-            <div className="inventory-create-grid">
-              <label className="label">
-                Cost of goods
-                <input className="field" min="0" step="0.01" type="number" value={costBasis} onChange={(event) => setCostBasis(event.target.value)} />
-              </label>
-              <label className="label">
-                Suggested sell
-                <input className="field" min="0" step="0.01" type="number" value={priceRecommendation} onChange={(event) => setPriceRecommendation(event.target.value)} />
-              </label>
-              <label className="label">
-                Resale min
-                <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMin} onChange={(event) => setEstimatedResaleMin(event.target.value)} />
-              </label>
-              <label className="label">
-                Resale max
-                <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMax} onChange={(event) => setEstimatedResaleMax(event.target.value)} />
-              </label>
-              <label className="label">
-                Labels
-                <input className="field" placeholder="summer, shoes, priority" value={labels} onChange={(event) => setLabels(event.target.value)} />
-              </label>
-              <label className="label inventory-create-grid-span-2">
-                Internal note
-                <textarea className="field textarea-field" placeholder="Condition callouts, sourcing notes, cleaning tasks, or anything the team should know before listing." value={internalNote} onChange={(event) => setInternalNote(event.target.value)} />
-              </label>
-            </div>
-          </section>
+          </aside>
 
-          {error ? <div className="notice">{error}</div> : null}
-
-          <ActionRail>
-            <div className="inventory-create-action-rail">
-              <div className="muted">
-                Creating this item opens the full item workspace so you can add photos, select marketplaces, and keep editing.
-              </div>
-              <div className="actions">
+          <div className="detail-editor-main" ref={detailEditorMainRef}>
+            <div className="listing-form-section listing-photo-panel">
+              <div className="listing-form-section-heading listing-photo-section-heading">
+                <div className="listing-photo-section-heading-copy">
+                  <h3>Photos</h3>
+                  <p className="muted">Start from scan now or create the item first and upload, reorder, and review images on the item page.</p>
+                </div>
                 <Link href="/inventory?scan=barcode">
                   <Button kind="secondary" type="button">
-                    <Camera size={16} /> Scan instead
+                    <Camera size={16} /> Scan with camera
                   </Button>
                 </Link>
-                <Button data-testid="manual-inventory-create" disabled={pending} type="submit">
-                  <Plus size={16} /> {pending ? "Creating..." : "Create item"}
-                </Button>
+              </div>
+              <div className="inventory-create-photo-dropzone">
+                <Plus size={28} />
+                <strong>No photos attached yet</strong>
+                <p className="muted">The item detail page will handle photo upload, sorting, cover selection, and cleanup after save.</p>
               </div>
             </div>
-          </ActionRail>
-        </form>
 
-        <aside className="inventory-create-sidebar">
-          <section className="inventory-create-panel">
-            <p className="eyebrow">Record status</p>
-            <div className="inventory-create-sidebar-stack">
-              <div className="inventory-create-stat">
-                <span className="muted">SKU</span>
-                <strong>Generated after save</strong>
-              </div>
-              <div className="inventory-create-stat">
-                <span className="muted">Source mode</span>
-                <strong>{lookupQuery.trim() || sourceUrl.trim() ? "Manual lookup" : "Manual entry"}</strong>
-              </div>
-              <div className="inventory-create-stat">
-                <span className="muted">Next step</span>
-                <strong>Add photos and choose marketplaces</strong>
-              </div>
-            </div>
-          </section>
+            <form className="stack" id="inventory-create-form" onSubmit={handleSubmit}>
+              <SourceSearchPanel
+                description="Search for the product in another tab, paste the strongest source URL you find, and use those details as editable prefills rather than automatic truth."
+                query={lookupQuery}
+                sourceUrl={sourceUrl}
+                title="Manual/source lookup"
+                onQueryChange={setLookupQuery}
+                onSourceUrlChange={setSourceUrl}
+              />
 
-          <section className="inventory-create-panel">
-            <p className="eyebrow">Operator checklist</p>
-            <div className="inventory-create-checklist">
-              <div className="inventory-create-checklist-item">
-                <strong>1. Create the shared item</strong>
-                <span>Capture the inventory facts once so the listing workspace starts from one source of truth.</span>
-              </div>
-              <div className="inventory-create-checklist-item">
-                <strong>2. Add photos after save</strong>
-                <span>Upload, reorder, and manage images on the item page once the record exists.</span>
-              </div>
-              <div className="inventory-create-checklist-item">
-                <strong>3. Publish deliberately</strong>
-                <span>Use the sell workspace on the item page to pick marketplaces and post only when blockers are clear.</span>
-              </div>
-            </div>
-          </section>
+              <section className="listing-form-section">
+                <div className="listing-form-section-heading">
+                  <h3>Shared item details</h3>
+                  <p className="muted">Capture the core listing facts once so the item page starts from a clean shared record.</p>
+                </div>
+                <div className="inventory-create-grid">
+                  <label className="label inventory-create-grid-span-2">
+                    Title
+                    <input className="field" required value={title} onChange={(event) => setTitle(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Brand
+                    <input className="field" value={brand} onChange={(event) => setBrand(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Identifier
+                    <input className="field" placeholder="Optional UPC, EAN, or store code" value={identifier} onChange={(event) => setIdentifier(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Category
+                    <input className="field" required value={category} onChange={(event) => setCategory(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Condition
+                    <input className="field" required value={condition} onChange={(event) => setCondition(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Size
+                    <input className="field" value={size} onChange={(event) => setSize(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Color
+                    <input className="field" value={color} onChange={(event) => setColor(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Quantity
+                    <input className="field" min="1" type="number" value={quantity} onChange={(event) => setQuantity(event.target.value)} />
+                  </label>
+                  <label className="label inventory-create-grid-span-2">
+                    Description
+                    <textarea
+                      className="field textarea-field"
+                      placeholder="Shared listing copy, measurements, flaws, or source notes you want to keep with the item."
+                      value={description}
+                      onChange={(event) => setDescription(event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
 
-          <section className="inventory-create-panel">
-            <div className="inventory-create-section-heading">
-              <div>
-                <p className="eyebrow">Source links</p>
-                <h3>Keep outside research close</h3>
+              <section className="listing-form-section">
+                <div className="listing-form-section-heading">
+                  <h3>Price and notes</h3>
+                  <p className="muted">Save enough pricing and operator context that the next screen can move directly into listing work.</p>
+                </div>
+                <div className="inventory-create-grid">
+                  <label className="label">
+                    Cost of goods
+                    <input className="field" min="0" step="0.01" type="number" value={costBasis} onChange={(event) => setCostBasis(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Suggested sell
+                    <input className="field" min="0" step="0.01" type="number" value={priceRecommendation} onChange={(event) => setPriceRecommendation(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Resale min
+                    <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMin} onChange={(event) => setEstimatedResaleMin(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Resale max
+                    <input className="field" min="0" step="0.01" type="number" value={estimatedResaleMax} onChange={(event) => setEstimatedResaleMax(event.target.value)} />
+                  </label>
+                  <label className="label">
+                    Labels
+                    <input className="field" placeholder="summer, shoes, priority" value={labels} onChange={(event) => setLabels(event.target.value)} />
+                  </label>
+                  <label className="label inventory-create-grid-span-2">
+                    Internal note
+                    <textarea
+                      className="field textarea-field"
+                      placeholder="Condition callouts, sourcing notes, cleaning tasks, or anything the team should know before listing."
+                      value={internalNote}
+                      onChange={(event) => setInternalNote(event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
+            </form>
+          </div>
+
+          <aside className="detail-editor-sidebar" ref={detailSidebarRef}>
+            <div className="detail-editor-sidebar-card">
+              <div className="detail-editor-sidebar-card-topline">
+                <div>
+                  <p className="eyebrow">Snapshot</p>
+                  <strong className="detail-editor-sidebar-title">{nextStep}</strong>
+                </div>
+              </div>
+              <div className="detail-editor-sidebar-metrics">
+                <div className="metric"><span className="muted">Buy cost</span><strong>{formatCurrencyInput(costBasis)}</strong></div>
+                <div className="metric"><span className="muted">Suggested sell</span><strong>{formatCurrencyInput(priceRecommendation)}</strong></div>
+                <div className="metric"><span className="muted">Resale range</span><strong>{resaleRangeLabel}</strong></div>
+                <div className="metric"><span className="muted">Condition</span><strong>{condition}</strong></div>
+              </div>
+              <div className="detail-editor-sidebar-facts">
+                <div className="detail-meta-row"><span className="muted">SKU</span><strong>Generated after save</strong></div>
+                <div className="detail-meta-row"><span className="muted">Identifier</span><strong>{identifier.trim() || "Not set yet"}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Category</span><strong>{category}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Brand</span><strong>{brand.trim() || "Not set yet"}</strong></div>
               </div>
             </div>
-            <div className="inventory-create-sidebar-stack">
+
+            <div className="detail-editor-sidebar-card">
+              <div className="listing-form-section-heading">
+                <h3>Research and duplicate check</h3>
+                <p className="muted">Keep the strongest source close and make sure you are not creating the same inventory twice.</p>
+              </div>
+              <div className="detail-editor-sidebar-facts">
+                <div className="detail-meta-row"><span className="muted">Source mode</span><strong>{sourceMode}</strong></div>
+                <div className="detail-meta-row"><span className="muted">Duplicate check</span><strong>{duplicateSummary}</strong></div>
+              </div>
               {sourceUrl.trim() ? (
                 <a className="secondary-link-button" href={sourceUrl.trim()} rel="noreferrer" target="_blank">
                   <ExternalLink size={16} /> Open source page
                 </a>
               ) : (
-                <div className="muted">Paste a source URL to keep the reference attached to this item.</div>
+                <div className="muted">Paste a source URL to keep the best external reference attached to this item.</div>
               )}
+              {duplicateMatches.length > 0 ? (
+                <div className="notice warning">
+                  <strong>Possible duplicate</strong>
+                  <ul className="marketplace-hint-list">
+                    {duplicateMatches.map((item) => (
+                      <li key={item.id}>
+                        <Link href={`/inventory/${item.id}`}>{item.title}</Link>
+                        {typeof item.attributesJson?.identifier === "string" ? ` - ${item.attributesJson.identifier}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </div>
-          </section>
 
-          <section className="inventory-create-panel">
-            <div className="inventory-create-section-heading">
-              <div>
-                <p className="eyebrow">Duplicate check</p>
-                <h3>Avoid double-listing the same inventory</h3>
+            <div className="detail-editor-sidebar-card">
+              <div className="listing-form-section-heading">
+                <h3>Operator checklist</h3>
+                <p className="muted">Keep the first save lean, then let the full item workspace take over.</p>
+              </div>
+              <div className="inventory-create-checklist">
+                <div className="inventory-create-checklist-item">
+                  <strong>1. Capture the shared item</strong>
+                  <span>Name it, set category and condition, then save the record once.</span>
+                </div>
+                <div className="inventory-create-checklist-item">
+                  <strong>2. Add photos after save</strong>
+                  <span>Upload, reorder, and manage images in the item detail workspace.</span>
+                </div>
+                <div className="inventory-create-checklist-item">
+                  <strong>3. Choose marketplaces deliberately</strong>
+                  <span>Use the item page to review blockers, pricing, and posting actions after the record exists.</span>
+                </div>
               </div>
             </div>
-            {duplicateMatches.length === 0 ? <div className="muted">No likely duplicates yet. Mollie will compare the title and identifier as you type.</div> : null}
-            {duplicateMatches.length > 0 ? (
-              <div className="notice warning">
-                <strong>Possible duplicate</strong>
-                <ul className="marketplace-hint-list">
-                  {duplicateMatches.map((item) => (
-                    <li key={item.id}>
-                      <Link href={`/inventory/${item.id}`}>{item.title}</Link>
-                      {typeof item.attributesJson?.identifier === "string" ? ` - ${item.attributesJson.identifier}` : ""}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </section>
-        </aside>
+          </aside>
+        </div>
+
+        <ActionRail>
+          <div className="detail-editor-action-rail inventory-create-action-rail">
+            <Button kind="secondary" onClick={() => router.push("/inventory")} type="button">
+              <ArrowLeft size={16} /> Back to listings
+            </Button>
+            <div className="detail-editor-action-rail-buttons">
+              <Link href="/inventory?scan=barcode">
+                <Button kind="secondary" type="button">
+                  <Camera size={16} /> Scan instead
+                </Button>
+              </Link>
+              <Button data-testid="manual-inventory-create" disabled={pending} form="inventory-create-form" type="submit">
+                <Plus size={16} /> {pending ? "Creating..." : "Create item"}
+              </Button>
+            </div>
+          </div>
+        </ActionRail>
       </div>
-    </div>
+    </section>
   );
 }
