@@ -328,6 +328,70 @@ test("product lookup fetches richer source data before falling back to a generic
   assert.equal(result.candidates[0]?.confidenceState, "HIGH");
 });
 
+test("product lookup rejects generic Amazon chrome images and keeps the product photo from search results", async () => {
+  await clearCatalogIdentifiers("200000000001");
+  const session = await createWorkspaceSession("product-lookup-amazon-image-ranking");
+
+  global.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes("amazon.com/s?")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <img src="https://m.media-amazon.com/images/G/01/nav2/images/amazon-logo.png" />
+              <div data-cy="title-recipe"><h2>Poolmaster Learn-to-Swim Tube Trainer</h2></div>
+              <a href="/Poolmaster-Learn-to-Swim-Tube-Trainer/dp/B00290OCQW/ref=sr_1_1"></a>
+              <span class="a-price-whole">14</span>
+              <span class="a-price-fraction">99</span>
+              <img src="https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    if (url.includes("google.com") || url.includes("ebay.com") || url.includes("/dp/B00290OCQW")) {
+      return new Response("", { status: 404 });
+    }
+
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/product-lookup/barcode",
+    headers: session.headers,
+    payload: {
+      barcode: "200000000001"
+    }
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(response.statusCode, 200);
+  const result = response.json<{
+    result: {
+      providerSummary: { simulated: boolean; barcodeLookupProvider: string };
+      candidates: Array<{
+        provider: string;
+        primaryImageUrl: string | null;
+        imageUrls: string[];
+        productUrl: string | null;
+      }>;
+    };
+  }>().result;
+
+  assert.equal(result.providerSummary.simulated, false);
+  assert.equal(result.providerSummary.barcodeLookupProvider, "web-source-research");
+  assert.equal(result.candidates[0]?.provider, "AMAZON_ENRICHMENT");
+  assert.equal(result.candidates[0]?.primaryImageUrl, "https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg");
+  assert.deepEqual(result.candidates[0]?.imageUrls, ["https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg"]);
+  assert.match(result.candidates[0]?.productUrl ?? "", /amazon\.com\/dp\/B00290OCQW/i);
+});
+
 test("product lookup ignores blocked or generic Google support results", async () => {
   await clearCatalogIdentifiers("019100296460");
   const session = await createWorkspaceSession("product-lookup-google-support");

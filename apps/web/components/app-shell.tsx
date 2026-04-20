@@ -4,27 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   ChevronDown,
-  Camera,
   Download,
   Factory,
+  Plus,
+  ScanBarcode,
   Settings,
   ShoppingBag,
-  Store,
-  Tags
+  Store
 } from "lucide-react";
 
 import { Button } from "@reselleros/ui";
 
 import { useAuth } from "./auth-provider";
-
-const primaryNavItems = [
-  { href: "/", label: "Scan", icon: Camera, match: (pathname: string) => pathname === "/" || pathname.startsWith("/scan") },
-  { href: "/inventory", label: "Inventory", icon: ShoppingBag, match: (pathname: string) => pathname.startsWith("/inventory") },
-  { href: "/sell", label: "Sell", icon: Tags, match: (pathname: string) => pathname.startsWith("/sell") || pathname.startsWith("/drafts") },
-  { href: "/activity", label: "Activity", icon: Activity, match: (pathname: string) => pathname.startsWith("/activity") || pathname.startsWith("/executions") || pathname.startsWith("/sales") }
-] as const;
 
 const utilityNavItems = [
   { href: "/marketplaces", label: "Marketplaces", icon: Store },
@@ -32,6 +24,14 @@ const utilityNavItems = [
   { href: "/workspace", label: "Workspace", icon: Factory },
   { href: "/settings", label: "Settings", icon: Settings }
 ] as const;
+
+const primaryNavItems = [
+  { href: "/inventory", label: "Inventory", icon: ShoppingBag }
+] as const;
+
+function isActivePath(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`) || pathname.startsWith(`${href}?`);
+}
 
 export function AppShell({
   title,
@@ -44,7 +44,6 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const auth = useAuth();
-  const activePrimary = primaryNavItems.find((item) => item.match(pathname))?.href ?? "/";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -76,13 +75,13 @@ export function AppShell({
       </a>
       <header className="app-topbar">
         <div className="app-brand-block">
-          <div className="app-brand-lockup">
+          <Link className="app-brand-lockup" href="/inventory">
             <span aria-hidden="true" className="app-brand-mark" />
             <div>
-              <p className="sidebar-kicker">Resale operating system</p>
+              <p className="sidebar-kicker">Resale workflow</p>
               <h1>Mollie</h1>
             </div>
-          </div>
+          </Link>
           <div className="app-topbar-meta">
             <span className="app-topbar-context">{title}</span>
             <span>{auth.workspace?.name ?? "No workspace"}</span>
@@ -90,6 +89,36 @@ export function AppShell({
         </div>
 
         <div className="app-topbar-actions">
+          <nav className="app-header-shortcuts" aria-label="Primary">
+            {primaryNavItems.map((item) => {
+              const Icon = item.icon;
+              const active = isActivePath(pathname, item.href);
+
+              return (
+                <Link className={`app-utility-link${active ? " active" : ""}`} href={item.href} key={item.href}>
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="app-header-shortcuts">
+            <Link href="/inventory?scan=barcode">
+              <Button kind="secondary" type="button">
+                <ScanBarcode size={16} /> Scan
+              </Button>
+            </Link>
+            <Link href="/inventory/create">
+              <Button type="button">
+                <Plus size={16} /> Create
+              </Button>
+            </Link>
+            <Link href="/imports">
+              <Button kind="secondary" type="button">
+                <Download size={16} /> Import
+              </Button>
+            </Link>
+          </div>
           <div className="app-settings-menu" ref={settingsMenuRef}>
             <button
               aria-expanded={settingsOpen}
@@ -142,35 +171,9 @@ export function AppShell({
         </div>
       </header>
 
-      <nav aria-label="Primary" className="primary-tab-nav">
-        {primaryNavItems.map((item) => {
-          const Icon = item.icon;
-          const active = activePrimary === item.href;
-          return (
-            <Link className={`primary-tab-link${active ? " active" : ""}`} href={item.href} key={item.href}>
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
-
       <main className="app-main" id="main-content">
         {children}
       </main>
-
-      <nav aria-label="Primary mobile" className="mobile-tab-bar">
-        {primaryNavItems.map((item) => {
-          const Icon = item.icon;
-          const active = activePrimary === item.href;
-          return (
-            <Link className={`mobile-tab-link${active ? " active" : ""}`} href={item.href} key={item.href}>
-              <Icon size={18} />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
     </div>
   );
 }

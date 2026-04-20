@@ -34,6 +34,11 @@ function resolveChallengeTtlMinutes() {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
 }
 
+function resolveMaxChallengeAttempts() {
+  const parsed = Number(process.env.AUTH_MAX_VERIFY_ATTEMPTS ?? "5");
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 5;
+}
+
 function shouldExposeChallengeCode() {
   return process.env.NODE_ENV !== "production" || process.env.AUTH_EXPOSE_DEV_CODE === "true";
 }
@@ -185,15 +190,33 @@ export async function verifyLoginChallenge(input: {
     throw new AuthFlowError("No active login code found for that email");
   }
 
+  const maxAttempts = resolveMaxChallengeAttempts();
+  if (challenge.attemptCount >= maxAttempts) {
+    await db.authChallenge.update({
+      where: { id: challenge.id },
+      data: {
+        consumedAt: now()
+      }
+    });
+
+    throw new AuthFlowError("Login code expired. Request a new code.");
+  }
+
   if (challenge.codeHash !== hashValue(code)) {
+    const nextAttemptCount = challenge.attemptCount + 1;
     await db.authChallenge.update({
       where: { id: challenge.id },
       data: {
         attemptCount: {
           increment: 1
-        }
+        },
+        ...(nextAttemptCount >= maxAttempts ? { consumedAt: now() } : {})
       }
     });
+
+    if (nextAttemptCount >= maxAttempts) {
+      throw new AuthFlowError("Login code expired. Request a new code.");
+    }
 
     throw new AuthFlowError("Invalid login code");
   }

@@ -5,17 +5,25 @@ import { useState, useTransition } from "react";
 import { Button, Card } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
+import { BrowserExtensionStatusCard } from "../../components/browser-extension-status-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
+import { useBrowserExtension } from "../../components/use-browser-extension";
 import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
+type ExtensionStatusResponse = {
+  tasks: Array<{ id: string; state: string }>;
+};
+
 export default function SettingsPage() {
   const auth = useAuth();
+  const extension = useBrowserExtension();
   const audit = useAuthedResource<{
     logs: Array<{ id: string; action: string; targetType: string; targetId: string; createdAt: string }>;
   }>("/api/audit-logs", auth.token);
+  const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
   const members = useAuthedResource<{
     canManageMembers: boolean;
     members: Array<{
@@ -115,6 +123,17 @@ export default function SettingsPage() {
   return (
     <ProtectedView>
       <AppShell title="Settings + Billing Skeleton">
+        <BrowserExtensionStatusCard
+          connected={extension.connected}
+          installed={extension.installed}
+          loading={extension.loading}
+          onRefresh={() => {
+            void extension.refresh();
+            void extensionStatus.refresh();
+          }}
+          pendingTasks={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
+        />
+
         <div className="grid-2">
           <Card eyebrow="Workspace" title={auth.workspace?.name ?? "No workspace"}>
             <div className="stack muted">

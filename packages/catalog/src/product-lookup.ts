@@ -97,6 +97,33 @@ const knownSimulatedMatches: Record<
 const SOURCE_FETCH_TIMEOUT_MS = 4500;
 const SOURCE_FETCH_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+const GENERIC_IMAGE_URL_FRAGMENTS = [
+  "/favicon",
+  "logo",
+  "sprite",
+  "icon",
+  "placeholder",
+  "avatar",
+  "spinner",
+  "loading",
+  "pixel"
+] as const;
+const GENERIC_AMAZON_IMAGE_URL_FRAGMENTS = [
+  "/images/g/",
+  "nav-sprite",
+  "amazon-smile",
+  "prime-day",
+  "smile",
+  "fresh",
+  "hamburger",
+  "cart",
+  "flag",
+  "signin",
+  "header",
+  "footer",
+  "glow",
+  "nav-logo"
+] as const;
 
 function stripHtml(value: string | null | undefined) {
   if (!value) {
@@ -115,6 +142,18 @@ function stripHtml(value: string | null | undefined) {
     .trim();
 }
 
+function decodeHtmlAttribute(value: string) {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/\\u0026/g, "&")
+    .replace(/\\\//g, "/");
+}
+
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -129,6 +168,197 @@ function parseDecimalPrice(whole: string | null | undefined, fraction: string | 
   }
 
   return Number(`${whole.replace(/,/g, "")}.${fraction ?? "00"}`);
+}
+
+function resolveImageUrl(rawUrl: string | null | undefined, pageUrl?: string | null) {
+  if (!rawUrl) {
+    return null;
+  }
+
+  const decoded = decodeHtmlAttribute(rawUrl).trim();
+
+  if (!decoded || decoded.startsWith("data:")) {
+    return null;
+  }
+
+  try {
+    return new URL(decoded, pageUrl ?? undefined).toString();
+  } catch {
+    return /^https?:\/\//i.test(decoded) ? decoded : null;
+  }
+}
+
+function parseSrcsetUrls(rawSrcset: string | null | undefined, pageUrl?: string | null) {
+  if (!rawSrcset) {
+    return [];
+  }
+
+  return rawSrcset
+    .split(",")
+    .map((entry) => resolveImageUrl(entry.trim().split(/\s+/)[0] ?? null, pageUrl))
+    .filter((entry): entry is string => Boolean(entry));
+}
+
+function isLikelyGenericImageUrl(url: string) {
+  const normalized = url.toLowerCase();
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return true;
+    }
+
+    if (pathname.endsWith(".svg")) {
+      return true;
+    }
+
+    if (GENERIC_IMAGE_URL_FRAGMENTS.some((fragment) => normalized.includes(fragment))) {
+      return true;
+    }
+
+    if (
+      host.includes("amazon.") ||
+      host.includes("amazonaws.com") ||
+      host.includes("ssl-images-amazon.com") ||
+      host.includes("media-amazon.com")
+    ) {
+      if (pathname.includes("/images/i/")) {
+        return false;
+      }
+
+      if (GENERIC_AMAZON_IMAGE_URL_FRAGMENTS.some((fragment) => normalized.includes(fragment))) {
+        return true;
+      }
+    }
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function scoreImageUrl(url: string) {
+  if (isLikelyGenericImageUrl(url)) {
+    return -200;
+  }
+
+  let score = 0;
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    if (host === "m.media-amazon.com") {
+      score += 70;
+    } else if (host.endsWith("ssl-images-amazon.com")) {
+      score += 62;
+    } else if (host.includes("amazon")) {
+      score += 26;
+    }
+
+    if (pathname.includes("/images/i/")) {
+      score += 42;
+    }
+
+    if (/\.(?:jpe?g|png|webp)(?:$|\?)/i.test(pathname)) {
+      score += 10;
+    }
+
+    if (/_ac_/i.test(url)) {
+      score += 14;
+    }
+
+    const sizeHints = [...url.matchAll(/_(?:sx|sy|ux|uy)(\d{2,4})/gi)]
+      .map((match) => Number(match[1] ?? 0))
+      .filter((value) => Number.isFinite(value));
+    const largestSizeHint = sizeHints.length > 0 ? Math.max(...sizeHints) : 0;
+    score += Math.min(18, Math.floor(largestSizeHint / 60));
+  } catch {
+    return -200;
+  }
+
+  return score;
+}
+
+export function rankProductImageUrls(urls: string[], options?: { pageUrl?: string | null }) {
+  const resolved = [...new Set(urls.map((url) => resolveImageUrl(url, options?.pageUrl)).filter((url): url is string => Boolean(url)))];
+  const ranked = resolved
+    .map((url) => ({
+      url,
+      score: scoreImageUrl(url)
+    }))
+    .sort((left, right) => right.score - left.score);
+  const filtered = ranked.filter((entry) => entry.score > -120).map((entry) => entry.url);
+
+  return filtered.length > 0 ? filtered : ranked.map((entry) => entry.url);
+}
+
+export function extractRankedProductImageUrlsFromHtml(html: string, options?: { pageUrl?: string | null }) {
+  const urls: string[] = [];
+
+  for (const property of ["og:image", "twitter:image"]) {
+    for (const match of html.matchAll(
+      new RegExp(`<meta[^>]+(?:property|name)=["']${escapeRegExp(property)}["'][^>]+content=["']([^"']+)["']`, "gi")
+    )) {
+      if (match[1]) {
+        urls.push(match[1]);
+      }
+    }
+    for (const match of html.matchAll(
+      new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escapeRegExp(property)}["']`, "gi")
+    )) {
+      if (match[1]) {
+        urls.push(match[1]);
+      }
+    }
+  }
+
+  for (const pattern of [
+    /data-old-hires="([^"]+)"/gi,
+    /data-src="([^"]+)"/gi,
+    /data-image-src="([^"]+)"/gi,
+    /data-zoom-image="([^"]+)"/gi,
+    /src="([^"]+)"/gi
+  ]) {
+    for (const match of html.matchAll(pattern)) {
+      if (match[1]) {
+        urls.push(match[1]);
+      }
+    }
+  }
+
+  for (const match of html.matchAll(/srcset="([^"]+)"/gi)) {
+    urls.push(...parseSrcsetUrls(match[1], options?.pageUrl));
+  }
+
+  for (const match of html.matchAll(/data-a-dynamic-image="({.*?})"/gi)) {
+    try {
+      const parsed = JSON.parse(decodeHtmlAttribute(match[1] ?? "")) as Record<string, unknown>;
+      urls.push(...Object.keys(parsed));
+    } catch {
+      // Ignore malformed JSON blobs.
+    }
+  }
+
+  for (const match of html.matchAll(/"image"\s*:\s*"([^"]+)"/gi)) {
+    if (match[1]) {
+      urls.push(match[1]);
+    }
+  }
+
+  for (const blockMatch of html.matchAll(/"image"\s*:\s*\[(.*?)\]/gis)) {
+    for (const urlMatch of (blockMatch[1] ?? "").matchAll(/"([^"]+)"/g)) {
+      if (urlMatch[1]) {
+        urls.push(urlMatch[1]);
+      }
+    }
+  }
+
+  return rankProductImageUrls(urls, options);
 }
 
 function normalizeAmazonProductUrl(url: string | null | undefined) {
@@ -236,7 +466,9 @@ function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
   const hrefMatch = html.match(/href="(\/[^"]*\/dp\/[A-Z0-9]{10}[^"]*)"/i);
   const priceWhole = html.match(/a-price-whole[^>]*>([\d,]+)/i)?.[1] ?? null;
   const priceFraction = html.match(/a-price-fraction[^>]*>(\d{2})/i)?.[1] ?? "00";
-  const imageMatch = html.match(/<img[^>]+src="([^"]+)"/i);
+  const imageUrls = extractRankedProductImageUrlsFromHtml(html, {
+    pageUrl: "https://www.amazon.com"
+  });
 
   if (!titleMatch && !hrefMatch) {
     return null;
@@ -247,8 +479,8 @@ function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
     title: stripHtml(titleMatch?.[1]) ?? null,
     url: hrefMatch?.[1] ? normalizeAmazonProductUrl(`https://www.amazon.com${hrefMatch[1]}`) : null,
     price: parseDecimalPrice(priceWhole, priceFraction),
-    imageUrl: imageMatch?.[1] ?? null,
-    imageUrls: imageMatch?.[1] ? [imageMatch[1]] : []
+    imageUrl: imageUrls[0] ?? null,
+    imageUrls
   };
 }
 
@@ -285,15 +517,16 @@ function parseAmazonProductHtml(html: string, url: string): SourceResearchCandid
     html.match(/priceToPay[\s\S]*?a-price-fraction[^>]*>(\d{2})/i)?.[1] ??
     "00";
   const dynamicImagesRaw = html.match(/data-a-dynamic-image="({.*?})"/i)?.[1] ?? null;
-  const imageUrls: string[] = [];
+  const dynamicImageUrls: string[] = [];
 
   if (dynamicImagesRaw) {
     try {
-      const decoded = dynamicImagesRaw.replace(/&quot;/g, '"');
+      const decoded = decodeHtmlAttribute(dynamicImagesRaw);
       const parsed = JSON.parse(decoded) as Record<string, unknown>;
       for (const key of Object.keys(parsed)) {
-        if (typeof key === "string" && key.startsWith("http")) {
-          imageUrls.push(key);
+        const resolved = resolveImageUrl(key, url);
+        if (resolved) {
+          dynamicImageUrls.push(resolved);
         }
       }
     } catch {
@@ -301,15 +534,16 @@ function parseAmazonProductHtml(html: string, url: string): SourceResearchCandid
     }
   }
 
-  const primaryImageUrl =
-    imageUrls[0] ??
-    html.match(/id="landingImage"[^>]+src="([^"]+)"/i)?.[1] ??
-    html.match(/property="og:image" content="([^"]+)"/i)?.[1] ??
-    null;
-
-  if (primaryImageUrl && imageUrls.length === 0) {
-    imageUrls.push(primaryImageUrl);
-  }
+  const imageUrls = rankProductImageUrls(
+    [
+      ...dynamicImageUrls,
+      ...extractRankedProductImageUrlsFromHtml(html, {
+        pageUrl: url
+      })
+    ],
+    { pageUrl: url }
+  );
+  const primaryImageUrl = imageUrls[0] ?? null;
 
   if (!title && !brand && !asin && !primaryImageUrl) {
     return null;
@@ -511,7 +745,7 @@ function buildOperatorHint(input: {
   };
 }
 
-function inferAsinFromUrl(url: string | null | undefined) {
+export function inferAsinFromUrl(url: string | null | undefined) {
   if (!url) {
     return null;
   }

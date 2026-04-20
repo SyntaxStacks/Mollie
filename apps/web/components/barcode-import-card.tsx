@@ -14,6 +14,7 @@ import { SourceSearchPanel } from "./source-search-panel";
 type BarcodeImportCardProps = {
   token: string;
   presentation?: "embedded" | "scan";
+  autoOpenCameraOnMount?: boolean;
 };
 
 type IntakeDecision = "ADD" | "HOLD" | "LIST_LATER" | "POST_NOW";
@@ -374,8 +375,9 @@ async function createZxingReader() {
   });
 }
 
-export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeImportCardProps) {
+export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCameraOnMount = false }: BarcodeImportCardProps) {
   const router = useRouter();
+  const scanMode = presentation === "scan";
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const acceptedMatchRef = useRef<HTMLDivElement | null>(null);
@@ -383,12 +385,13 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
   const scannerCropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const scanResolvedRef = useRef(false);
   const scannerOutlineResetRef = useRef<number | null>(null);
+  const autoOpenedCameraRef = useRef(false);
   const [pending, startTransition] = useTransition();
   const [lookupPending, startLookupTransition] = useTransition();
   const [lookupResult, setLookupResult] = useState<ProductLookupResult | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
-  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(autoOpenCameraOnMount);
   const [scannerSupported, setScannerSupported] = useState(false);
   const [liveScannerReady, setLiveScannerReady] = useState(true);
   const [scannerError, setScannerError] = useState<string | null>(null);
@@ -625,6 +628,10 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           }
         );
       } catch {
+        if (!active) {
+          return;
+        }
+
         setLiveScannerReady(false);
         setScannerError("We couldn't start the live camera preview here. Use the photo fallback below or type the barcode manually.");
       }
@@ -887,12 +894,47 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     setScannerError(null);
     setScannerStatus("Point the barcode at the guide.");
     setLiveScannerReady(true);
+    setEntryMode("CODE");
     setScannerOpen(true);
   }
+
+  function closeCamera() {
+    scanResolvedRef.current = false;
+    revealScannerOutline(null);
+    setScannerStatus("Point the barcode at the guide.");
+    setScannerOpen(false);
+  }
+
+  function switchToCodeEntry() {
+    if (scanMode) {
+      openCamera();
+      return;
+    }
+
+    setEntryMode("CODE");
+  }
+
+  function switchToManualEntry() {
+    closeCamera();
+    setEntryMode("MANUAL");
+  }
+
+  useEffect(() => {
+    if (!autoOpenCameraOnMount || autoOpenedCameraRef.current) {
+      return;
+    }
+
+    autoOpenedCameraRef.current = true;
+    openCamera();
+  }, [autoOpenCameraOnMount]);
 
   function resetForm() {
     scanResolvedRef.current = false;
     revealScannerOutline(null);
+    setScannerOpen(false);
+    setScannerError(null);
+    setScannerStatus("Point the barcode at the guide.");
+    setLiveScannerReady(true);
     setEntryMode("CODE");
     setBarcode("");
     setLookupQuery("");
@@ -1225,8 +1267,109 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
     () => lookupResult?.candidates.filter((candidate) => candidate.productUrl).slice(0, 3) ?? [],
     [lookupResult]
   );
-  const resultSheetOpen = presentation === "scan" && (Boolean(lookupResult) || manualEntryEnabled || Boolean(lookupError) || Boolean(submitError));
-  const scanMode = presentation === "scan";
+  const resultSheetOpen = scanMode && (Boolean(lookupResult) || manualEntryEnabled || Boolean(lookupError) || Boolean(submitError));
+  const inlineScannerActive = scanMode && scannerOpen;
+  const scannerPanel = (
+    <>
+      {scanMode ? (
+        <div className="barcode-scanner-inline-header">
+          <div>
+            <p className="eyebrow">Live camera</p>
+            <strong>Point the barcode at the guide and Mollie will search automatically</strong>
+          </div>
+          <Button kind="ghost" onClick={switchToManualEntry} type="button">
+            <Search size={16} /> Manual/source lookup
+          </Button>
+        </div>
+      ) : null}
+      <p className={scanMode ? "muted" : "handoff-copy"}>
+        Hold the barcode inside the frame. Mollie will search as soon as it reads a supported barcode.
+      </p>
+      {availableCameras.length > 1 ? (
+        <div className="barcode-scanner-camera-controls">
+          <div className="barcode-scanner-camera-copy">
+            <span className="eyebrow">Camera</span>
+            <strong>
+              {selectedCameraId
+                ? availableCameras.find((camera) => camera.deviceId === selectedCameraId)?.label ?? "Selected camera"
+                : "Choose a camera"}
+            </strong>
+          </div>
+          {availableCameras.length === 2 ? (
+            <Button kind="secondary" onClick={flipCamera} type="button">
+              <RefreshCw size={16} /> Flip camera
+            </Button>
+          ) : (
+            <label className="label barcode-scanner-camera-select">
+              <select
+                aria-label="Select camera"
+                className="field"
+                value={selectedCameraId ?? ""}
+                onChange={(event) => {
+                  setSelectedCameraId(event.target.value || null);
+                  setScannerStatus("Switching cameras...");
+                  setScannerError(null);
+                }}
+              >
+                {availableCameras.map((camera) => (
+                  <option key={camera.deviceId} value={camera.deviceId}>
+                    {camera.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      ) : null}
+      {liveScannerReady ? (
+        <div className="barcode-scanner-video-shell">
+          <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
+          <div className="barcode-scanner-overlay" aria-hidden="true">
+            {scannerOutlinePoints ? (
+              <svg
+                aria-hidden="true"
+                className="barcode-scanner-detected-outline"
+                preserveAspectRatio="none"
+                viewBox="0 0 100 100"
+              >
+                <polygon points={pointsToOverlayString(scannerOutlinePoints)} />
+              </svg>
+            ) : null}
+            <div className="barcode-scanner-guide" />
+          </div>
+        </div>
+      ) : (
+        <div className="barcode-scanner-video-shell barcode-scanner-video-shell-static">
+          <div className="barcode-scanner-static-copy">
+            <Camera size={20} />
+            <span>This browser is using the photo-based scanner fallback. Use the button below to capture a barcode photo.</span>
+          </div>
+        </div>
+      )}
+      <div className="barcode-scanner-status">
+        {lookupPending
+          ? "Barcode found. Looking up product..."
+          : liveScannerReady
+            ? scannerStatus
+            : "Live camera preview is unavailable here. Use the photo capture fallback below."}
+      </div>
+      {scannerError ? <div className="notice">{scannerError}</div> : null}
+      <div className="actions">
+        {liveScannerReady ? (
+          <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
+            <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
+          </Button>
+        ) : null}
+        <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
+          <Camera size={16} /> Take barcode photo instead
+        </Button>
+      </div>
+      <div className="scan-import-hint">
+        <Camera size={16} />
+        <span>If Mollie locks onto the barcode, it will draw a box around it before searching. If live scanning still struggles, take a barcode photo instead, or type the code manually.</span>
+      </div>
+    </>
+  );
   const reviewContent = (
     <>
       <OperatorHintCard hint={topHint} />
@@ -1601,12 +1744,12 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
       <Card
         className={scanMode ? "scan-intake-card" : undefined}
         eyebrow={scanMode ? "Scan" : "Scan to identify"}
-        title={scanMode ? "Scan a code or switch to manual lookup" : "Identify the item, prefill the details, then create inventory"}
+        title={scanMode ? "Open the camera and scan the barcode" : "Identify the item, prefill the details, then create inventory"}
       >
         <div className="stack">
           <p className="muted">
             {scanMode
-              ? "Start with the camera when a code is available. If the printed path fails, switch to manual/source lookup, prefill what you trust, and keep intake moving."
+              ? "The scan modal starts in the live camera path now. If the printed route fails, switch to manual/source lookup without leaving inventory."
               : "Identify by barcode when you have one, or switch to manual/source lookup when you do not. Mollie prefills fields from source data, but you stay in control before the item is saved."}
           </p>
 
@@ -1614,7 +1757,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
             <button
               aria-selected={entryMode === "CODE"}
               className={`intake-path-button${entryMode === "CODE" ? " active" : ""}`}
-              onClick={() => setEntryMode("CODE")}
+              onClick={switchToCodeEntry}
               role="tab"
               type="button"
             >
@@ -1624,7 +1767,7 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
             <button
               aria-selected={entryMode === "MANUAL"}
               className={`intake-path-button${entryMode === "MANUAL" ? " active" : ""}`}
-              onClick={() => setEntryMode("MANUAL")}
+              onClick={switchToManualEntry}
               role="tab"
               type="button"
             >
@@ -1634,26 +1777,30 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
           </div>
 
           {entryMode === "CODE" ? (
-            <div className="market-observation-card">
-              <div className="split">
-                <div>
-                  <p className="eyebrow">Scanner-first intake</p>
-                  <strong>Open the camera and let Mollie look up the code live</strong>
+            inlineScannerActive ? (
+              <div className="barcode-scanner-inline-panel">{scannerPanel}</div>
+            ) : (
+              <div className="market-observation-card">
+                <div className="split">
+                  <div>
+                    <p className="eyebrow">Scanner-first intake</p>
+                    <strong>Open the camera and let Mollie look up the code live</strong>
+                  </div>
+                  <div className="market-observation-value">Camera path</div>
                 </div>
-                <div className="market-observation-value">Camera path</div>
+                <div className="scan-import-hint">
+                  <ScanBarcode size={16} />
+                  <span>Use the printed barcode when it is available. If scanning is weak or you need to paste a code, switch to manual/source lookup.</span>
+                </div>
+                <div className="actions">
+                  {scannerSupported ? (
+                    <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
+                      <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-              <div className="scan-import-hint">
-                <ScanBarcode size={16} />
-                <span>Use the printed barcode when it is available. If scanning is weak or you need to paste a code, switch to manual/source lookup.</span>
-              </div>
-              <div className="actions">
-                {scannerSupported ? (
-                  <Button data-testid="scan-identify-open-camera" kind="secondary" onClick={openCamera} type="button">
-                    <ScanBarcode size={16} /> {scanMode ? "Start scanning" : "Open camera"}
-                  </Button>
-                ) : null}
-              </div>
-            </div>
+            )
           ) : (
             <div className="stack">
               <SourceSearchPanel
@@ -2024,8 +2171,8 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
         type="file"
       />
 
-      {scannerOpen ? (
-        <div className="handoff-modal-backdrop" role="presentation" onClick={() => setScannerOpen(false)}>
+      {scannerOpen && !scanMode ? (
+        <div className="handoff-modal-backdrop" role="presentation" onClick={closeCamera}>
           <div
             aria-labelledby="barcode-scanner-title"
             aria-modal="true"
@@ -2038,96 +2185,11 @@ export function BarcodeImportCard({ token, presentation = "embedded" }: BarcodeI
                 <p className="eyebrow">Scan to identify</p>
                 <h3 id="barcode-scanner-title">Scan with camera</h3>
               </div>
-              <Button kind="ghost" onClick={() => setScannerOpen(false)}>
+              <Button kind="ghost" onClick={closeCamera}>
                 <X size={16} /> Close
               </Button>
             </div>
-            <p className="handoff-copy">
-              Hold the barcode inside the frame. Mollie will search as soon as it reads a supported barcode.
-            </p>
-            {availableCameras.length > 1 ? (
-              <div className="barcode-scanner-camera-controls">
-                <div className="barcode-scanner-camera-copy">
-                  <span className="eyebrow">Camera</span>
-                  <strong>
-                    {selectedCameraId
-                      ? availableCameras.find((camera) => camera.deviceId === selectedCameraId)?.label ?? "Selected camera"
-                      : "Choose a camera"}
-                  </strong>
-                </div>
-                {availableCameras.length === 2 ? (
-                  <Button kind="secondary" onClick={flipCamera} type="button">
-                    <RefreshCw size={16} /> Flip camera
-                  </Button>
-                ) : (
-                  <label className="label barcode-scanner-camera-select">
-                    <select
-                      aria-label="Select camera"
-                      className="field"
-                      value={selectedCameraId ?? ""}
-                      onChange={(event) => {
-                        setSelectedCameraId(event.target.value || null);
-                        setScannerStatus("Switching cameras...");
-                        setScannerError(null);
-                      }}
-                    >
-                      {availableCameras.map((camera) => (
-                        <option key={camera.deviceId} value={camera.deviceId}>
-                          {camera.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-            ) : null}
-            {liveScannerReady ? (
-              <div className="barcode-scanner-video-shell">
-                <video autoPlay className="barcode-scanner-video" muted playsInline ref={videoRef} />
-                <div className="barcode-scanner-overlay" aria-hidden="true">
-                  {scannerOutlinePoints ? (
-                    <svg
-                      aria-hidden="true"
-                      className="barcode-scanner-detected-outline"
-                      preserveAspectRatio="none"
-                      viewBox="0 0 100 100"
-                    >
-                      <polygon points={pointsToOverlayString(scannerOutlinePoints)} />
-                    </svg>
-                  ) : null}
-                  <div className="barcode-scanner-guide" />
-                </div>
-              </div>
-            ) : (
-              <div className="barcode-scanner-video-shell barcode-scanner-video-shell-static">
-                <div className="barcode-scanner-static-copy">
-                  <Camera size={20} />
-                  <span>This browser is using the photo-based scanner fallback. Use the button below to capture a barcode photo.</span>
-                </div>
-              </div>
-            )}
-            <div className="barcode-scanner-status">
-              {lookupPending
-                ? "Barcode found. Looking up product..."
-                : liveScannerReady
-                  ? scannerStatus
-                  : "Live camera preview is unavailable here. Use the photo capture fallback below."}
-            </div>
-            {scannerError ? <div className="notice">{scannerError}</div> : null}
-            <div className="actions">
-              {liveScannerReady ? (
-                <Button disabled={capturePending} onClick={handleCaptureFrame} type="button">
-                  <Camera size={16} /> {capturePending ? "Capturing..." : "Capture barcode"}
-                </Button>
-              ) : null}
-              <Button kind="secondary" onClick={() => cameraInputRef.current?.click()} type="button">
-                <Camera size={16} /> Take barcode photo instead
-              </Button>
-            </div>
-            <div className="scan-import-hint">
-              <Camera size={16} />
-              <span>If Mollie locks onto the barcode, it will draw a box around it before searching. If live scanning still struggles, take a barcode photo instead, or type the code manually.</span>
-            </div>
+            {scannerPanel}
           </div>
         </div>
       ) : null}

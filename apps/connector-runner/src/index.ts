@@ -6,6 +6,7 @@ import { createLogger } from "@reselleros/observability";
 import { getAppQueue, getConnectorQueueName, getQueueConnection, type JobName, type JobPayload } from "@reselleros/queue";
 
 import { processConnectorImportJob, processConnectorJob } from "./jobs.js";
+import { processRemotePoshmarkAutomationCycle } from "./remote-poshmark-runtime.js";
 
 const env = loadConnectorEnv();
 const logger = createLogger("connector-runner");
@@ -43,10 +44,40 @@ const app = Fastify({
   loggerInstance: logger
 });
 
+let remotePumpRunning = false;
+
+async function runRemoteAutomationPump() {
+  if (remotePumpRunning) {
+    return;
+  }
+
+  remotePumpRunning = true;
+  try {
+    let processed = true;
+
+    while (processed) {
+      processed = await processRemotePoshmarkAutomationCycle();
+    }
+  } catch (error) {
+    logger.error({ error }, "remote automation pump failed");
+  } finally {
+    remotePumpRunning = false;
+  }
+}
+
+setInterval(() => {
+  void runRemoteAutomationPump();
+}, 3_000);
+void runRemoteAutomationPump();
+
 app.get("/health", async () => ({
   ok: true,
   service: "reselleros-connector-runner",
   queue: getConnectorQueueName(),
+  browserGrid: {
+    configured: Boolean(env.BROWSER_GRID_URL),
+    url: env.BROWSER_GRID_URL ?? null
+  },
   timestamp: new Date().toISOString()
 }));
 

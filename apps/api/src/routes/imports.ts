@@ -1,5 +1,9 @@
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
 import { z } from "zod";
 
+import { extractRankedProductImageUrlsFromHtml, inferAsinFromUrl, rankProductImageUrls } from "@reselleros/catalog";
 import {
   addInventoryImage,
   createInventoryImportItemForRun,
@@ -19,6 +23,165 @@ import {
 } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+
+const maxPreviewResponseBytes = 512 * 1024;
+const maxPreviewRedirects = 3;
+
+function isPrivateIpv4(address: string) {
+  const parts = address.split(".").map((part) => Number(part));
+
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return true;
+  }
+
+  const first = parts[0] ?? 0;
+  const second = parts[1] ?? 0;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isPrivateIpv6(address: string) {
+  const normalized = address.toLowerCase();
+
+  return (
+    normalized === "::1" ||
+    normalized === "::" ||
+    normalized.startsWith("fc") ||
+    normalized.startsWith("fd") ||
+    normalized.startsWith("fe8") ||
+    normalized.startsWith("fe9") ||
+    normalized.startsWith("fea") ||
+    normalized.startsWith("feb")
+  );
+}
+
+function isPrivateAddress(address: string) {
+  const family = isIP(address);
+
+  if (family === 4) {
+    return isPrivateIpv4(address);
+  }
+
+  if (family === 6) {
+    return isPrivateIpv6(address);
+  }
+
+  return true;
+}
+
+async function assertPublicPreviewUrl(rawUrl: string) {
+  let parsed: URL;
+
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new Error("Preview URL is invalid.");
+  }
+
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Preview URL must use http or https.");
+  }
+
+  const hostname = parsed.hostname.trim().toLowerCase();
+
+  if (!hostname || hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) {
+    throw new Error("Preview URL must point to a public host.");
+  }
+
+  if (isIP(hostname) && isPrivateAddress(hostname)) {
+    throw new Error("Preview URL must point to a public host.");
+  }
+
+  const resolved = await lookup(hostname, { all: true, verbatim: true });
+
+  if (resolved.length === 0 || resolved.some((entry) => !entry.address || isPrivateAddress(entry.address))) {
+    throw new Error("Preview URL must point to a public host.");
+  }
+
+  return parsed;
+}
+
+async function readPreviewResponseText(response: Response) {
+  const declaredLength = Number(response.headers.get("content-length") ?? "0");
+
+  if (Number.isFinite(declaredLength) && declaredLength > maxPreviewResponseBytes) {
+    const canceled = response.body?.cancel();
+    if (canceled) {
+      await canceled.catch(() => undefined);
+    }
+    throw new Error("Preview page is too large to import.");
+  }
+
+  if (!response.body) {
+    return "";
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+
+    if (done) {
+      break;
+    }
+
+    received += value.byteLength;
+    if (received > maxPreviewResponseBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw new Error("Preview page is too large to import.");
+    }
+
+    text += decoder.decode(value, { stream: true });
+  }
+
+  return text + decoder.decode();
+}
+
+async function fetchPreviewHtml(rawUrl: string) {
+  let currentUrl = rawUrl;
+
+  for (let redirectCount = 0; redirectCount <= maxPreviewRedirects; redirectCount += 1) {
+    const parsedUrl = await assertPublicPreviewUrl(currentUrl);
+    const response = await fetch(parsedUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; MollieImportBot/1.0; +https://mollie.biz/contact)"
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(5_000)
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+
+      if (!location) {
+        throw new Error("Preview URL redirected without a destination.");
+      }
+
+      currentUrl = new URL(location, parsedUrl).toString();
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error("Preview fetch failed.");
+    }
+
+    return {
+      html: await readPreviewResponseText(response),
+      finalUrl: parsedUrl.toString()
+    };
+  }
+
+  throw new Error("Preview URL redirected too many times.");
+}
 
 function stripHtml(value: string) {
   return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
@@ -54,6 +217,31 @@ function extractMetaContent(html: string, property: string) {
 function extractTitle(html: string) {
   const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   return match?.[1] ? decodeHtml(stripHtml(match[1])) : null;
+}
+
+function isAmazonHost(rawUrl: string) {
+  try {
+    return new URL(rawUrl).hostname.toLowerCase().includes("amazon.");
+  } catch {
+    return false;
+  }
+}
+
+async function fetchAmazonSearchPreviewImageUrls(rawUrl: string) {
+  const asin = inferAsinFromUrl(rawUrl);
+
+  if (!asin) {
+    return [];
+  }
+
+  try {
+    const preview = await fetchPreviewHtml(`https://www.amazon.com/s?k=${encodeURIComponent(asin)}`);
+    return extractRankedProductImageUrlsFromHtml(preview.html, {
+      pageUrl: preview.finalUrl
+    });
+  } catch {
+    return [];
+  }
 }
 
 function inferSourceKind(sourcePlatform: string) {
@@ -332,21 +520,34 @@ export function registerImportRoutes(app: ApiApp, context: ApiRouteContext) {
     const auth = await context.requireAuth(request);
     await context.requireWorkspace(auth);
     const body = inventoryImportUrlPreviewSchema.parse(request.body);
+    let preview: { html: string; finalUrl: string };
 
-    const response = await fetch(body.url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (compatible; MollieImportBot/1.0; +https://mollie.biz/contact)"
-      }
-    });
-
-    if (!response.ok) {
-      throw app.httpErrors.badRequest(`Could not fetch ${body.sourcePlatform} page for preview.`);
+    try {
+      preview = await fetchPreviewHtml(body.url);
+    } catch (error) {
+      throw app.httpErrors.badRequest(
+        error instanceof Error && error.message
+          ? error.message
+          : `Could not fetch ${body.sourcePlatform} page for preview.`
+      );
     }
 
-    const html = await response.text();
+    const html = preview.html;
     const title = extractMetaContent(html, "og:title") ?? extractTitle(html) ?? `${body.sourcePlatform} listing`;
-    const image = extractMetaContent(html, "og:image");
     const description = extractMetaContent(html, "og:description");
+    let imageUrls = extractRankedProductImageUrlsFromHtml(html, {
+      pageUrl: preview.finalUrl
+    });
+
+    if (isAmazonHost(preview.finalUrl)) {
+      imageUrls = rankProductImageUrls(
+        [
+          ...imageUrls,
+          ...(await fetchAmazonSearchPreviewImageUrls(preview.finalUrl))
+        ],
+        { pageUrl: preview.finalUrl }
+      );
+    }
 
     const candidate: InventoryImportCandidate = {
       title,
@@ -360,9 +561,9 @@ export function registerImportRoutes(app: ApiApp, context: ApiRouteContext) {
       estimatedResaleMin: null,
       estimatedResaleMax: null,
       priceRecommendation: null,
-      sourceUrl: body.url,
+      sourceUrl: preview.finalUrl,
       externalItemId: null,
-      imageUrls: image ? [image] : [],
+      imageUrls: imageUrls.slice(0, 12),
       attributes: {
         description: description ?? "",
         previewOnly: true

@@ -161,9 +161,9 @@ For the current pass, extension auth reuses the current Mollie operator bearer t
 
 Those are different states and should not be collapsed into a single “connected” message.
 
-## Crosslist-style UI alignment
+## Marketplace-row UI alignment
 
-The extension should not live behind a detached global status card alone. Crosslist’s better pattern is per-marketplace workflow visibility on the item page.
+The extension should not live behind a detached global status card alone. The better pattern is per-marketplace workflow visibility on the item page.
 
 Mollie should therefore surface extension state inside marketplace rows:
 - execution mode:

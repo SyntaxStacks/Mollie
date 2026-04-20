@@ -31,13 +31,15 @@ The default local ports are:
 - api: `http://localhost:4000`
 - worker health: `http://localhost:4001/health`
 - connector-runner health: `http://localhost:4010/health`
+- browser grid websocket: `ws://localhost:3100/`
 
 Local infra ports are now overrideable through `.env`:
 
 - `POSTGRES_HOST_PORT`
 - `REDIS_HOST_PORT`
+- `BROWSER_GRID_HOST_PORT`
 
-If `DATABASE_URL`, `DIRECT_URL`, or `REDIS_URL` are blank, the local PowerShell helpers derive them from `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST_PORT`, and `REDIS_HOST_PORT`. Explicit connection URLs still win if you set them.
+If `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, or `BROWSER_GRID_URL` are blank, the local PowerShell helpers derive them from `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST_PORT`, `REDIS_HOST_PORT`, and `BROWSER_GRID_HOST_PORT`. Explicit connection URLs still win if you set them.
 
 Helpers that derive local connection URLs automatically:
 
@@ -67,7 +69,7 @@ The UI E2E suite covers:
 
 - logged-out onboarding form visibility without a redirect trap
 - browser-based operator bootstrap from login code to workspace creation
-- post-workspace redirect back to the dashboard shell
+- post-workspace redirect into the scan-first dashboard shell
 - inventory image upload from the browser with preview rendering
 - desktop-to-mobile handoff on inventory detail
 - mobile photo-first inventory continuity on the same canonical item route
@@ -94,16 +96,15 @@ The CI workflow validates:
 
 1. Request and verify a login code on `/onboarding`
 2. Create a workspace on `/workspace`
-3. Connect eBay, Depop, Poshmark, and Whatnot on `/marketplaces`
-4. Import a Mac.bid lot on `/lots`
-5. Convert a lot into inventory on `/lots/[id]`
-6. Use `Scan to identify` on `/inventory` to review candidate matches, confirm the right item, and create inventory or queue drafts from the accepted result
+3. Land in inventory and open scan as an intake modal from there
+4. Identify inventory by barcode or photo, then create the canonical item record
+5. Connect eBay, Depop, Poshmark, and Whatnot on `/marketplaces`
+6. Import existing marketplace inventory on `/imports`
 7. Open `/inventory/[id]` on desktop or phone, continue on mobile when needed, and manage photos on the same canonical item route
-8. Add workspace operators on `/settings`, then have them sign in through `/onboarding` to join the same workspace
-9. Generate and approve drafts from `/inventory/[id]` and `/drafts`
-10. Publish queued listings from `/inventory/[id]`
-11. Inspect runs on `/executions`
-12. Record sold items on `/sales`
+8. Generate and approve drafts from `/inventory/[id]` and `/drafts`
+9. Publish queued listings from `/inventory/[id]`
+10. Inspect detailed runs on `/executions`
+11. Record sold items on `/sales`
 
 The marketplace screen now surfaces eBay account readiness directly from the connector state, so pilot operators can see whether an OAuth account is live-ready, simulated-only, disabled, or blocked on refresh/error conditions. Blocked OAuth accounts can now be reconnected directly from `/marketplaces` without re-entering the display name manually, the page shows the OAuth return result after redirect, and live eBay location/policy defaults can now be stored on the account instead of relying only on env configuration.
 
@@ -113,7 +114,7 @@ Inventory detail now includes an eBay preflight view that surfaces whether a spe
 
 Inventory detail now also supports direct image upload for pilot users. The API accepts a single multipart image upload, stores it through the storage abstraction, creates the `ImageAsset`, and surfaces the uploaded photo back in the item detail gallery for eBay/Depop/Poshmark/Whatnot publish flows. Operators can also delete a bad upload or reorder the gallery with simple move-up/move-down controls before publishing.
 
-Inventory creation now also includes a `Scan to identify` surface for UPC, EAN, and ISBN workflows. Operators can scan or type an identifier, review confidence-based matches, confirm or reject candidate results, use Google/Amazon/eBay research links when needed, and then create inventory or queue marketplace drafts while strengthening Mollie's internal catalog for future scans.
+Inventory intake now lives inside the inventory workflow as a modal, with both barcode lookup and image-based identification. Operators can scan or type an identifier, or upload a product photo when the item has no barcode, review confidence-based matches, confirm the useful fields, and then create inventory or queue marketplace drafts while strengthening Mollie's internal catalog for future scans.
 
 Inventory detail now has explicit cross-device continuity for pilot operators. Desktop users can open a "Continue on mobile" handoff with a QR code and canonical item link, then use the same `/inventory/[id]` route on mobile for a photo-first layout with larger tap targets, compact metadata, and lightweight continuity refresh when the same item changes on another device.
 

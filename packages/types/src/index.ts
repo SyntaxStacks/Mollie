@@ -395,6 +395,98 @@ export type ExtensionStatusView = {
   capabilitySummary: MarketplaceCapabilitySummary[];
 };
 
+export const remoteAutomationTaskPhases = [
+  "open_session",
+  "open_create_flow",
+  "upload_photos",
+  "fill_fields",
+  "submit",
+  "confirm_live",
+  "share_closet",
+  "share_listing",
+  "send_offer_to_likers"
+] as const;
+export type RemoteAutomationTaskPhase = (typeof remoteAutomationTaskPhases)[number];
+
+export const remoteAutomationTaskStatuses = [
+  "NOT_READY",
+  "QUEUED",
+  "RUNNING",
+  "PAUSED_FOR_CHALLENGE",
+  "FAILED",
+  "SUCCEEDED",
+  "CANCELED"
+] as const;
+export type RemoteAutomationTaskStatus = (typeof remoteAutomationTaskStatuses)[number];
+
+export const remoteAutomationRetryClasses = ["NONE", "TRANSIENT", "CHALLENGE", "VALIDATION", "UNKNOWN"] as const;
+export type RemoteAutomationRetryClass = (typeof remoteAutomationRetryClasses)[number];
+
+export const poshmarkSocialActions = ["SHARE_CLOSET", "SHARE_LISTING", "SEND_OFFER_TO_LIKERS"] as const;
+export type PoshmarkSocialAction = (typeof poshmarkSocialActions)[number];
+export const remoteAutomationTaskTypes = ["PUBLISH_LISTING", ...poshmarkSocialActions] as const;
+export type RemoteAutomationTaskType = (typeof remoteAutomationTaskTypes)[number];
+
+export const poshmarkSocialCadenceSchema = z.object({
+  enabled: z.boolean().default(false),
+  intervalMinutes: z.number().int().min(5).max(24 * 60).optional().nullable()
+});
+export type PoshmarkSocialCadence = z.infer<typeof poshmarkSocialCadenceSchema>;
+
+export const poshmarkSocialConfigSchema = z.object({
+  shareCloset: poshmarkSocialCadenceSchema.default({ enabled: false, intervalMinutes: 120 }),
+  shareListings: poshmarkSocialCadenceSchema.default({ enabled: false, intervalMinutes: 240 }),
+  sendOffersToLikers: poshmarkSocialCadenceSchema.default({ enabled: false, intervalMinutes: 360 })
+});
+export type PoshmarkSocialConfig = z.infer<typeof poshmarkSocialConfigSchema>;
+
+export const poshmarkReadinessSchema = z.object({
+  ready: z.boolean(),
+  missingFields: z.array(z.string()),
+  blockingReasons: z.array(z.string()),
+  transformPlan: z
+    .object({
+      imageMode: z.enum(["NONE", "PAD_TO_SQUARE"]).default("NONE")
+    })
+    .default({ imageMode: "NONE" })
+});
+export type PoshmarkReadiness = z.infer<typeof poshmarkReadinessSchema>;
+
+export const remoteAutomationTaskCreateSchema = z.object({
+  inventoryItemId: z.string().min(1).optional().nullable(),
+  platform: z.literal("POSHMARK"),
+  taskType: z.enum(remoteAutomationTaskTypes)
+});
+export type RemoteAutomationTaskCreateInput = z.infer<typeof remoteAutomationTaskCreateSchema>;
+
+export const remoteAutomationTaskActionSchema = z.object({
+  taskId: z.string().min(1)
+});
+export type RemoteAutomationTaskActionInput = z.infer<typeof remoteAutomationTaskActionSchema>;
+
+export const remoteAutomationTaskViewSchema = z.object({
+  id: z.string(),
+  workspaceId: z.string(),
+  inventoryItemId: z.string().nullable().optional(),
+  marketplaceAccountId: z.string().nullable().optional(),
+  platform: z.literal("POSHMARK"),
+  taskType: z.enum(remoteAutomationTaskTypes),
+  status: z.enum(remoteAutomationTaskStatuses),
+  phase: z.enum(remoteAutomationTaskPhases).nullable().optional(),
+  pauseReason: z.string().nullable().optional(),
+  retryClass: z.enum(remoteAutomationRetryClasses).default("NONE"),
+  externalListingId: z.string().nullable().optional(),
+  externalUrl: z.string().nullable().optional(),
+  publishedTitle: z.string().nullable().optional(),
+  publishedPrice: z.number().nullable().optional(),
+  artifactUrls: z.array(z.string()).default([]),
+  queuedAt: z.string(),
+  startedAt: z.string().nullable().optional(),
+  completedAt: z.string().nullable().optional(),
+  updatedAt: z.string()
+});
+export type RemoteAutomationTaskView = z.infer<typeof remoteAutomationTaskViewSchema>;
+
 export const sourceLotStatuses = ["PENDING", "FETCHED", "ANALYZED", "FAILED"] as const;
 export type SourceLotStatus = (typeof sourceLotStatuses)[number];
 
@@ -661,6 +753,9 @@ export const productLookupBarcodeRequestSchema = z.object({
   identifierType: z.enum(catalogIdentifierTypes).optional().nullable()
 });
 
+export const visualLookupProviders = ["OPENAI_VISION", "OLLAMA_VISION", "UNAVAILABLE"] as const;
+export type VisualLookupProvider = (typeof visualLookupProviders)[number];
+
 export const productLookupCandidateSchema = z.object({
   id: z.string().min(1),
   barcode: z.string().trim().min(8).max(64),
@@ -681,6 +776,24 @@ export const productLookupCandidateSchema = z.object({
   matchRationale: z.array(z.string().trim().min(1).max(240)).default([]),
   hint: z.custom<OperatorHint>(),
   safeToPrefill: z.boolean(),
+  simulated: z.boolean().default(false)
+});
+
+export const visualProductCandidateSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  brand: z.string().trim().max(120).nullable().optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  model: z.string().trim().max(120).nullable().optional(),
+  size: z.string().trim().max(80).nullable().optional(),
+  color: z.string().trim().max(80).nullable().optional(),
+  condition: z.string().trim().max(120).nullable().optional(),
+  priceSuggestion: z.number().nonnegative().nullable().optional(),
+  researchQueries: z.array(z.string().trim().min(1).max(120)).max(5).default([]),
+  matchRationale: z.array(z.string().trim().min(1).max(240)).max(5).default([]),
+  confidenceScore: z.number().min(0).max(1),
+  confidenceState: z.enum(productLookupConfidenceStates),
+  hint: z.custom<OperatorHint>(),
+  provider: z.enum(visualLookupProviders),
   simulated: z.boolean().default(false)
 });
 
@@ -834,6 +947,7 @@ export type CatalogLookupResult = {
 };
 
 export type ProductLookupCandidate = z.infer<typeof productLookupCandidateSchema>;
+export type VisualProductCandidate = z.infer<typeof visualProductCandidateSchema>;
 
 export type ProductLookupResult = {
   barcode: string;
@@ -845,6 +959,17 @@ export type ProductLookupResult = {
     barcodeLookupProvider: string;
     enrichmentProvider: string;
     simulated: boolean;
+  };
+};
+
+export type VisualProductLookupResult = {
+  candidate: VisualProductCandidate | null;
+  hint: OperatorHint;
+  recommendedNextAction: string;
+  providerSummary: {
+    visionProvider: string;
+    simulated: boolean;
+    enabled: boolean;
   };
 };
 

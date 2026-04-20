@@ -127,6 +127,7 @@ export function registerWorkspaceRoutes(app: ApiApp, context: ApiRouteContext) {
   app.patch("/api/workspace/connector-automation", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
+    requireWorkspaceOwner(auth);
     const body = z
       .object({
         enabled: z.boolean()

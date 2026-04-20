@@ -27,7 +27,7 @@ const monoFont = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Mollie | ResellerOS MVP",
-  description: "Operator dashboard for liquidation sourcing, AI listings, and crosslisting."
+  description: "Operator dashboard for liquidation sourcing, AI listings, and multi-marketplace selling."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

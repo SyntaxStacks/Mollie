@@ -1,4 +1,6 @@
+import { identifyProductFromImage } from "@reselleros/ai";
 import { classifyIdentifier, createProductLookupService, lookupCatalogIdentifier, normalizeIdentifier } from "@reselleros/catalog";
+import { acceptedImageContentTypes, maxInventoryImageBytes } from "@reselleros/storage";
 import { catalogLookupRequestSchema, productLookupBarcodeRequestSchema } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
@@ -53,6 +55,38 @@ export function registerCatalogRoutes(app: ApiApp, context: ApiRouteContext) {
     } catch (error) {
       wrapCatalogError(app, error);
     }
+
+    return { result };
+  });
+
+  app.post("/api/product-lookup/vision", async (request) => {
+    const auth = await context.requireAuth(request);
+    await context.requireWorkspace(auth);
+    const file = await request.file({
+      limits: {
+        files: 1,
+        fileSize: maxInventoryImageBytes
+      }
+    });
+
+    if (!file) {
+      throw app.httpErrors.badRequest("Choose an image to analyze.");
+    }
+
+    if (!acceptedImageContentTypes.has(file.mimetype)) {
+      throw app.httpErrors.unsupportedMediaType("Upload a JPG, PNG, WEBP, or GIF image.");
+    }
+
+    const notesField = file.fields.notes;
+    const notes =
+      notesField && "value" in notesField && typeof notesField.value === "string" && notesField.value.trim().length > 0
+        ? notesField.value.trim()
+        : null;
+    const result = await identifyProductFromImage({
+      imageBase64: (await file.toBuffer()).toString("base64"),
+      mediaType: file.mimetype,
+      notes
+    });
 
     return { result };
   });

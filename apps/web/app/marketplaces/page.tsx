@@ -10,9 +10,8 @@ import { AppShell } from "../../components/app-shell";
 import { OperatorHintCard } from "../../components/operator-hint-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
-import { useBrowserExtension } from "../../components/use-browser-extension";
+import { HostedMarketplaceSigninModal } from "../../components/hosted-marketplace-signin-modal";
 import { useAuthedResource } from "../../lib/api";
-import { ensureMollieExtensionSession, recheckMarketplaceAuthInExtension } from "../../lib/extension-bridge";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const simulatedMarketplacePathsAllowed =
@@ -86,6 +85,22 @@ type MarketplaceAccountResponse = {
   } | null;
 };
 
+type PoshmarkSocialResponse = {
+  connected: boolean;
+  config: {
+    shareCloset: { enabled: boolean; intervalMinutes?: number | null };
+    shareListings: { enabled: boolean; intervalMinutes?: number | null };
+    sendOffersToLikers: { enabled: boolean; intervalMinutes?: number | null };
+  };
+  status?: {
+    lastRunAt?: string | null;
+    lastAction?: string | null;
+    nextRunAt?: string | null;
+    pauseReason?: string | null;
+    lastOutcome?: string | null;
+  } | null;
+};
+
 function renderConnectorDescriptor(account: { connectorDescriptor?: MarketplaceAccountResponse["connectorDescriptor"] | null }) {
   const descriptor = account.connectorDescriptor;
 
@@ -135,11 +150,12 @@ function renderOperatorHint(account: { readiness?: { hint?: OperatorHint | null 
 function MarketplacesPageContent() {
   const auth = useAuth();
   const searchParams = useSearchParams();
-  const extension = useBrowserExtension();
   const { data, refresh, error } = useAuthedResource<{ accounts: MarketplaceAccountResponse[] }>("/api/marketplace-accounts", auth.token);
+  const poshmarkSocial = useAuthedResource<PoshmarkSocialResponse>("/api/automation/poshmark/social", auth.token);
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<string | null>(null);
+  const [hostedSignInAttempt, setHostedSignInAttempt] = useState<{ vendor: AutomationVendor; attemptId: string } | null>(null);
   const oauthStatus = searchParams.get("ebay_oauth");
   const oauthMessage = searchParams.get("message");
   const oauthCode = searchParams.get("code");
@@ -226,76 +242,6 @@ function MarketplacesPageContent() {
     });
   }
 
-  async function recheckAutomationVendor(vendor: AutomationVendor, displayName?: string) {
-    const config = automationVendorConfig[vendor];
-    if (!auth.token || !auth.user || !auth.workspace) {
-      setSubmitError("Sign back into Mollie before checking marketplace login.");
-      return;
-    }
-
-    if (!extension.installed) {
-      setSubmitError(`Install the Mollie browser extension to connect ${config.label}.`);
-      return;
-    }
-
-    setActionStatus(`Checking ${config.label} in your browser...`);
-    setSubmitError(null);
-
-    const extensionSession = await ensureMollieExtensionSession({
-      token: auth.token,
-      userId: auth.user.id,
-      email: auth.user.email,
-      workspaceId: auth.workspace.id,
-      apiBaseUrl: API_BASE_URL
-    });
-
-    void extension.refresh();
-
-    if (!extensionSession.ok) {
-      setSubmitError(`Open Mollie in this browser so the extension can connect before checking ${config.label}.`);
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/start`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${auth.token}`
-          },
-          body: JSON.stringify({
-            displayName: displayName ?? `Main ${config.label} account`
-          })
-        });
-        const payload = (await response.json()) as {
-          error?: string;
-          attempt?: { id: string; helperNonce: string; displayName: string };
-        };
-
-        if (!response.ok || !payload.attempt) {
-          throw new Error(payload.error ?? `Could not start ${config.label} login recheck.`);
-        }
-
-        const result = await recheckMarketplaceAuthInExtension({
-          vendor,
-          attemptId: payload.attempt.id,
-          helperNonce: payload.attempt.helperNonce,
-          displayName: payload.attempt.displayName
-        });
-
-        if (!result.ok) {
-          throw new Error(result.error ?? `Could not recheck ${config.label} login.`);
-        }
-
-        setActionStatus(result.message ?? `${config.label} recheck submitted.`);
-        await refresh();
-      } catch (caughtError) {
-        setSubmitError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${config.label} login.`);
-      }
-    });
-  }
-
   function saveEbayLiveDefaults(accountId: string) {
     return async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -338,16 +284,116 @@ function MarketplacesPageContent() {
     window.location.assign("/imports");
   }
 
+  function savePoshmarkSocialConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/automation/poshmark/social`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            shareCloset: {
+              enabled: formData.get("shareClosetEnabled") === "on",
+              intervalMinutes: Number(formData.get("shareClosetInterval") || 120)
+            },
+            shareListings: {
+              enabled: formData.get("shareListingsEnabled") === "on",
+              intervalMinutes: Number(formData.get("shareListingsInterval") || 240)
+            },
+            sendOffersToLikers: {
+              enabled: formData.get("sendOffersEnabled") === "on",
+              intervalMinutes: Number(formData.get("sendOffersInterval") || 360)
+            }
+          })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not save Poshmark social configuration.");
+        }
+
+        setSubmitError(null);
+        setActionStatus("Poshmark social automation updated.");
+        await poshmarkSocial.refresh();
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not save Poshmark social configuration.");
+      }
+    });
+  }
+
+  function triggerPoshmarkSocial(action: "SHARE_CLOSET" | "SHARE_LISTING" | "SEND_OFFER_TO_LIKERS") {
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/automation/poshmark/social/run`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({ action })
+        });
+        const payload = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(payload.error ?? "Could not queue Poshmark social action.");
+        }
+
+        setSubmitError(null);
+        setActionStatus(`Queued ${action.toLowerCase().replace(/_/g, " ")}.`);
+        await poshmarkSocial.refresh();
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not queue Poshmark social action.");
+      }
+    });
+  }
+
+  function startRemoteAutomationConnect(vendor: AutomationVendor, displayName?: string) {
+    const config = automationVendorConfig[vendor];
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${vendor}/connect/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            displayName: displayName ?? `Main ${config.label} account`
+          })
+        });
+        const payload = (await response.json()) as {
+          error?: string;
+          attempt?: { id?: string | null };
+        };
+
+        if (!response.ok || !payload.attempt?.id) {
+          throw new Error(payload.error ?? `Could not start ${config.label} hosted sign-in.`);
+        }
+
+        setSubmitError(null);
+        setActionStatus(`Hosted ${config.label} sign-in is ready in Mollie.`);
+        setHostedSignInAttempt({
+          vendor,
+          attemptId: payload.attempt.id
+        });
+        window.open(config.loginUrl, "_blank");
+      } catch (caughtError) {
+        setSubmitError(caughtError instanceof Error ? caughtError.message : `Could not start ${config.label} hosted sign-in.`);
+      }
+    });
+  }
+
   function renderAutomationCard(vendor: AutomationVendor) {
     const config = automationVendorConfig[vendor];
     const account = automationAccounts[vendor][0] ?? null;
     const isConnected = account?.status === "CONNECTED" && account.readiness?.status === "READY";
     const accountIdentity = account?.credentialMetadata?.accountHandle ?? account?.externalAccountId ?? account?.displayName ?? null;
-    const extensionState = extension.connected
-      ? "Browser extension connected"
-      : extension.installed
-        ? "Browser extension installed but not connected"
-        : "Browser extension not installed";
 
     return (
       <Card eyebrow={config.label} title={isConnected ? "Connected" : "Login required"}>
@@ -355,15 +401,15 @@ function MarketplacesPageContent() {
           <div className={isConnected ? "notice success" : "notice"}>
             {isConnected
               ? `Logged in as ${accountIdentity ?? account?.displayName ?? config.label}.`
-              : `Please log in to your ${config.label} account in another tab, then click recheck login.`}
+              : `Open ${config.label} in another tab, finish login there, then recheck it from Mollie.`}
           </div>
-          <div className="muted">{extensionState}</div>
+          <div className="muted">{config.label} uses Mollie's hosted remote sign-in and automation runtime.</div>
           <div className="actions">
             <a className="public-doc-link" href={config.loginUrl} rel="noreferrer" target="_blank">
               Open {config.label} login
             </a>
-            <Button disabled={pending} kind="secondary" onClick={() => void recheckAutomationVendor(vendor, account?.displayName)}>
-              Recheck login
+            <Button disabled={pending} kind="secondary" onClick={() => startRemoteAutomationConnect(vendor, account?.displayName)}>
+              Open {config.label} login
             </Button>
             <Button disabled={pending} kind="secondary" onClick={openImports}>
               Import inventory
@@ -550,6 +596,53 @@ function MarketplacesPageContent() {
           {renderAutomationCard("DEPOP")}
           {renderAutomationCard("POSHMARK")}
           {renderAutomationCard("WHATNOT")}
+          <Card eyebrow="Poshmark Social" title="Closet automation">
+            {!poshmarkSocial.data?.connected ? (
+              <div className="notice">Connect a Poshmark account before enabling social automation.</div>
+            ) : (
+              <form className="stack" onSubmit={savePoshmarkSocialConfig}>
+                <label className="label">
+                  <input defaultChecked={poshmarkSocial.data?.config.shareCloset.enabled} name="shareClosetEnabled" type="checkbox" />
+                  <span style={{ marginLeft: "0.5rem" }}>Enable share closet</span>
+                </label>
+                <label className="label">
+                  Share closet interval (minutes)
+                  <input className="field" defaultValue={poshmarkSocial.data?.config.shareCloset.intervalMinutes ?? 120} name="shareClosetInterval" type="number" />
+                </label>
+                <label className="label">
+                  <input defaultChecked={poshmarkSocial.data?.config.shareListings.enabled} name="shareListingsEnabled" type="checkbox" />
+                  <span style={{ marginLeft: "0.5rem" }}>Enable share listings</span>
+                </label>
+                <label className="label">
+                  Share listings interval (minutes)
+                  <input className="field" defaultValue={poshmarkSocial.data?.config.shareListings.intervalMinutes ?? 240} name="shareListingsInterval" type="number" />
+                </label>
+                <label className="label">
+                  <input defaultChecked={poshmarkSocial.data?.config.sendOffersToLikers.enabled} name="sendOffersEnabled" type="checkbox" />
+                  <span style={{ marginLeft: "0.5rem" }}>Enable send offers to likers</span>
+                </label>
+                <label className="label">
+                  Offer cadence (minutes)
+                  <input className="field" defaultValue={poshmarkSocial.data?.config.sendOffersToLikers.intervalMinutes ?? 360} name="sendOffersInterval" type="number" />
+                </label>
+                <div className="actions">
+                  <Button disabled={pending} type="submit">
+                    Save social settings
+                  </Button>
+                  <Button disabled={pending} kind="secondary" onClick={() => triggerPoshmarkSocial("SHARE_CLOSET")} type="button">
+                    Run share closet
+                  </Button>
+                </div>
+                {poshmarkSocial.data?.status ? (
+                  <div className="muted">
+                    Last run: {poshmarkSocial.data.status.lastRunAt ? new Date(poshmarkSocial.data.status.lastRunAt).toLocaleString() : "never"} | Next run:{" "}
+                    {poshmarkSocial.data.status.nextRunAt ? new Date(poshmarkSocial.data.status.nextRunAt).toLocaleString() : "n/a"} | Last action:{" "}
+                    {poshmarkSocial.data.status.lastAction ?? "n/a"}
+                  </div>
+                ) : null}
+              </form>
+            )}
+          </Card>
         </div>
 
         <Card eyebrow="Connections" title="Connected marketplace accounts">
@@ -597,6 +690,17 @@ function MarketplacesPageContent() {
             </tbody>
           </table>
         </Card>
+        <HostedMarketplaceSigninModal
+          attemptId={hostedSignInAttempt?.attemptId ?? ""}
+          onClose={() => setHostedSignInAttempt(null)}
+          onConnected={() => {
+            void refresh();
+            void poshmarkSocial.refresh();
+          }}
+          open={Boolean(hostedSignInAttempt)}
+          token={auth.token}
+          vendor={hostedSignInAttempt?.vendor ?? "POSHMARK"}
+        />
       </AppShell>
     </ProtectedView>
   );

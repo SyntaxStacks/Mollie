@@ -247,3 +247,83 @@ test("verify-code rejects stale codes as a client auth error", async () => {
     process.env.AUTH_EMAIL_FROM = originalEmailFrom;
   }
 });
+
+test("verify-code expires a login challenge after too many invalid attempts", async () => {
+  const email = `lockout-${Date.now()}@example.com`;
+  createdEmails.add(email);
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
+  const originalResendKey = process.env.RESEND_API_KEY;
+  const originalEmailFrom = process.env.AUTH_EMAIL_FROM;
+  const originalMaxAttempts = process.env.AUTH_MAX_VERIFY_ATTEMPTS;
+
+  process.env.NODE_ENV = "test";
+  process.env.AUTH_EXPOSE_DEV_CODE = "true";
+  process.env.AUTH_MAX_VERIFY_ATTEMPTS = "3";
+  delete process.env.RESEND_API_KEY;
+  delete process.env.AUTH_EMAIL_FROM;
+
+  try {
+    const issueResponse = await app.inject({
+      method: "POST",
+      url: "/api/auth/request-code",
+      payload: {
+        email,
+        name: "Lockout Test"
+      }
+    });
+
+    assert.equal(issueResponse.statusCode, 200);
+    const issuedCode = issueResponse.json<{ devCode: string | null }>().devCode;
+    assert.ok(issuedCode);
+    const invalidCode = issuedCode === "999999" ? "888888" : "999999";
+
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/auth/verify-code",
+        payload: {
+          email,
+          code: invalidCode
+        }
+      });
+
+      assert.equal(response.statusCode, 400);
+      assert.match(response.json<{ error: string }>().error, /invalid login code/i);
+    }
+
+    const finalInvalidAttempt = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-code",
+      payload: {
+        email,
+        code: invalidCode
+      }
+    });
+
+    assert.equal(finalInvalidAttempt.statusCode, 400);
+    assert.match(finalInvalidAttempt.json<{ error: string }>().error, /expired/i);
+
+    const validAfterLockout = await app.inject({
+      method: "POST",
+      url: "/api/auth/verify-code",
+      payload: {
+        email,
+        code: issuedCode
+      }
+    });
+
+    assert.equal(validAfterLockout.statusCode, 400);
+    assert.match(validAfterLockout.json<{ error: string }>().error, /no active login code|expired/i);
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+    process.env.AUTH_EXPOSE_DEV_CODE = originalExpose;
+    process.env.RESEND_API_KEY = originalResendKey;
+    process.env.AUTH_EMAIL_FROM = originalEmailFrom;
+    if (originalMaxAttempts === undefined) {
+      delete process.env.AUTH_MAX_VERIFY_ATTEMPTS;
+    } else {
+      process.env.AUTH_MAX_VERIFY_ATTEMPTS = originalMaxAttempts;
+    }
+  }
+});

@@ -28,18 +28,23 @@ function Use-LocalRuntimeEnv([string]$PathValue = ".env") {
   $postgresDatabase = if ($env:POSTGRES_DB) { $env:POSTGRES_DB } else { "reselleros" }
   $postgresHostPort = if ($env:POSTGRES_HOST_PORT) { $env:POSTGRES_HOST_PORT } else { "5432" }
   $redisHostPort = if ($env:REDIS_HOST_PORT) { $env:REDIS_HOST_PORT } else { "6379" }
+  $browserGridHostPort = if ($env:BROWSER_GRID_HOST_PORT) { $env:BROWSER_GRID_HOST_PORT } else { "3100" }
   $derivedDatabaseUrl = "postgresql://$postgresUser`:$postgresPassword@localhost:$postgresHostPort/$postgresDatabase"
   $derivedRedisUrl = "redis://localhost:$redisHostPort"
+  $derivedBrowserGridUrl = "ws://localhost:$browserGridHostPort/"
 
   Set-DefaultEnvValue "DATABASE_URL" $derivedDatabaseUrl
   Set-DefaultEnvValue "DIRECT_URL" $derivedDatabaseUrl
   Set-DefaultEnvValue "REDIS_URL" $derivedRedisUrl
+  Set-DefaultEnvValue "BROWSER_GRID_URL" $derivedBrowserGridUrl
 
   return @{
     PostgresHostPort = $postgresHostPort
     RedisHostPort = $redisHostPort
+    BrowserGridHostPort = $browserGridHostPort
     DatabaseUrl = $env:DATABASE_URL
     DirectUrl = $env:DIRECT_URL
     RedisUrl = $env:REDIS_URL
+    BrowserGridUrl = $env:BROWSER_GRID_URL
   }
 }

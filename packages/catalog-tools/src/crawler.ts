@@ -2,7 +2,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { chromium, type Browser } from "@playwright/test";
-import { applyCrawlerHarvest, classifyIdentifier, normalizeIdentifier } from "@reselleros/catalog";
+import {
+  applyCrawlerHarvest,
+  classifyIdentifier,
+  extractRankedProductImageUrlsFromHtml,
+  normalizeIdentifier
+} from "@reselleros/catalog";
 
 export type ParsedCandidate = {
   market: "GOOGLE" | "AMAZON" | "EBAY";
@@ -32,7 +37,9 @@ export function parseAmazonSearchHtml(html: string): ParsedCandidate | null {
   const hrefMatch = html.match(/href="(\/[^"]*\/dp\/[A-Z0-9]{10}[^"]*)"/i);
   const priceWhole = html.match(/a-price-whole[^>]*>([\d,]+)/i)?.[1] ?? null;
   const priceFraction = html.match(/a-price-fraction[^>]*>(\d{2})/i)?.[1] ?? "00";
-  const imageMatch = html.match(/<img[^>]+src="([^"]+)"/i);
+  const imageUrls = extractRankedProductImageUrlsFromHtml(html, {
+    pageUrl: "https://www.amazon.com"
+  });
 
   if (!titleMatch && !hrefMatch) {
     return null;
@@ -43,7 +50,7 @@ export function parseAmazonSearchHtml(html: string): ParsedCandidate | null {
     title: titleMatch?.[1]?.replace(/<[^>]+>/g, "").trim() ?? null,
     url: hrefMatch?.[1] ? `https://www.amazon.com${hrefMatch[1]}` : null,
     price: priceWhole ? Number(`${priceWhole.replace(/,/g, "")}.${priceFraction}`) : null,
-    imageUrl: imageMatch?.[1] ?? null
+    imageUrl: imageUrls[0] ?? null
   };
 }
 

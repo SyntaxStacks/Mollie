@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Mollie",
+    "slug": "mollie",
+    "scheme": "mollie",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Mollie uses the camera to scan barcodes and capture listing photos."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Mollie uses your library so you can attach product photos to listings."
+        }
+      ]
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.reselleros.mollie",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Mollie uses the camera to scan barcodes and capture listing photos.",
+        "NSPhotoLibraryUsageDescription": "Mollie uses your photo library so you can attach product photos to listings."
+      }
+    },
+    "android": {
+      "package": "com.reselleros.mollie",
+      "permissions": ["CAMERA", "POST_NOTIFICATIONS"]
+    },
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

@@ -18,6 +18,7 @@ function isSensitiveKey(key: string) {
     isTokenLikeKey(normalized) ||
     normalized === "clientsecret" ||
     normalized === "apikey" ||
+    normalized === "eiastoken" ||
     normalized === "password" ||
     normalized === "secret" ||
     normalized === "credentialpayload" ||

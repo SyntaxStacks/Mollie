@@ -98,7 +98,7 @@ function buildAttemptHint(input: {
           ? "POSHMARK_SOCIAL"
           : "WHATNOT_LIVE_SELLING",
     canContinue: input.canContinue,
-    helpText: `${automationVendorLabels[input.vendor]} is handled by signing in on another browser tab and rechecking that session through the Mollie browser extension.`
+    helpText: `${automationVendorLabels[input.vendor]} is handled through Mollie's hosted remote sign-in session and remote automation runtime.`
   } satisfies OperatorHint;
 }
 
@@ -313,8 +313,8 @@ async function completeAutomationAttempt(input: {
     validationStatus: "VALID",
     externalAccountId: validation.externalAccountId ?? null,
     credentialMetadata: {
-      mode: "helper-session-artifact",
-      publishMode: "automation",
+      mode: "remote-session-artifact",
+      publishMode: "remote",
       captureMode: input.captureMode,
       accountHandle: validation.accountHandle,
       validationSummary: validation.summary,
@@ -365,6 +365,16 @@ async function completeAutomationAttempt(input: {
 }
 
 export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteContext) {
+  function requireWorkspaceOwner(auth: Awaited<ReturnType<ApiRouteContext["requireAuth"]>>) {
+    const membership = auth.memberships.find((candidate) => candidate.workspaceId === auth.workspaceId) ?? null;
+
+    if (!membership || membership.role !== "OWNER") {
+      throw app.httpErrors.forbidden("Only workspace owners can manage marketplace settings");
+    }
+
+    return membership;
+  }
+
   app.get("/api/marketplace-accounts", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
@@ -807,6 +817,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
   app.post("/api/marketplace-accounts/:id/disable", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
+    requireWorkspaceOwner(auth);
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     const account = await disableMarketplaceAccountForWorkspace(workspace.id, params.id);
 
@@ -832,6 +843,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
   app.patch("/api/marketplace-accounts/:id/ebay-live-defaults", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
+    requireWorkspaceOwner(auth);
     const params = z.object({ id: z.string().min(1) }).parse(request.params);
     const body = ebayLiveDefaultsSchema.parse(request.body);
     const existing = await db.marketplaceAccount.findFirst({

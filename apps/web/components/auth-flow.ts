@@ -3,6 +3,7 @@ export type ProtectedViewInput = {
   token: string | null;
   hasWorkspace: boolean;
   pathname: string;
+  search?: string;
   requireWorkspace?: boolean;
 };
 
@@ -13,28 +14,59 @@ export type ProtectedViewDecision =
     }
   | {
       kind: "redirect";
-      location: "/onboarding" | "/workspace";
+      location: string;
       message: string;
     }
   | {
       kind: "allow";
     };
 
-export function getPostLoginPath(hasWorkspace: boolean) {
-  return hasWorkspace ? "/" : "/workspace";
+export function sanitizeReturnTo(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
+    return null;
+  }
+
+  return trimmed;
 }
 
-export function getWorkspaceSetupRedirect(hydrated: boolean, hasWorkspace: boolean) {
+function withReturnTo(pathname: string, returnTo?: string | null) {
+  const safeReturnTo = sanitizeReturnTo(returnTo);
+
+  if (!safeReturnTo) {
+    return pathname;
+  }
+
+  return `${pathname}?returnTo=${encodeURIComponent(safeReturnTo)}`;
+}
+
+export function getPostLoginPath(hasWorkspace: boolean, returnTo?: string | null) {
+  const safeReturnTo = sanitizeReturnTo(returnTo);
+
+  if (hasWorkspace) {
+    return safeReturnTo ?? "/";
+  }
+
+  return withReturnTo("/workspace", safeReturnTo);
+}
+
+export function getWorkspaceSetupRedirect(hydrated: boolean, hasWorkspace: boolean, returnTo?: string | null) {
   if (!hydrated || !hasWorkspace) {
     return null;
   }
 
-  return "/";
+  return sanitizeReturnTo(returnTo) ?? "/";
 }
 
 export function evaluateProtectedView(input: ProtectedViewInput): ProtectedViewDecision {
   const requireWorkspace = input.requireWorkspace ?? true;
   const isOnboardingRoute = input.pathname === "/onboarding";
+  const currentPath = sanitizeReturnTo(`${input.pathname}${input.search ?? ""}`) ?? input.pathname;
 
   if (!input.hydrated) {
     return {
@@ -52,7 +84,7 @@ export function evaluateProtectedView(input: ProtectedViewInput): ProtectedViewD
 
     return {
       kind: "redirect",
-      location: "/onboarding",
+      location: withReturnTo("/onboarding", currentPath),
       message: "Redirecting to onboarding..."
     };
   }
@@ -66,7 +98,7 @@ export function evaluateProtectedView(input: ProtectedViewInput): ProtectedViewD
 
     return {
       kind: "redirect",
-      location: "/workspace",
+      location: withReturnTo("/workspace", currentPath),
       message: "Redirecting to workspace setup..."
     };
   }

@@ -736,8 +736,9 @@ export async function markEbayMarketplaceAccountsDeleted(input: {
         notificationId: input.notificationId,
         externalAccountId: input.externalAccountId ?? null,
         username: input.username ?? null,
-        eiasToken: input.eiasToken ?? null,
-        rawNotification: input.rawNotification
+        hasEiasToken: Boolean(input.eiasToken),
+        eventDate: input.eventDate ?? null,
+        publishDate: input.publishDate ?? null
       }
     });
 

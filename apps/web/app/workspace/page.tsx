@@ -1,33 +1,35 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button, Card } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
-import { getWorkspaceSetupRedirect } from "../../components/auth-flow";
+import { getWorkspaceSetupRedirect, sanitizeReturnTo } from "../../components/auth-flow";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
-export default function WorkspacePage() {
+function WorkspacePageContent() {
   const auth = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
 
   useEffect(() => {
-    const nextPath = getWorkspaceSetupRedirect(auth.hydrated, Boolean(auth.workspace));
+    const nextPath = getWorkspaceSetupRedirect(auth.hydrated, Boolean(auth.workspace), returnTo);
 
     if (!nextPath) {
       return;
     }
 
     router.replace(nextPath);
-  }, [auth.hydrated, auth.workspace, router]);
+  }, [auth.hydrated, auth.workspace, returnTo, router]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,7 +54,7 @@ export default function WorkspacePage() {
         }
 
         await auth.refreshMe();
-        router.replace("/");
+        router.replace(returnTo ?? "/");
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Could not create workspace");
       }
@@ -92,5 +94,13 @@ export default function WorkspacePage() {
         </div>
       </AppShell>
     </ProtectedView>
+  );
+}
+
+export default function WorkspacePage() {
+  return (
+    <Suspense fallback={<div className="center-state">Loading workspace setup...</div>}>
+      <WorkspacePageContent />
+    </Suspense>
   );
 }

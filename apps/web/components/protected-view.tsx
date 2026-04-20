@@ -1,12 +1,12 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 
 import { evaluateProtectedView } from "./auth-flow";
 import { useAuth } from "./auth-provider";
 
-export function ProtectedView({
+function ProtectedViewContent({
   children,
   requireWorkspace = true
 }: {
@@ -16,11 +16,13 @@ export function ProtectedView({
   const auth = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const decision = evaluateProtectedView({
     hydrated: auth.hydrated,
     token: auth.token,
     hasWorkspace: Boolean(auth.workspace),
     pathname,
+    search: searchParams.toString() ? `?${searchParams.toString()}` : "",
     requireWorkspace
   });
 
@@ -37,4 +39,12 @@ export function ProtectedView({
   }
 
   return <>{children}</>;
+}
+
+export function ProtectedView(props: { children: React.ReactNode; requireWorkspace?: boolean }) {
+  return (
+    <Suspense fallback={<div className="center-state">Loading workspace...</div>}>
+      <ProtectedViewContent {...props} />
+    </Suspense>
+  );
 }

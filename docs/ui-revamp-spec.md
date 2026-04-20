@@ -157,8 +157,8 @@ The item detail page should reinforce one source of truth:
 - marketplace-specific fields appear as inline overrides
 - postings are generated from the inventory item rather than edited as separate disconnected listings
 
-## Crosslist-style sell workflow
-The sell-side flow should mirror the operator pattern that works in Crosslist:
+## Unified sell workflow
+The sell-side flow should mirror the operator pattern that works best for marketplace-first listing prep:
 
 `select marketplaces -> fill one universal listing form -> save or post -> manage per-marketplace execution`
 

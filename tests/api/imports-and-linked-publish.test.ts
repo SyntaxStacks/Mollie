@@ -23,6 +23,7 @@ let db: DbModule["db"];
 let setEnqueueHandler: QueueModule["setEnqueueHandler"];
 const queuedJobs: Array<{ name: string; payload: unknown }> = [];
 const createdEmails = new Set<string>();
+const originalFetch = global.fetch;
 
 function buildHeaders(token: string, workspaceId?: string) {
   const headers: Record<string, string> = {
@@ -103,6 +104,7 @@ before(async () => {
 });
 
 after(async () => {
+  global.fetch = originalFetch;
   setEnqueueHandler(null);
 
   for (const email of createdEmails) {
@@ -118,6 +120,72 @@ after(async () => {
   if (db) {
     await db.$disconnect();
   }
+});
+
+test("url preview prefers product photos over generic Amazon chrome assets", async () => {
+  const session = await createWorkspaceSession("import-url-preview-amazon-image");
+
+  global.fetch = (async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+    if (url.includes("/dp/B00290OCQW")) {
+      return new Response(
+        `
+          <html>
+            <head>
+              <meta property="og:title" content="Poolmaster Learn-to-Swim Tube Trainer" />
+              <meta property="og:image" content="https://m.media-amazon.com/images/G/01/nav2/images/amazon-logo.png" />
+            </head>
+            <body>
+              <img id="landingImage" src="https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    if (url.includes("amazon.com/s?")) {
+      return new Response(
+        `
+          <html>
+            <body>
+              <img src="https://m.media-amazon.com/images/G/01/nav2/images/amazon-logo.png" />
+              <div data-cy="title-recipe"><h2>Poolmaster Learn-to-Swim Tube Trainer</h2></div>
+              <a href="/Poolmaster-Learn-to-Swim-Tube-Trainer/dp/B00290OCQW/ref=sr_1_1"></a>
+              <img src="https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg" />
+            </body>
+          </html>
+        `,
+        { status: 200 }
+      );
+    }
+
+    return new Response("", { status: 404 });
+  }) as typeof fetch;
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/imports/url/preview",
+    headers: session.headers,
+    payload: {
+      sourcePlatform: "CROSSLIST",
+      url: "https://www.amazon.com/dp/B00290OCQW"
+    }
+  });
+
+  global.fetch = originalFetch;
+
+  assert.equal(response.statusCode, 200);
+  const body = response.json<{
+    candidate: {
+      title: string;
+      imageUrls: string[];
+    };
+  }>();
+
+  assert.match(body.candidate.title, /poolmaster/i);
+  assert.deepEqual(body.candidate.imageUrls, ["https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg"]);
 });
 
 test("public URL import applies reviewed candidate into inventory and import run", async () => {

@@ -184,7 +184,7 @@ test("crawler harvest can promote a strong candidate into the canonical catalog"
 test("crawler parsers extract candidate data from representative HTML fragments", () => {
   const google = parseGoogleSearchHtml('<html><body><a href="https://example.com/item"><h3>Google Result Title</h3></a></body></html>');
   const amazon = parseAmazonSearchHtml(
-    '<html><body><div data-cy="title-recipe"><h2>Amazon Result Title</h2></div><a href="/Some-Item/dp/B000IMWK2G"></a><span class="a-price-whole">39</span><span class="a-price-fraction">99</span><img src="https://example.test/a.jpg" /></body></html>'
+    '<html><body><img src="https://m.media-amazon.com/images/G/01/nav2/images/amazon-logo.png" /><div data-cy="title-recipe"><h2>Amazon Result Title</h2></div><a href="/Some-Item/dp/B000IMWK2G"></a><span class="a-price-whole">39</span><span class="a-price-fraction">99</span><img src="https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg" /></body></html>'
   );
   const ebay = parseEbaySearchHtml(
     '<html><body><a class="s-item__link" href="https://www.ebay.com/itm/123"></a><span class="s-item__title">eBay Result Title</span><span class="s-item__price">$34.50</span><img class="s-item__image-img" src="https://example.test/e.jpg" /></body></html>'
@@ -193,6 +193,7 @@ test("crawler parsers extract candidate data from representative HTML fragments"
   assert.equal(google?.title, "Google Result Title");
   assert.equal(amazon?.price, 39.99);
   assert.equal(amazon?.url, "https://www.amazon.com/Some-Item/dp/B000IMWK2G");
+  assert.equal(amazon?.imageUrl, "https://m.media-amazon.com/images/I/71UlhNmOk5L._AC_SY300_SX300_QL70_FMwebp_.jpg");
   assert.equal(ebay?.price, 34.5);
   assert.equal(ebay?.title, "eBay Result Title");
 });

@@ -48,9 +48,9 @@ const capabilitySummary: MarketplaceCapabilitySummary[] = [
   },
   {
     platform: "POSHMARK",
-    capabilities: [],
+    capabilities: ["API_PUBLISH", "UPDATE"],
     importMode: "NONE",
-    publishMode: "NONE",
+    publishMode: "API",
     bulkImport: false,
     bulkPublish: false
   },

@@ -55,12 +55,12 @@ export const poshmarkAdapter: MarketplaceAdapter = {
       {
         capability: "CONNECT_ACCOUNT",
         support: "SUPPORTED",
-        detail: "Operators connect Poshmark by signing in on another tab and rechecking that browser session through the Mollie extension."
+        detail: "Operators connect Poshmark through Mollie's hosted remote sign-in session so the remote automation runtime can capture and validate the seller session."
       },
       {
         capability: "VALIDATE_AUTH",
         support: "SUPPORTED",
-        detail: "Poshmark sessions are validated after the browser extension rechecks the signed-in tab."
+        detail: "Poshmark sessions are validated from the hosted session artifact Mollie stores for remote automation."
       },
       {
         capability: "REFRESH_AUTH",

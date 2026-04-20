@@ -33,21 +33,23 @@ async function onboardOperator(page: Page, options?: { workspaceName?: string })
   await page.getByLabel(/workspace name/i).fill(workspaceName);
   await page.getByRole("button", { name: /create workspace/i }).click();
 
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(page.getByRole("heading", { name: /my listings/i })).toBeVisible();
   await expect(page.getByText(workspaceName)).toBeVisible();
 }
 
 async function createInventoryItem(page: Page, title: string) {
-  await page.goto("/");
-  await page.getByRole("tab", { name: /manual\/source lookup/i }).click();
-  await page.getByTestId("scan-identify-barcode").fill("012345678905");
-  await page.getByTestId("scan-identify-submit").click();
-  await expect(page.getByTestId("scan-identify-candidate-0")).toBeVisible();
-  await page.getByTestId("scan-identify-accept-0").click();
-  await page.getByTestId("scan-identify-title").fill(title);
-  await page.getByTestId("scan-identify-condition").fill("Good used condition");
-  await page.getByTestId("scan-identify-create").click();
+  await page.goto("/inventory?scan=barcode");
+  const scanDialog = page.getByRole("dialog", { name: /scan item into inventory/i });
+  await expect(scanDialog).toBeVisible();
+  await scanDialog.getByRole("tab", { name: /manual\/source lookup/i }).click();
+  await scanDialog.getByTestId("scan-identify-barcode").fill("012345678905");
+  await scanDialog.getByTestId("scan-identify-submit").click();
+  await expect(scanDialog.getByTestId("scan-identify-candidate-0")).toBeVisible();
+  await scanDialog.getByTestId("scan-identify-accept-0").click();
+  await scanDialog.getByTestId("scan-identify-title").fill(title);
+  await scanDialog.getByTestId("scan-identify-condition").fill("Good used condition");
+  await scanDialog.getByTestId("scan-identify-create").click();
   await expect(page).toHaveURL(/\/inventory\/.+/);
 }
 
@@ -84,7 +86,7 @@ test("public legal documents are reachable without authentication", async ({ pag
 test("protected routes redirect logged-out operators into onboarding with client navigation", async ({ page }) => {
   await page.goto("/inventory");
 
-  await expect(page).toHaveURL(/\/onboarding$/);
+  await expect(page).toHaveURL(/\/onboarding(?:\?.*)?$/);
   await expect(page.getByRole("heading", { name: /create your operator session/i })).toBeVisible();
 });
 
@@ -94,8 +96,8 @@ test("operators can onboard, create a workspace, and get redirected into the app
   expect(storedToken).toBeTruthy();
 
   await page.goto("/workspace");
-  await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(page.getByRole("heading", { name: /my listings/i })).toBeVisible();
 });
 
 test("redesigned core routes render after onboarding", async ({ page }, testInfo) => {
@@ -103,24 +105,29 @@ test("redesigned core routes render after onboarding", async ({ page }, testInfo
     workspaceName: "UI Route Smoke Workspace"
   });
 
-  await expect(page.getByRole("heading", { name: /identify fast\./i })).toBeVisible();
-  await expect(page.getByText(/fill what matters\./i)).toBeVisible();
-  await attachRouteScreenshot(page, testInfo, "route-scan");
-
-  await page.goto("/inventory");
-  await expect(page.getByRole("heading", { name: /photo-first item management/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /inventory built for finish-and-sell work/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /my listings/i })).toBeVisible();
+  await expect(page.getByText(/work inventory like an active listings queue/i)).toBeVisible();
+  await expect(page.getByRole("button", { name: /scan code/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /take photo/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /upload multiple/i })).toBeVisible();
   await attachRouteScreenshot(page, testInfo, "route-inventory");
 
+  await page.goto("/inventory?scan=barcode");
+  await expect(page.getByRole("dialog", { name: /scan item into inventory/i })).toBeVisible();
+  await expect(page.getByText(/keep scan inside inventory/i)).toBeVisible();
+  await attachRouteScreenshot(page, testInfo, "route-scan-modal");
+
+  await page.goto("/inventory?scan=photo");
+  await expect(page.getByRole("dialog", { name: /scan item into inventory/i })).toBeVisible();
+  await expect(page.getByText(/take or upload one clear product photo/i)).toBeVisible();
+
   await page.goto("/sell");
-  await expect(page.getByRole("heading", { name: /queue-based selling/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /desktop listing management/i })).toBeVisible();
-  await attachRouteScreenshot(page, testInfo, "route-sell");
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(page.getByRole("heading", { name: /my listings/i })).toBeVisible();
 
   await page.goto("/activity");
-  await expect(page.getByRole("heading", { name: /operational feed/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /suggested moves/i })).toBeVisible();
-  await attachRouteScreenshot(page, testInfo, "route-activity");
+  await expect(page).toHaveURL(/\/inventory$/);
+  await expect(page.getByRole("heading", { name: /my listings/i })).toBeVisible();
 });
 
 test("desktop inventory detail exposes a continue-on-mobile handoff with the canonical item url", async ({ page, baseURL }) => {
@@ -131,7 +138,7 @@ test("desktop inventory detail exposes a continue-on-mobile handoff with the can
   });
 
   await createInventoryItem(page, title);
-  await page.getByText("History and item tools", { exact: true }).click();
+  await page.getByRole("button", { name: /item actions/i }).click();
   await page.getByTestId("continue-on-mobile-trigger").click();
 
   await expect(page.getByRole("dialog", { name: /continue on mobile/i })).toBeVisible();
@@ -146,26 +153,28 @@ test("operators can scan to identify, accept a candidate, and queue drafts", asy
     workspaceName: "UI Barcode Workspace"
   });
 
-  await page.goto("/");
-  await page.getByRole("tab", { name: /manual\/source lookup/i }).click();
-  await page.getByTestId("scan-identify-barcode").fill("012345678905");
-  await page.getByTestId("scan-identify-submit").click();
-  const firstCandidate = page.getByTestId("scan-identify-candidate-0");
+  await page.goto("/inventory?scan=barcode");
+  const scanDialog = page.getByRole("dialog", { name: /scan item into inventory/i });
+  await expect(scanDialog).toBeVisible();
+  await scanDialog.getByRole("tab", { name: /manual\/source lookup/i }).click();
+  await scanDialog.getByTestId("scan-identify-barcode").fill("012345678905");
+  await scanDialog.getByTestId("scan-identify-submit").click();
+  const firstCandidate = scanDialog.getByTestId("scan-identify-candidate-0");
   await expect(firstCandidate).toBeVisible();
   await expect(firstCandidate.getByText(/amazon enriched/i)).toBeVisible();
-  await page.getByTestId("scan-identify-accept-0").click();
-  await expect(page.getByText(/^source reference$/i)).toBeVisible();
-  await expect(page.getByText(/mollie used this source to prefill the fields below/i)).toBeVisible();
-  await page.getByTestId("scan-identify-title").fill(title);
-  await page.getByTestId("scan-identify-condition").fill("Good used condition");
-  await page.getByTestId("scan-identify-amazon-price").fill("39.99");
-  await page.getByTestId("scan-identify-ebay-price").fill("34.99");
-  await page.getByTestId("scan-identify-ebay-url").fill("https://www.ebay.com/itm/1234567890");
-  await page.getByTestId("scan-identify-image-urls").fill(
+  await scanDialog.getByTestId("scan-identify-accept-0").click();
+  await expect(scanDialog.getByText(/^source reference$/i)).toBeVisible();
+  await expect(scanDialog.getByText(/mollie used this source to prefill the fields below/i)).toBeVisible();
+  await scanDialog.getByTestId("scan-identify-title").fill(title);
+  await scanDialog.getByTestId("scan-identify-condition").fill("Good used condition");
+  await scanDialog.getByTestId("scan-identify-amazon-price").fill("39.99");
+  await scanDialog.getByTestId("scan-identify-ebay-price").fill("34.99");
+  await scanDialog.getByTestId("scan-identify-ebay-url").fill("https://www.ebay.com/itm/1234567890");
+  await scanDialog.getByTestId("scan-identify-image-urls").fill(
     "https://m.media-amazon.com/images/I/example-one.jpg\nhttps://m.media-amazon.com/images/I/example-two.jpg"
   );
-  await page.getByTestId("scan-identify-generate-drafts").check();
-  await page.getByTestId("scan-identify-create").click();
+  await scanDialog.getByTestId("scan-identify-generate-drafts").check();
+  await scanDialog.getByTestId("scan-identify-create").click();
 
   await expect(page).toHaveURL(/\/drafts\?fromScan=/);
   await expect(page.getByRole("heading", { name: /ai-generated drafts awaiting approval/i })).toBeVisible();
@@ -203,31 +212,39 @@ test.describe("inventory continuity on mobile", () => {
 
     const photoHeading = page.getByRole("heading", { name: /^photos$/i });
     const summaryHeading = page.getByRole("heading", { name: new RegExp(title, "i") });
-    const listingHeading = page.getByRole("heading", { name: /choose marketplaces first, then fill one listing form/i });
+    const listingHeading = page.getByRole("heading", { name: /shared item details/i });
 
     await expect(photoHeading).toBeVisible();
     await expect(summaryHeading).toBeVisible();
     await expect(listingHeading).toBeVisible();
     const photoCard = page.locator("section").filter({ has: page.getByRole("heading", { name: /^photos$/i }) }).first();
-    const uploadForm = photoCard.locator("form.inventory-image-form");
-    const startingImageCount = await page.locator(".detail-image-card").count();
+    const renderedImages = photoCard.locator(".listing-photo-card");
+    const startingImageCount = await renderedImages.count();
 
+    const uploadResponsePromise = page.waitForResponse((response) => {
+      return response.request().method() === "POST" && /\/api\/inventory\/.+\/images\/upload$/.test(response.url());
+    });
     await page.setInputFiles('input[name="image"]', {
       name: "pilot-photo-1.png",
       mimeType: "image/png",
       buffer: tinyPng
     });
-    const uploadResponsePromise = page.waitForResponse((response) => {
-      return response.request().method() === "POST" && /\/api\/inventory\/.+\/images\/upload$/.test(response.url());
-    });
-    await uploadForm.evaluate((node) => (node as HTMLFormElement).requestSubmit());
     const uploadResponse = await uploadResponsePromise;
 
     expect(uploadResponse.ok()).toBeTruthy();
     await expect(page.getByText(/^image uploaded$/i)).toBeVisible();
-    await expect(page.locator(".detail-image-card")).toHaveCount(startingImageCount + 1);
+    await expect(renderedImages).toHaveCount(startingImageCount + 1);
+    const enlargeButton = photoCard.getByRole("button", { name: /enlarge /i }).first();
+    await enlargeButton.scrollIntoViewIfNeeded();
+    await enlargeButton.dispatchEvent("click");
+    const photoDialog = page.locator(".listing-photo-detail-modal");
+    await expect(photoDialog).toBeVisible();
+    await photoDialog.getByRole("button", { name: /remove background for active photo/i }).click();
+    await expect(photoDialog.getByRole("button", { name: /undo background for active photo/i })).toBeVisible();
+    await photoDialog.getByRole("button", { name: /^done$/i }).click();
+    await expect(photoDialog).toBeHidden();
     await page.reload();
     await expect(photoHeading).toBeVisible();
-    await expect(page.locator(".detail-image-card")).toHaveCount(startingImageCount + 1);
+    await expect(photoCard.locator(".listing-photo-card")).toHaveCount(startingImageCount + 1);
   });
 });

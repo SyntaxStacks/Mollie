@@ -90,11 +90,14 @@ export function resolveTestRuntimeEnv(rootDir, options) {
   const postgresDatabase = firstDefined(fileEnv.POSTGRES_DB, "reselleros");
   const postgresHostPort = firstDefined(fileEnv.POSTGRES_HOST_PORT, "5432");
   const redisHostPort = firstDefined(fileEnv.REDIS_HOST_PORT, "6379");
+  const browserGridHostPort = firstDefined(fileEnv.BROWSER_GRID_HOST_PORT, "3100");
   const derivedDatabaseUrl = `postgresql://${postgresUser}:${postgresPassword}@localhost:${postgresHostPort}/${postgresDatabase}`;
   const derivedRedisUrl = `redis://localhost:${redisHostPort}`;
+  const derivedBrowserGridUrl = `ws://localhost:${browserGridHostPort}/`;
   const effectiveDatabaseUrl = firstDefined(fileEnv.DATABASE_URL, derivedDatabaseUrl);
   const effectiveDirectUrl = firstDefined(fileEnv.DIRECT_URL, effectiveDatabaseUrl);
   const effectiveRedisUrl = firstDefined(fileEnv.REDIS_URL, derivedRedisUrl);
+  const effectiveBrowserGridUrl = firstDefined(fileEnv.BROWSER_GRID_URL, derivedBrowserGridUrl);
 
   assertLocalDatabaseTarget("DATABASE_URL", effectiveDatabaseUrl);
   assertLocalDatabaseTarget("DIRECT_URL", effectiveDirectUrl);
@@ -106,11 +109,13 @@ export function resolveTestRuntimeEnv(rootDir, options) {
     DATABASE_URL: effectiveDatabaseUrl,
     DIRECT_URL: effectiveDirectUrl,
     REDIS_URL: effectiveRedisUrl,
+    BROWSER_GRID_URL: effectiveBrowserGridUrl,
     POSTGRES_DB: postgresDatabase,
     POSTGRES_USER: postgresUser,
     POSTGRES_PASSWORD: postgresPassword,
     POSTGRES_HOST_PORT: postgresHostPort,
     REDIS_HOST_PORT: redisHostPort,
+    BROWSER_GRID_HOST_PORT: browserGridHostPort,
     SESSION_SECRET: firstDefined(fileEnv.SESSION_SECRET, options.defaultSessionSecret ?? "test-session-secret"),
     GCS_BUCKET_UPLOADS: firstDefined(fileEnv.GCS_BUCKET_UPLOADS, options.defaultUploadsBucket ?? "reselleros-test-uploads"),
     GCS_BUCKET_ARTIFACTS: firstDefined(fileEnv.GCS_BUCKET_ARTIFACTS, options.defaultArtifactsBucket ?? "reselleros-test-artifacts"),
@@ -123,6 +128,7 @@ export function resolveTestRuntimeEnv(rootDir, options) {
     effectiveDatabaseUrl,
     effectiveDirectUrl,
     effectiveRedisUrl,
+    effectiveBrowserGridUrl,
     childEnv
   };
 }

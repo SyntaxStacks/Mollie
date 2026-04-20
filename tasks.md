@@ -24,7 +24,7 @@ This file is intended for Codex / implementation agents. Default bias: ship the 
 
 Liquidation and arbitrage resellers who:
 - source from Mac.bid or similar auction platforms,
-- manually crosslist inventory today,
+- manually list inventory across marketplaces today,
 - want faster listing creation and better resale decisions,
 - can tolerate an operator workflow for some steps during MVP.
 
@@ -1075,7 +1075,7 @@ Provide:
 
 ## 24. Product Decisions Locked for MVP
 
-- Primary wedge: **AI-powered sourcing + crosslisting for liquidation resellers**
+- Primary wedge: **AI-powered sourcing + multi-marketplace listing for liquidation resellers**
 - Marketplaces for MVP: **eBay + Depop**
 - Source marketplace for MVP: **Mac.bid manual URL ingestion**
 - Human-in-the-loop before publish: **required**

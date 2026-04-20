@@ -4,9 +4,12 @@ import type {
   AiStatusResponse,
   ListingDraftOutput,
   LotAnalysis,
+  OperatorHint,
   Platform,
-  UniversalListing
+  UniversalListing,
+  VisualProductLookupResult
 } from "@reselleros/types";
+import { z } from "zod";
 
 type LotContext = {
   title: string;
@@ -32,6 +35,12 @@ export type ListingAssistContext = {
   operation: AiAssistOperation;
   platform?: Platform | null;
   item: UniversalListing;
+};
+
+export type VisualIdentifyContext = {
+  imageBase64: string;
+  mediaType: string;
+  notes?: string | null;
 };
 
 export type AiProvider = {
@@ -183,6 +192,258 @@ function getAiConfig() {
     ollamaModel: process.env.OLLAMA_MODEL ?? "llama3.1:8b",
     dailyQuota: Number(process.env.AI_DAILY_LIMIT_PER_WORKSPACE ?? 50)
   };
+}
+
+const visualIdentificationSchema = z.object({
+  title: z.string().trim().min(1).max(180),
+  brand: z.string().trim().max(120).nullable().optional(),
+  category: z.string().trim().max(120).nullable().optional(),
+  model: z.string().trim().max(120).nullable().optional(),
+  size: z.string().trim().max(80).nullable().optional(),
+  color: z.string().trim().max(80).nullable().optional(),
+  condition: z.string().trim().max(120).nullable().optional(),
+  priceSuggestion: z.number().nonnegative().nullable().optional(),
+  confidenceScore: z.number().min(0).max(1).default(0.42),
+  matchRationale: z.array(z.string().trim().min(1).max(240)).max(5).default([]),
+  researchQueries: z.array(z.string().trim().min(1).max(120)).max(5).default([])
+});
+
+function extractJsonObject(text: string) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+
+  if (start === -1 || end === -1 || end <= start) {
+    return null;
+  }
+
+  return text.slice(start, end + 1);
+}
+
+function confidenceStateFromScore(score: number): "HIGH" | "MEDIUM" | "LOW" {
+  if (score >= 0.82) {
+    return "HIGH";
+  }
+
+  if (score >= 0.58) {
+    return "MEDIUM";
+  }
+
+  return "LOW";
+}
+
+function buildVisionHint(input: {
+  title?: string | null;
+  confidenceScore: number;
+  explanation: string;
+  severity?: OperatorHint["severity"];
+  nextActions: string[];
+}) {
+  const title = input.title?.trim() || "Photo identification";
+
+  return {
+    title: `${title} needs operator review`,
+    explanation: input.explanation,
+    severity:
+      input.severity ??
+      (input.confidenceScore >= 0.82 ? "SUCCESS" : input.confidenceScore >= 0.58 ? "WARNING" : "WARNING"),
+    nextActions: input.nextActions,
+    canContinue: true
+  } satisfies OperatorHint;
+}
+
+function buildUnavailableVisionResult(message: string, enabled: boolean, provider: string): VisualProductLookupResult {
+  return {
+    candidate: null,
+    hint: buildVisionHint({
+      confidenceScore: 0,
+      explanation: message,
+      severity: "WARNING",
+      nextActions: [
+        "Continue with manual or source lookup.",
+        "Upload the photo to the item after save so you can keep editing from the listing workspace."
+      ]
+    }),
+    recommendedNextAction: "Continue with manual/source lookup and treat photo identification as unavailable for this item.",
+    providerSummary: {
+      visionProvider: provider,
+      simulated: true,
+      enabled
+    }
+  };
+}
+
+function buildVisualPrompt(notes?: string | null) {
+  return [
+    "You identify secondhand resale inventory from a product photo.",
+    "Inspect the main item in the image and return only JSON.",
+    "Use visible evidence only. Do not invent barcodes, model numbers, accessories, or exact brands when they are not visible.",
+    "Prefer practical resale categories like Apparel, Shoes, Beauty & Personal Care, Home, Electronics, Video Games, Books, Toys, Collectibles, or General Merchandise.",
+    "Use null for fields you cannot support from the image.",
+    'Return JSON with keys: title, brand, category, model, size, color, condition, priceSuggestion, confidenceScore, matchRationale, researchQueries.',
+    "confidenceScore must be a number between 0 and 1.",
+    "matchRationale must be an array of short evidence-based strings.",
+    "researchQueries must be an array of short search phrases a reseller could use to verify the item.",
+    notes?.trim() ? `Operator notes: ${notes.trim()}` : null
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+async function callOpenAiVision(input: VisualIdentifyContext) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
+
+  if (!apiKey) {
+    return null;
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model,
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: buildVisualPrompt(input.notes)
+            },
+            {
+              type: "input_image",
+              image_url: `data:${input.mediaType};base64,${input.imageBase64}`
+            }
+          ]
+        }
+      ],
+      max_output_tokens: 700
+    })
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as {
+    output_text?: string;
+    error?: {
+      message?: string;
+    };
+  };
+
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? `OpenAI vision request failed with ${response.status}`);
+  }
+
+  return payload.output_text?.trim() ?? null;
+}
+
+function parseVisualIdentification(text: string) {
+  const json = extractJsonObject(text);
+
+  if (!json) {
+    return null;
+  }
+
+  const parsed = JSON.parse(json) as unknown;
+  return visualIdentificationSchema.parse(parsed);
+}
+
+export async function identifyProductFromImage(input: VisualIdentifyContext): Promise<VisualProductLookupResult> {
+  const providerConfigured = Boolean(process.env.OPENAI_API_KEY?.trim());
+
+  if (!providerConfigured) {
+    return buildUnavailableVisionResult(
+      "Photo identification is not configured for this environment yet. Add OPENAI_API_KEY to enable AI-based product recognition from images.",
+      false,
+      "UNAVAILABLE"
+    );
+  }
+
+  try {
+    const output = await callOpenAiVision(input);
+
+    if (!output) {
+      return buildUnavailableVisionResult(
+        "The vision provider did not return a usable identification result for this image.",
+        true,
+        "OPENAI_VISION"
+      );
+    }
+
+    const parsed = parseVisualIdentification(output);
+
+    if (!parsed) {
+      return buildUnavailableVisionResult(
+        "The image analysis response could not be converted into a trustworthy product suggestion.",
+        true,
+        "OPENAI_VISION"
+      );
+    }
+
+    const confidenceScore = Math.max(0, Math.min(1, parsed.confidenceScore ?? 0.42));
+    const confidenceState = confidenceStateFromScore(confidenceScore);
+
+    return {
+      candidate: {
+        title: parsed.title,
+        brand: parsed.brand ?? null,
+        category: parsed.category ?? null,
+        model: parsed.model ?? null,
+        size: parsed.size ?? null,
+        color: parsed.color ?? null,
+        condition: parsed.condition ?? null,
+        priceSuggestion: parsed.priceSuggestion ?? null,
+        researchQueries: parsed.researchQueries,
+        matchRationale: parsed.matchRationale,
+        confidenceScore,
+        confidenceState,
+        hint: buildVisionHint({
+          title: parsed.title,
+          confidenceScore,
+          explanation:
+            confidenceState === "HIGH"
+              ? "AI image analysis produced a strong first-pass identification. Review the fields, then save the item with the operator photo."
+              : confidenceState === "MEDIUM"
+                ? "AI image analysis produced a useful working guess. Review the title, category, and brand before saving."
+                : "AI image analysis found only a weak match. Use it as a starting point and verify the item manually before saving.",
+          nextActions: [
+            "Review the suggested fields before saving the item.",
+            "Use the suggested research queries if you need to verify brand, model, or market price."
+          ]
+        }),
+        provider: "OPENAI_VISION",
+        simulated: false
+      },
+      hint: buildVisionHint({
+        title: parsed.title,
+        confidenceScore,
+        explanation:
+          confidenceState === "HIGH"
+            ? "Photo identification is strong enough to prefill the item, but the operator should still confirm the visible details."
+            : "Photo identification is a starting point. Treat it as source material rather than final truth.",
+        nextActions: [
+          "Review the suggested fields.",
+          "Save the item and continue refining it from the listing workspace."
+        ]
+      }),
+      recommendedNextAction:
+        confidenceState === "HIGH"
+          ? "Review the prefilled fields and save the item with the uploaded photo."
+          : "Use the photo suggestion as a prefill, then verify the details before saving.",
+      providerSummary: {
+        visionProvider: "OPENAI_VISION",
+        simulated: false,
+        enabled: true
+      }
+    };
+  } catch {
+    return buildUnavailableVisionResult(
+      "Photo identification is temporarily unavailable. Continue with manual/source lookup for this item.",
+      true,
+      "OPENAI_VISION"
+    );
+  }
 }
 
 function buildOllamaPrompt(input: ListingAssistContext) {

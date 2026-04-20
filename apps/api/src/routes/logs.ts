@@ -253,7 +253,7 @@ function serializeAuditLog(log: {
     action: log.action,
     targetType: log.targetType,
     targetId: log.targetId,
-    metadata: asRecord(log.metadataJson),
+    metadata: asRecord(redactForOperator(log.metadataJson)),
     createdAt: log.createdAt,
     actorUserId: log.actorUserId ?? null
   };

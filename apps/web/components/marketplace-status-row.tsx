@@ -29,6 +29,45 @@ function toneForConnection(tone: MarketplaceStatusSummary["connectionTone"]) {
   return tone;
 }
 
+function platformLabel(platform: MarketplaceStatusSummary["platform"]) {
+  switch (platform) {
+    case "EBAY":
+      return "eBay";
+    case "DEPOP":
+      return "Depop";
+    case "POSHMARK":
+      return "Poshmark";
+    case "WHATNOT":
+      return "Whatnot";
+    default:
+      return platform;
+  }
+}
+
+function collapsedSummary(state: MarketplaceStatusSummary) {
+  if (state.state === "published" || state.state === "sold") {
+    return "Live listing";
+  }
+
+  if (state.state === "draft") {
+    return "Draft ready";
+  }
+
+  if (state.state === "queued" || state.state === "publishing") {
+    return "Work in progress";
+  }
+
+  if (state.connectionTone === "danger" || state.connectionTone === "warning") {
+    return "Select to view setup";
+  }
+
+  return "Select to configure";
+}
+
+function normalizeRequirementCopy(value: string) {
+  return value.trim().toLowerCase().replace(/^missing:\s*/, "").replace(/^missing\s+/, "").replace(/[.\s]+$/g, "");
+}
+
 export function MarketplaceStatusRow({
   state,
   selectable = false,
@@ -44,64 +83,116 @@ export function MarketplaceStatusRow({
   onAction?: (() => void) | null;
   onSecondaryAction?: (() => void) | null;
 }) {
+  const expanded = !selectable || selected;
+  const interactive = Boolean(selectable && onToggle);
+  const missingRequirementsCopy = state.missingRequirements.join(", ");
+  const blockerDuplicatesMissingRequirements =
+    state.missingRequirements.length > 0 &&
+    state.blocker !== null &&
+    normalizeRequirementCopy(state.blocker) === normalizeRequirementCopy(missingRequirementsCopy);
+
+  function handleSelect() {
+    if (interactive && !selected) {
+      onToggle?.(true);
+    }
+  }
+
   return (
-    <div className={`marketplace-status-row marketplace-status-row-rich${selected ? " marketplace-status-row-selected" : ""}`}>
+    <div
+      className={`marketplace-status-row marketplace-status-row-rich marketplace-status-row-selectable${selected ? " marketplace-status-row-selected" : ""}${expanded ? " marketplace-status-row-expanded" : " marketplace-status-row-collapsed"}${interactive ? " marketplace-status-row-clickable" : ""}`}
+      onClick={interactive ? handleSelect : undefined}
+      onKeyDown={
+        interactive
+          ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                handleSelect();
+              }
+            }
+          : undefined
+      }
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+    >
       <div className="marketplace-status-main">
         <div className="marketplace-status-topline">
           <div className="marketplace-status-topline-main">
             {selectable ? (
-              <label className="marketplace-selection-toggle">
-                <input checked={selected} onChange={(event) => onToggle?.(event.target.checked)} type="checkbox" />
+              <button
+                aria-checked={selected}
+                className="marketplace-selection-toggle"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggle?.(!selected);
+                }}
+                role="checkbox"
+                type="button"
+              >
                 <span />
-              </label>
+              </button>
             ) : null}
-            <strong>{state.platform}</strong>
+            <div className="marketplace-title-stack">
+              <strong>{platformLabel(state.platform)}</strong>
+              {!expanded ? <span className="marketplace-collapsed-summary">{collapsedSummary(state)}</span> : null}
+            </div>
           </div>
           <StatusPill label={state.state.replace(/_/g, " ")} tone={toneForState(state.state)} />
         </div>
-        <div className="marketplace-status-copy">{state.summary}</div>
-        <div className="marketplace-status-meta">
-          <span className="marketplace-meta-pill">
-            <Store size={13} />
-            {state.executionMode}
-          </span>
-          <StatusPill label={state.connectionSummary} tone={toneForConnection(state.connectionTone)} />
-          {state.extensionRequired ? (
-            <span className="marketplace-meta-pill">
-              <Plug2 size={13} />
-              {state.extensionSummary}
-            </span>
+        {expanded ? (
+          <>
+            <div className="marketplace-status-copy">{state.summary}</div>
+            <div className="marketplace-status-meta">
+              <span className="marketplace-meta-pill">
+                <Store size={13} />
+                {state.executionMode}
+              </span>
+              <StatusPill label={state.connectionSummary} tone={toneForConnection(state.connectionTone)} />
+              {state.extensionRequired ? (
+                <span className="marketplace-meta-pill">
+                  <Plug2 size={13} />
+                  {state.extensionSummary}
+                </span>
+              ) : null}
+            </div>
+            {state.blocker ? (
+              <div className="marketplace-blocker-inline">
+                <AlertTriangle size={14} />
+                <span>{state.blocker}</span>
+              </div>
+            ) : null}
+            {state.missingRequirements.length > 0 && !blockerDuplicatesMissingRequirements ? (
+              <div className="marketplace-missing-inline">
+                Missing: {missingRequirementsCopy}
+              </div>
+            ) : null}
+            {state.missingRequirements.length === 0 && state.recommendedRequirements.length > 0 ? (
+              <div className="marketplace-missing-inline muted">
+                Improves results: {state.recommendedRequirements.join(", ")}
+              </div>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+      {expanded ? (
+        <div className="marketplace-status-actions">
+          {onSecondaryAction && state.secondaryActionLabel ? (
+            <Button kind="ghost" onClick={(event) => {
+              event.stopPropagation();
+              onSecondaryAction();
+            }}>
+              <RefreshCw size={14} /> {state.secondaryActionLabel}
+            </Button>
+          ) : null}
+          {onAction ? (
+            <Button onClick={(event) => {
+              event.stopPropagation();
+              onAction();
+            }}>
+              {state.actionLabel}
+            </Button>
           ) : null}
         </div>
-        {state.blocker ? (
-          <div className="marketplace-blocker-inline">
-            <AlertTriangle size={14} />
-            <span>{state.blocker}</span>
-          </div>
-        ) : null}
-        {state.missingRequirements.length > 0 ? (
-          <div className="marketplace-missing-inline">
-            Missing: {state.missingRequirements.join(", ")}
-          </div>
-        ) : null}
-        {state.missingRequirements.length === 0 && state.recommendedRequirements.length > 0 ? (
-          <div className="marketplace-missing-inline muted">
-            Improves results: {state.recommendedRequirements.join(", ")}
-          </div>
-        ) : null}
-      </div>
-      <div className="marketplace-status-actions">
-        {onSecondaryAction && state.secondaryActionLabel ? (
-          <Button kind="ghost" onClick={onSecondaryAction}>
-            <RefreshCw size={14} /> {state.secondaryActionLabel}
-          </Button>
-        ) : null}
-        {onAction ? (
-          <Button onClick={onAction}>
-            {state.actionLabel}
-          </Button>
-        ) : null}
-      </div>
+      ) : null}
     </div>
   );
 }

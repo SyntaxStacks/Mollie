@@ -1,17 +1,30 @@
 "use client";
 
 import QRCode from "qrcode";
-import { Camera, Copy, ExternalLink, LayoutTemplate, QrCode, RefreshCw, Sparkles, Smartphone, Truck, X } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  ArrowLeft,
+  Camera,
+  ChevronDown,
+  Copy,
+  ExternalLink,
+  LayoutTemplate,
+  QrCode,
+  RefreshCw,
+  Smartphone,
+  Sparkles,
+  Trash2,
+  Truck,
+  X
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import type { AiStatusResponse, MarketplaceCapabilitySummary, OperatorHint } from "@reselleros/types";
 import { Button } from "@reselleros/ui";
 
+import { ActionRail } from "./action-rail";
 import { currency, formatDate } from "../lib/api";
 import {
   getItemLifecycleState,
-  getItemPrimaryImage,
-  getListingReadinessFlags,
   getMarketplaceStatusSummaries,
   getNextActionLabel,
   getProfitEstimate,
@@ -19,10 +32,8 @@ import {
   type MarketplaceActionKind
 } from "../lib/item-lifecycle";
 import { MarketplaceStatusRow } from "./marketplace-status-row";
-import { MissingFieldsPanel } from "./missing-fields-panel";
 import { OperatorHintCard } from "./operator-hint-card";
 import { ProfitBadge } from "./profit-badge";
-import { SectionCard } from "./section-card";
 import { StatusPill } from "./status-pill";
 
 export type InventoryItemFormState = {
@@ -124,7 +135,9 @@ type InventoryDetailViewProps = {
   onAddImage: (event: FormEvent<HTMLFormElement>) => void;
   onDeleteImage: (imageId: string) => void;
   onDeleteItem: () => void;
-  onMoveImage: (imageId: string, direction: -1 | 1) => void;
+  onDelistEverywhere: () => void;
+  onSetCoverImage: (imageId: string) => void;
+  onBackToInventory: () => void;
   onGenerateDrafts: (platforms: Array<"EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT">) => void;
   onPublishLinked: (platforms: Array<"EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT">) => void;
   onOpenMarketplaces: () => void;
@@ -207,10 +220,6 @@ const depopShippingModeOptions = [
   { value: "OWN_SHIPPING", label: "My own shipping" }
 ] as const;
 
-function titleCaseRequirement(requirement: string) {
-  return requirement.slice(0, 1).toUpperCase() + requirement.slice(1);
-}
-
 function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
 }
@@ -262,7 +271,10 @@ function ContinueOnMobileModal({ open, url, title, onClose }: { open: boolean; u
             <X size={16} /> Close
           </Button>
         </div>
-        <p className="handoff-copy">Open this item on your phone to add photos or make quick edits. The same inventory page stays in sync across devices.</p>
+        <p className="handoff-copy">
+          Open this item on your phone to add photos or make quick edits. If Mollie asks you to sign in first, it will
+          send you straight back to this same item page after login.
+        </p>
         <div className="handoff-qr-panel">
           <div className="handoff-qr-shell">{qrCodeUrl ? <img alt={`QR code for ${title}`} className="handoff-qr-image" src={qrCodeUrl} /> : <QrCode size={96} />}</div>
           <div className="handoff-link-stack">
@@ -305,15 +317,107 @@ function lifecycleTone(state: string) {
   return "neutral" as const;
 }
 
+function PhotoDetailModal({
+  image,
+  itemTitle,
+  open,
+  pending,
+  isCover,
+  backgroundPreview,
+  onClose,
+  onToggleBackground,
+  onSetCover,
+  onDelete
+}: {
+  image: InventoryDetailRecord["images"][number] | null;
+  itemTitle: string;
+  open: boolean;
+  pending: boolean;
+  isCover: boolean;
+  backgroundPreview: boolean;
+  onClose: () => void;
+  onToggleBackground: () => void;
+  onSetCover: () => void;
+  onDelete: () => void;
+}) {
+  if (!open || !image) {
+    return null;
+  }
+
+  return (
+    <div className="handoff-modal-backdrop listing-photo-detail-backdrop" role="presentation" onClick={onClose}>
+      <div
+        aria-label="Photo detail"
+        aria-modal="true"
+        className="listing-photo-detail-modal"
+        role="dialog"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="listing-photo-detail-header">
+          <button aria-label="Close photo detail" className="listing-photo-detail-icon-button" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+          <div className="listing-photo-detail-toolbar">
+            {!isCover ? (
+              <button className="listing-photo-detail-button" disabled={pending} onClick={onSetCover} type="button">
+                Make cover
+              </button>
+            ) : (
+              <span className="listing-photo-detail-pill">Cover photo</span>
+            )}
+            <button
+              aria-label={backgroundPreview ? "Undo background for active photo" : "Remove background for active photo"}
+              className={cx("listing-photo-detail-button", backgroundPreview && "listing-photo-detail-button-active")}
+              onClick={onToggleBackground}
+              type="button"
+            >
+              {backgroundPreview ? <RefreshCw size={15} /> : <Sparkles size={15} />}
+              {backgroundPreview ? "Undo" : "Remove background"}
+            </button>
+            <button className="listing-photo-detail-button" disabled={pending} onClick={onDelete} type="button">
+              <Trash2 size={15} />
+              Delete
+            </button>
+            <button className="listing-photo-detail-done" onClick={onClose} type="button">
+              Done
+            </button>
+          </div>
+        </div>
+
+        <div className={cx("listing-photo-detail-frame", backgroundPreview && "listing-photo-detail-frame-background-preview")}>
+          <img
+            alt={`${itemTitle} enlarged photo`}
+            className={cx("listing-photo-detail-image", backgroundPreview && "listing-photo-detail-image-background-preview")}
+            src={image.url}
+          />
+        </div>
+
+        <div className="listing-photo-detail-footer">
+          <div>
+            <p className="eyebrow">Photo detail</p>
+            <h3>{itemTitle}</h3>
+          </div>
+          <div className="listing-photo-detail-meta">
+            <span>{isCover ? "Lead image" : "Gallery image"}</span>
+            <span>{backgroundPreview ? "Background cleanup preview on" : "Original photo"}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function InventoryDetailView({
   item,
   pending,
   submitError,
   uploadStatus,
   onAddImage,
+  onBackToInventory,
   onDeleteImage,
   onDeleteItem,
-  onMoveImage,
+  onDelistEverywhere,
+  onSetCoverImage,
   onGenerateDrafts,
   onPublishLinked,
   onOpenMarketplaces,
@@ -347,9 +451,12 @@ export function InventoryDetailView({
 }: InventoryDetailViewProps) {
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [itemActionsOpen, setItemActionsOpen] = useState(false);
   const [templatesOpen, setTemplatesOpen] = useState(false);
-  const image = getItemPrimaryImage(item);
-  const readinessFlags = getListingReadinessFlags(item);
+  const [photoDetailId, setPhotoDetailId] = useState<string | null>(null);
+  const [photoWorkspaceMessage, setPhotoWorkspaceMessage] = useState<string | null>(null);
+  const [backgroundPreviewIds, setBackgroundPreviewIds] = useState<string[]>([]);
+  const itemActionsRef = useRef<HTMLDivElement | null>(null);
   const marketStatuses = getMarketplaceStatusSummaries(item, {
     marketplaceAccounts,
     capabilitySummary: extensionCapabilities,
@@ -372,32 +479,27 @@ export function InventoryDetailView({
   const recentExtensionTasks = item.extensionTasks.slice(0, 4);
   const selectedCount = selectedPlatforms.length;
   const selectedBlockedCount = selectedMarketStatuses.filter((state) => state.missingRequirements.length > 0).length;
-  const selectedRequirementCards = selectedMarketStatuses.map((state) => ({
-    platform: state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT",
-    label: platformLabels[state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"],
-    required: state.missingRequirements,
-    recommended: state.recommendedRequirements
-  }));
   const requirementToPlatforms = useMemo(() => {
     const next = new Map<string, string[]>();
 
-    selectedRequirementCards.forEach((card) => {
-      card.required.forEach((requirement) => {
+    selectedMarketStatuses.forEach((state) => {
+      const label = platformLabels[state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT"];
+
+      state.missingRequirements.forEach((requirement) => {
         const existing = next.get(requirement) ?? [];
-        if (!existing.includes(card.label)) {
-          existing.push(card.label);
+        if (!existing.includes(label)) {
+          existing.push(label);
         }
         next.set(requirement, existing);
       });
     });
 
     return next;
-  }, [selectedRequirementCards]);
+  }, [selectedMarketStatuses]);
   const selectedMissingRequirementSet = useMemo(
     () => new Set(Array.from(requirementToPlatforms.keys())),
     [requirementToPlatforms]
   );
-
   function fieldIsMissing(...requirements: string[]) {
     return requirements.some((requirement) => selectedMissingRequirementSet.has(requirement));
   }
@@ -436,163 +538,342 @@ export function InventoryDetailView({
     }
     return rows;
   }, [item.listingDrafts, item.platformListings, item.sales]);
+  const coverImage = item.images[0] ?? null;
+  const recentHistoryRows = historyRows.slice(0, 4);
+  const photoWorkspaceStorageKey = useMemo(() => `mollie.photo-workspace.${item.id}`, [item.id]);
+  const backgroundPreviewIdSet = useMemo(() => new Set(backgroundPreviewIds), [backgroundPreviewIds]);
+  const allBackgroundPreviewsActive =
+    item.images.length > 0 && item.images.every((image) => backgroundPreviewIdSet.has(image.id));
+  const activePhoto = photoDetailId ? item.images.find((entry) => entry.id === photoDetailId) ?? null : null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = window.localStorage.getItem(photoWorkspaceStorageKey);
+      if (!raw) {
+        setBackgroundPreviewIds([]);
+        return;
+      }
+
+      const parsed = JSON.parse(raw) as { backgroundPreviewIds?: unknown };
+      const validImageIds = new Set(item.images.map((image) => image.id));
+      const nextIds = Array.isArray(parsed.backgroundPreviewIds)
+        ? parsed.backgroundPreviewIds.filter((entry): entry is string => typeof entry === "string" && validImageIds.has(entry))
+        : [];
+
+      setBackgroundPreviewIds(nextIds);
+    } catch {
+      setBackgroundPreviewIds([]);
+    }
+  }, [item.images, photoWorkspaceStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    window.localStorage.setItem(
+      photoWorkspaceStorageKey,
+      JSON.stringify({
+        backgroundPreviewIds
+      })
+    );
+  }, [backgroundPreviewIds, photoWorkspaceStorageKey]);
+
+  useEffect(() => {
+    if (!photoWorkspaceMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setPhotoWorkspaceMessage(null), 3_000);
+    return () => window.clearTimeout(timeout);
+  }, [photoWorkspaceMessage]);
+
+  useEffect(() => {
+    if (photoDetailId && !item.images.some((image) => image.id === photoDetailId)) {
+      setPhotoDetailId(null);
+    }
+  }, [item.images, photoDetailId]);
+
+  function photoLabel(index: number) {
+    return index === 0 ? "Cover photo" : `Photo ${index + 1}`;
+  }
+
+  function toggleBackgroundPreview(imageId: string) {
+    setBackgroundPreviewIds((current) =>
+      current.includes(imageId) ? current.filter((entry) => entry !== imageId) : [...current, imageId]
+    );
+  }
+
+  useEffect(() => {
+    function handlePointerDown(event: MouseEvent) {
+      if (!itemActionsRef.current?.contains(event.target as Node)) {
+        setItemActionsOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setItemActionsOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, []);
 
   return (
     <>
-      <section className="detail-page-stack">
-        <SectionCard action={<StatusPill label={lifecycle.replace(/_/g, " ")} tone={lifecycleTone(lifecycle)} />} className="detail-snapshot-card" eyebrow="Snapshot" title={item.title}>
-          <div className="detail-snapshot-layout">
-            <div className="detail-primary-image-shell">
-              {image ? <img alt={item.title} className="detail-primary-image" src={image} /> : <div className="detail-primary-image detail-primary-image-empty">No photo yet</div>}
-            </div>
-            <div className="detail-snapshot-copy">
-              <div className="detail-snapshot-topline">
-                <div>
-                  <p className="eyebrow">Next action</p>
-                  <h2 className="detail-item-title">{nextAction}</h2>
+      <section className="detail-page-stack detail-editor-page">
+        <div className="detail-editor-header">
+          <div className="detail-editor-titleblock">
+            <p className="eyebrow">Listing workspace</p>
+            <h2 className="detail-editor-title">{item.title}</h2>
+            <p className="muted">
+              Next action: {nextAction}. Select marketplaces on the left, shape the shared listing in the center, and
+              use the right rail for snapshot and readiness.
+            </p>
+          </div>
+          <div className="detail-editor-header-actions">
+            <StatusPill label={lifecycle.replace(/_/g, " ")} tone={lifecycleTone(lifecycle)} />
+            <Button kind="secondary" onClick={() => setTemplatesOpen(true)} type="button">
+              <LayoutTemplate size={16} /> Templates
+            </Button>
+            <div className="app-settings-menu detail-actions-menu" ref={itemActionsRef}>
+              <button
+                aria-expanded={itemActionsOpen}
+                aria-haspopup="menu"
+                className={`app-utility-link app-settings-toggle detail-actions-toggle${itemActionsOpen ? " active" : ""}`}
+                onClick={() => setItemActionsOpen((current) => !current)}
+                type="button"
+              >
+                <span>Item actions</span>
+                <ChevronDown className={`app-settings-chevron${itemActionsOpen ? " open" : ""}`} size={16} />
+              </button>
+              {itemActionsOpen ? (
+                <div className="app-settings-dropdown detail-actions-dropdown" role="menu">
+                  <button
+                    className="app-settings-link detail-actions-link"
+                    data-testid="continue-on-mobile-trigger"
+                    onClick={() => {
+                      setItemActionsOpen(false);
+                      setHandoffOpen(true);
+                    }}
+                    role="menuitem"
+                    type="button"
+                  >
+                    <Smartphone size={16} />
+                    <span>Continue on mobile</span>
+                  </button>
                 </div>
-                <ProfitBadge value={profit} />
-              </div>
-              <div className="detail-metric-grid">
-                <div className="metric"><span className="muted">Buy cost</span><strong>{currency(item.costBasis ?? 0)}</strong></div>
-                <div className="metric"><span className="muted">Suggested sell</span><strong>{currency(item.priceRecommendation)}</strong></div>
-                <div className="metric"><span className="muted">Resale range</span><strong>{currency(item.estimatedResaleMin)}-{currency(item.estimatedResaleMax)}</strong></div>
-                <div className="metric"><span className="muted">Condition</span><strong>{item.condition}</strong></div>
-              </div>
-              <div className="detail-identity-grid">
-                <div className="detail-meta-row"><span className="muted">SKU</span><strong>{item.sku}</strong></div>
-                <div className="detail-meta-row"><span className="muted">Identifier</span><strong>{identifier}</strong></div>
-                <div className="detail-meta-row"><span className="muted">Category</span><strong>{item.category}</strong></div>
-                <div className="detail-meta-row"><span className="muted">Brand</span><strong>{item.brand?.trim() || "Not set yet"}</strong></div>
-              </div>
+              ) : null}
             </div>
           </div>
-        </SectionCard>
+        </div>
 
         {submitError ? <div className="notice">{submitError}</div> : null}
         {uploadStatus ? <div className="notice success">{uploadStatus}</div> : null}
         {aiMessage ? <div className="notice success">{aiMessage}</div> : null}
 
-        <div className="detail-section-grid">
-          <SectionCard eyebrow="Listing workspace" title="Choose marketplaces first, then fill one listing form">
-            <div className="listing-workbench-layout">
-              <aside className="listing-marketplace-rail">
-                <div className="listing-rail-summary">
-                  <div>
-                    <p className="eyebrow">Marketplace targets</p>
-                    <strong>{selectedCount} selected</strong>
-                  </div>
-                  <Button kind="ghost" onClick={onOpenMarketplaces} type="button">Review accounts</Button>
+        <div className="listing-workbench-layout detail-editor-layout">
+            <aside className="listing-marketplace-rail">
+              <div className="listing-rail-summary">
+                <div className="listing-rail-summary-copy">
+                  <p className="eyebrow">Marketplace targets</p>
+                  <strong>{selectedCount === 0 ? "Pick where this item should go" : `${selectedCount} selected`}</strong>
+                  <p className="muted listing-rail-helper">
+                    Setup details and posting actions stay tucked away until a marketplace is selected.
+                  </p>
                 </div>
-                <div className="marketplace-status-stack">
-                  {marketStatuses.map((state) => (
-                    <MarketplaceStatusRow
-                      key={state.platform}
-                      selectable
-                      selected={selectedPlatforms.includes(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")}
-                      onToggle={(checked) => onTogglePlatform(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT", checked)}
-                      onAction={state.actionKind === "unavailable" ? null : () => onMarketplaceAction(state.platform, state.actionKind)}
-                      onSecondaryAction={state.secondaryActionKind ? () => onMarketplaceSecondaryAction(state.platform, state.secondaryActionKind ?? "unavailable") : null}
-                      state={state}
-                    />
-                  ))}
-                </div>
-              </aside>
+                <Button kind="ghost" onClick={onOpenMarketplaces} type="button">Review accounts</Button>
+              </div>
+              <div className="marketplace-status-stack">
+                {marketStatuses.map((state) => (
+                  <MarketplaceStatusRow
+                    key={state.platform}
+                    selectable
+                    selected={selectedPlatforms.includes(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")}
+                    onToggle={(checked) => onTogglePlatform(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT", checked)}
+                    onAction={state.actionKind === "unavailable" ? null : () => onMarketplaceAction(state.platform, state.actionKind)}
+                    onSecondaryAction={state.secondaryActionKind ? () => onMarketplaceSecondaryAction(state.platform, state.secondaryActionKind ?? "unavailable") : null}
+                    state={state}
+                  />
+                ))}
+              </div>
+            </aside>
 
-              <div className="listing-universal-form">
-                <div className="stack">
-                  <div className="listing-form-toolbar">
-                    <div>
-                      <p className="eyebrow">Universal listing form</p>
-                      <strong>One listing record, then post where it is ready</strong>
-                    </div>
-                    <Button kind="secondary" onClick={() => setTemplatesOpen(true)} type="button">
-                      <LayoutTemplate size={16} /> Templates
-                    </Button>
-                  </div>
-                  <MissingFieldsPanel flags={readinessFlags} />
-                  <div className="listing-form-section">
-                    <div className="listing-form-section-heading">
-                      <h3>Selected marketplace requirements</h3>
-                      <p className="muted">Choose marketplaces on the left and Mollie will show only the extra requirements those targets care about.</p>
-                    </div>
-                    {selectedCount === 0 ? (
-                      <div className="listing-selection-empty-state">
-                        Select one or more marketplaces to reveal their required and recommended fields here.
-                      </div>
-                    ) : (
-                      <div className="listing-requirements-grid">
-                        {selectedRequirementCards.map((card) => (
-                          <div className="listing-requirement-card" key={card.platform}>
-                            <div className="listing-requirement-card-topline">
-                              <strong>{card.label}</strong>
-                              <StatusPill
-                                label={card.required.length > 0 ? "Needs fields" : "Ready from Mollie"}
-                                tone={card.required.length > 0 ? "warning" : "success"}
-                              />
-                            </div>
-                            {card.required.length > 0 ? (
-                              <div className="listing-requirement-copy">
-                                Required now: {card.required.map(titleCaseRequirement).join(", ")}
-                              </div>
-                            ) : (
-                              <div className="listing-requirement-copy">
-                                Shared item details already cover this marketplace&apos;s required fields.
-                              </div>
-                            )}
-                            {card.recommended.length > 0 ? (
-                              <div className="listing-requirement-hint">
-                                Improves results: {card.recommended.map(titleCaseRequirement).join(", ")}
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div className={cx("listing-form-section", fieldIsMissing("photos") && "listing-form-section-missing")}>
-                    <div className="listing-form-section-heading">
+            <div className="detail-editor-main">
+                <div className={cx("listing-form-section", "listing-photo-section", fieldIsMissing("photos") && "listing-form-section-missing")}>
+                  <div className="listing-form-section-heading listing-photo-section-heading">
+                    <div className="listing-photo-section-heading-copy">
                       <h3>Photos</h3>
-                      <p className="muted">Add photos here once, then reuse them across marketplace targets.</p>
+                      <p className="muted">
+                        Lead with one strong hero image, keep the rest tight in the gallery, and open photo detail when you
+                        need a closer pass.
+                      </p>
                       {renderRequirementNote("photos")}
                     </div>
-                    <form className="stack inventory-image-form" onSubmit={onAddImage}>
-                      <div className="scan-import-grid">
-                        <label className={cx("label", fieldIsMissing("photos") && "label-missing")}>
-                          Upload image
-                          <input accept="image/png,image/jpeg,image/webp,image/gif" className="field" name="image" required type="file" />
-                        </label>
-                        <label className="label">
-                          Position
-                          <input className="field" defaultValue="0" min="0" name="position" type="number" />
-                        </label>
-                      </div>
-                      <Button data-testid="inventory-upload-submit" disabled={pending} type="submit">
-                        <Camera size={16} /> {pending ? "Uploading..." : "Upload image"}
-                      </Button>
-                    </form>
-                    <div className="detail-image-list">
-                      {item.images.length === 0 ? <div className="muted">No images uploaded yet.</div> : null}
-                      {item.images.map((entry, index) => (
-                        <div className="detail-image-card" data-image-id={entry.id} key={entry.id}>
-                          <img alt={`${item.title} image ${index + 1}`} className="image-upload-preview" src={entry.url} />
-                          <div className="stack">
-                            <div className="split">
-                              <strong>Photo {index + 1}</strong>
-                              <span className="muted">Position {entry.position + 1}</span>
-                            </div>
-                            <div className="actions inventory-image-actions">
-                              <Button disabled={pending || index === 0} kind="secondary" onClick={() => onMoveImage(entry.id, -1)} type="button">Move up</Button>
-                              <Button disabled={pending || index === item.images.length - 1} kind="secondary" onClick={() => onMoveImage(entry.id, 1)} type="button">Move down</Button>
-                              <Button disabled={pending} kind="secondary" onClick={() => onDeleteImage(entry.id)} type="button">Delete</Button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
+                    <div className="listing-photo-toolbar">
+                      <button
+                        className="listing-photo-toolbar-button"
+                        disabled={item.images.length === 0}
+                        onClick={() => setPhotoWorkspaceMessage("Edit all with AI is not live yet.")}
+                        type="button"
+                      >
+                        <Sparkles size={15} />
+                        Edit all with AI
+                      </button>
+                      <button
+                        className={cx("listing-photo-toolbar-button", allBackgroundPreviewsActive && "listing-photo-toolbar-button-active")}
+                        disabled={item.images.length === 0}
+                        onClick={() =>
+                          setBackgroundPreviewIds(allBackgroundPreviewsActive ? [] : item.images.map((image) => image.id))
+                        }
+                        type="button"
+                      >
+                        {allBackgroundPreviewsActive ? <RefreshCw size={15} /> : <Sparkles size={15} />}
+                        {allBackgroundPreviewsActive ? "Undo all backgrounds" : "Remove all backgrounds"}
+                      </button>
                     </div>
                   </div>
+                  {photoWorkspaceMessage ? (
+                    <div className="listing-photo-workspace-note" role="status">
+                      {photoWorkspaceMessage}
+                    </div>
+                  ) : null}
+                  <div className="listing-photo-grid">
+                    {item.images.length === 0 ? (
+                      <div className="listing-photo-card listing-photo-card-cover listing-photo-card-empty">
+                        <div className="listing-photo-card-empty-copy">
+                          <strong>No cover photo yet</strong>
+                          <p className="muted">Upload the first image here to start the gallery and set the listing tone.</p>
+                        </div>
+                      </div>
+                    ) : (
+                      item.images.map((entry, index) => {
+                        const isCover = index === 0;
+                        const backgroundPreviewActive = backgroundPreviewIdSet.has(entry.id);
 
-                  <form className="stack" onSubmit={onSaveItemDetails}>
+                        return (
+                          <article
+                            className={cx(
+                              "listing-photo-card",
+                              isCover && "listing-photo-card-cover",
+                              backgroundPreviewActive && "listing-photo-card-background-preview"
+                            )}
+                            data-image-id={entry.id}
+                            key={entry.id}
+                          >
+                            <div className="listing-photo-card-badges">
+                              <span className="listing-photo-card-badge">{photoLabel(index)}</span>
+                              {isCover ? <span className="listing-photo-card-badge listing-photo-card-badge-accent">Cover photo</span> : null}
+                            </div>
+                            <button
+                              aria-label={`Open photo detail for ${photoLabel(index).toLowerCase()}`}
+                              className="listing-photo-card-preview"
+                              onClick={() => setPhotoDetailId(entry.id)}
+                              type="button"
+                            >
+                              <div
+                                className={cx(
+                                  "listing-photo-card-image-shell",
+                                  backgroundPreviewActive && "listing-photo-card-image-shell-background-preview"
+                                )}
+                              >
+                                <img
+                                  alt={`${item.title} ${photoLabel(index).toLowerCase()}`}
+                                  className={cx(
+                                    "listing-photo-card-image",
+                                    backgroundPreviewActive && "listing-photo-card-image-background-preview"
+                                  )}
+                                  src={entry.url}
+                                />
+                              </div>
+                            </button>
+                            <div className="listing-photo-card-toolbar">
+                              <button
+                                aria-label={isCover ? "Cover photo already selected" : `Set ${photoLabel(index).toLowerCase()} as cover photo`}
+                                className={cx("listing-photo-tool", isCover && "listing-photo-tool-active")}
+                                disabled={pending || isCover}
+                                onClick={() => onSetCoverImage(entry.id)}
+                                type="button"
+                              >
+                                {isCover ? "Cover" : "Make cover"}
+                              </button>
+                              <button
+                                aria-label={
+                                  backgroundPreviewActive
+                                    ? `Undo background removal for ${photoLabel(index).toLowerCase()}`
+                                    : `Remove background for ${photoLabel(index).toLowerCase()}`
+                                }
+                                className={cx("listing-photo-tool", backgroundPreviewActive && "listing-photo-tool-active")}
+                                onClick={() => toggleBackgroundPreview(entry.id)}
+                                type="button"
+                              >
+                                {backgroundPreviewActive ? <RefreshCw size={14} /> : <Sparkles size={14} />}
+                                {backgroundPreviewActive ? "Undo" : "Background"}
+                              </button>
+                              <button
+                                aria-label={`Enlarge ${photoLabel(index).toLowerCase()}`}
+                                className="listing-photo-tool"
+                                onClick={() => setPhotoDetailId(entry.id)}
+                                type="button"
+                              >
+                                <ExternalLink size={14} />
+                                Enlarge
+                              </button>
+                              <button
+                                aria-label={`Delete ${photoLabel(index).toLowerCase()}`}
+                                className="listing-photo-tool listing-photo-tool-danger"
+                                disabled={pending}
+                                onClick={() => onDeleteImage(entry.id)}
+                                type="button"
+                              >
+                                <Trash2 size={14} />
+                                Delete
+                              </button>
+                            </div>
+                          </article>
+                        );
+                      })
+                    )}
+
+                    <form className="listing-photo-add-card inventory-image-form" onSubmit={onAddImage}>
+                      <label className={cx("listing-photo-add-input", fieldIsMissing("photos") && "listing-photo-add-input-missing")}>
+                        <Camera size={24} />
+                        <strong>Add or drag photo</strong>
+                        <span className="muted">Upload another angle, detail shot, or packaging view.</span>
+                        <input
+                          accept="image/png,image/jpeg,image/webp,image/gif"
+                          className="listing-photo-file-input"
+                          name="image"
+                          required
+                          type="file"
+                          onChange={(event) => {
+                            if (event.currentTarget.files?.length) {
+                              event.currentTarget.form?.requestSubmit();
+                            }
+                          }}
+                        />
+                      </label>
+                      <input name="position" type="hidden" value={String(item.images.length)} readOnly />
+                      <div className="listing-photo-add-footer">
+                        <Sparkles size={14} />
+                        <span>Create with AI</span>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+
+                  <form className="stack" id="inventory-detail-form" onSubmit={onSaveItemDetails}>
                   <div
                     className={cx(
                       "listing-form-section",
@@ -867,11 +1148,6 @@ export function InventoryDetailView({
                             : "Selected marketplaces need login, draft review, or browser follow-through before posting."
                           : `${draftReadyPlatforms.length} ready for draft generation and ${postReadyPlatforms.length} ready to post right now.`}
                     </div>
-                    <div className="actions">
-                      <Button disabled={pending} type="submit">Save listing form</Button>
-                      <Button disabled={pending || draftReadyPlatforms.length === 0} kind="secondary" onClick={() => onGenerateDrafts(draftReadyPlatforms)} type="button">Generate drafts for selected</Button>
-                      <Button disabled={pending || postReadyPlatforms.length === 0} kind="secondary" onClick={() => onPublishLinked(postReadyPlatforms)} type="button">Post selected</Button>
-                    </div>
                   </div>
 
                   <div className="listing-form-section">
@@ -931,47 +1207,138 @@ export function InventoryDetailView({
                           </div>
                         </div>
                       </details>
-
-                      <details className="detail-advanced-panel">
-                        <summary>History and item tools</summary>
-                        <div className="detail-advanced-content stack">
-                          {continuityNotice ? (
-                            <div className="muted detail-advanced-note">
-                              {continuityNotice}
-                              {lastSyncedLabel ? ` Last checked ${lastSyncedLabel}.` : ""}
-                            </div>
-                          ) : null}
-                          <div className="actions">
-                            <Button className="detail-mobile-handoff" data-testid="continue-on-mobile-trigger" kind="secondary" onClick={() => setHandoffOpen(true)} type="button">
-                              <Smartphone size={16} /> Continue on mobile
-                            </Button>
-                            <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)} type="button">Delete item</Button>
-                          </div>
-                          <div className="activity-list">
-                            {historyRows.length === 0 ? <div className="muted">No history yet. Draft, listing, and sale activity will show up here.</div> : null}
-                            {historyRows.map((row) => (
-                              <div className="activity-row" key={row.id}>
-                                <div>
-                                  <strong>{row.label}</strong>
-                                  <div className="muted">{row.detail}</div>
-                                </div>
-                                <div className="muted">{row.meta}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </details>
+                    </div>
+                  </div>
+                  <div className="listing-form-section detail-danger-zone">
+                    <div className="listing-form-section-heading">
+                      <h3>Delete item</h3>
+                      <p className="muted">Remove this item, its images, drafts, marketplace listings, and sales history from this workspace.</p>
+                    </div>
+                    <div className="actions">
+                      <Button disabled={pending} kind="secondary" onClick={() => setDeleteConfirmOpen(true)} type="button">
+                        <Trash2 size={16} /> Delete item
+                      </Button>
                     </div>
                   </div>
                   </form>
+
+            </div>
+
+            <aside className="detail-editor-sidebar">
+              <div className="detail-editor-sidebar-card">
+                <div className="detail-editor-sidebar-card-topline">
+                  <div>
+                    <p className="eyebrow">Snapshot</p>
+                    <strong className="detail-editor-sidebar-title">{nextAction}</strong>
+                  </div>
+                  <ProfitBadge value={profit} />
+                </div>
+                <div className="detail-editor-sidebar-metrics">
+                  <div className="metric"><span className="muted">Buy cost</span><strong>{currency(item.costBasis ?? 0)}</strong></div>
+                  <div className="metric"><span className="muted">Suggested sell</span><strong>{currency(item.priceRecommendation)}</strong></div>
+                  <div className="metric"><span className="muted">Resale range</span><strong>{currency(item.estimatedResaleMin)}-{currency(item.estimatedResaleMax)}</strong></div>
+                  <div className="metric"><span className="muted">Condition</span><strong>{item.condition}</strong></div>
+                </div>
+                <div className="detail-editor-sidebar-facts">
+                  <div className="detail-meta-row"><span className="muted">SKU</span><strong>{item.sku}</strong></div>
+                  <div className="detail-meta-row"><span className="muted">Identifier</span><strong>{identifier}</strong></div>
+                  <div className="detail-meta-row"><span className="muted">Category</span><strong>{item.category}</strong></div>
+                  <div className="detail-meta-row"><span className="muted">Brand</span><strong>{item.brand?.trim() || "Not set yet"}</strong></div>
                 </div>
               </div>
+
+              <div className="detail-editor-sidebar-card">
+                <div className="listing-form-section-heading">
+                  <h3>Recent activity</h3>
+                  <p className="muted">Keep an eye on sync state and recent item history without dropping to the bottom of the page.</p>
+                </div>
+                {continuityNotice ? (
+                  <div className="muted detail-advanced-note">
+                    {continuityNotice}
+                    {lastSyncedLabel ? ` Last checked ${lastSyncedLabel}.` : ""}
+                  </div>
+                ) : null}
+                <div className="activity-list">
+                  {recentHistoryRows.length === 0 ? <div className="muted">No history yet. Draft, listing, and sale activity will show up here.</div> : null}
+                  {recentHistoryRows.map((row) => (
+                    <div className="activity-row" key={row.id}>
+                      <div>
+                        <strong>{row.label}</strong>
+                        <div className="muted">{row.detail}</div>
+                      </div>
+                      <div className="muted">{row.meta}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          </div>
+
+        <ActionRail>
+          <div className="detail-editor-action-rail">
+            <Button kind="secondary" onClick={onBackToInventory} type="button">
+              <ArrowLeft size={16} /> Back to listings
+            </Button>
+            <div className="detail-editor-action-rail-buttons">
+              <Button disabled={pending} kind="secondary" onClick={onDelistEverywhere} type="button">
+                Delist everywhere
+              </Button>
+              <Button disabled={pending} form="inventory-detail-form" type="submit">
+                Save
+              </Button>
+              <Button
+                disabled={pending || draftReadyPlatforms.length === 0}
+                kind="secondary"
+                onClick={() => onGenerateDrafts(draftReadyPlatforms)}
+                type="button"
+              >
+                Relist
+              </Button>
+              <Button
+                disabled={pending || postReadyPlatforms.length === 0}
+                kind="secondary"
+                onClick={() => onPublishLinked(postReadyPlatforms)}
+                type="button"
+              >
+                List
+              </Button>
             </div>
-          </SectionCard>
-        </div>
+          </div>
+        </ActionRail>
       </section>
 
       <ContinueOnMobileModal onClose={() => setHandoffOpen(false)} open={handoffOpen} title={item.title} url={handoffUrl} />
+      <PhotoDetailModal
+        backgroundPreview={activePhoto ? backgroundPreviewIdSet.has(activePhoto.id) : false}
+        image={activePhoto}
+        isCover={Boolean(activePhoto && coverImage && activePhoto.id === coverImage.id)}
+        itemTitle={item.title}
+        onClose={() => setPhotoDetailId(null)}
+        onDelete={() => {
+          if (!activePhoto) {
+            return;
+          }
+
+          setPhotoDetailId(null);
+          onDeleteImage(activePhoto.id);
+        }}
+        onSetCover={() => {
+          if (!activePhoto) {
+            return;
+          }
+
+          onSetCoverImage(activePhoto.id);
+        }}
+        onToggleBackground={() => {
+          if (!activePhoto) {
+            return;
+          }
+
+          toggleBackgroundPreview(activePhoto.id);
+        }}
+        open={Boolean(activePhoto)}
+        pending={pending}
+      />
 
       {templatesOpen ? (
         <div className="handoff-modal-backdrop" role="presentation" onClick={() => setTemplatesOpen(false)}>

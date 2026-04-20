@@ -1,23 +1,25 @@
 "use client";
 
 import { FormEvent, useState, useTransition } from "react";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { Button, Card } from "@reselleros/ui";
 import Link from "next/link";
 
 import { ProtectedView } from "../../components/protected-view";
-import { getPostLoginPath } from "../../components/auth-flow";
+import { getPostLoginPath, sanitizeReturnTo } from "../../components/auth-flow";
 import { useAuth } from "../../components/auth-provider";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
-export default function OnboardingPage() {
+function OnboardingPageContent() {
   const auth = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const returnTo = sanitizeReturnTo(searchParams.get("returnTo"));
   const [challenge, setChallenge] = useState<{
     email: string;
     expiresAt: string;
@@ -30,8 +32,8 @@ export default function OnboardingPage() {
       return;
     }
 
-    router.replace(getPostLoginPath(Boolean(auth.workspace)));
-  }, [auth.hydrated, auth.token, auth.workspace, router]);
+    router.replace(getPostLoginPath(Boolean(auth.workspace), returnTo));
+  }, [auth.hydrated, auth.token, auth.workspace, returnTo, router]);
 
   async function handleRequestCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,7 +105,10 @@ export default function OnboardingPage() {
           throw new Error(payload.error ?? "Could not verify login code");
         }
 
-        auth.login(payload);
+        auth.login({
+          ...payload,
+          redirectTo: getPostLoginPath(Boolean(payload.workspace), returnTo)
+        });
       } catch (caughtError) {
         const message = caughtError instanceof Error ? caughtError.message : "Could not verify login code";
 
@@ -189,5 +194,13 @@ export default function OnboardingPage() {
         </div>
       </div>
     </ProtectedView>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={<div className="center-state">Loading onboarding...</div>}>
+      <OnboardingPageContent />
+    </Suspense>
   );
 }

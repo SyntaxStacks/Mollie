@@ -245,11 +245,11 @@ export function createAutomationVendorConnectAdapter(config: {
           platform: config.platform,
           platformLabel: config.platformLabel,
           title: `${config.platformLabel} sign-in is ready to start.`,
-          explanation: `Open ${config.platformLabel} in another browser tab, finish login there, and then ask Mollie to recheck the signed-in session through the browser extension.`,
+          explanation: `Launch the hosted ${config.platformLabel} sign-in session from Mollie, finish login there, and let Mollie capture the remote browser session for automation.`,
           severity: "INFO",
           nextActions: [
-            `Open ${config.platformLabel} in another tab and finish login there.`,
-            "Return to Mollie and click recheck login to save the account."
+            `Launch the hosted ${config.platformLabel} sign-in session from Mollie.`,
+            "Finish vendor login and return to Mollie once the session is captured."
           ],
           canContinue: true
         }),
@@ -412,12 +412,12 @@ export function createAutomationVendorConnectAdapter(config: {
         accountHandle: summary.accountHandle,
         externalAccountId: summary.externalAccountId ?? `${config.platform.toLowerCase()}:${normalizedHandle.toLowerCase()}`,
         summary: `${config.platformLabel} session validated for ${summary.accountHandle}.`,
-        detail: `${config.summaryLabel} is ready for workspace automation through the isolated connector runner.`,
+        detail: `${config.summaryLabel} is ready for workspace automation through Mollie's remote runtime.`,
         operatorHint: buildAutomationConnectHint({
           platform: config.platform,
           platformLabel: config.platformLabel,
           title: `${config.platformLabel} is connected and ready.`,
-          explanation: `Mollie validated ${summary.accountHandle} and stored the workspace browser session that was rechecked through the extension.`,
+          explanation: `Mollie validated ${summary.accountHandle} and stored the hosted browser session artifact for remote automation.`,
           severity: "SUCCESS",
           nextActions: ["Return to inventory to publish through this account.", "Reconnect the account later if the session expires or the vendor challenges sign-in again."],
           canContinue: true
@@ -542,12 +542,13 @@ export function getAutomationAccountReadiness(input: {
       ? (credentialMetadata.vendorSessionArtifact as Record<string, unknown>)
       : null;
   const captureMode =
-    typeof vendorSessionArtifact?.captureMode === "string"
-      ? vendorSessionArtifact.captureMode
-      : typeof credentialMetadata.captureMode === "string"
-        ? credentialMetadata.captureMode
-        : null;
-  const extensionDraftPrepReady = input.account.platform === "DEPOP" && captureMode === "EXTENSION_BROWSER";
+      typeof vendorSessionArtifact?.captureMode === "string"
+        ? vendorSessionArtifact.captureMode
+        : typeof credentialMetadata.captureMode === "string"
+          ? credentialMetadata.captureMode
+          : null;
+    const extensionDraftPrepReady = input.account.platform === "DEPOP" && captureMode === "EXTENSION_BROWSER";
+    const remoteRuntimeReady = credentialMetadata.publishMode === "remote";
   const platformLabel =
     input.account.platform === "DEPOP"
       ? "Depop"
@@ -646,19 +647,19 @@ export function getAutomationAccountReadiness(input: {
     };
   }
 
-  if (!simulatedMarketplacePathsAllowed()) {
-    return {
+    if (!simulatedMarketplacePathsAllowed() && !remoteRuntimeReady) {
+      return {
       state: "AUTOMATION_BLOCKED",
       status: "BLOCKED",
       publishMode: "automation" as const,
       summary: `${platformLabel} automation sign-in exists, but live marketplace automation is not enabled in production yet.`,
-      detail: "This connector still relies on simulated publish behavior, so Mollie blocks it in production until the live runtime is shipped.",
+        detail: "This connector still relies on simulated publish behavior, so Mollie blocks it in production until the live remote runtime is shipped.",
       hint: buildAutomationHint({
         platform: input.account.platform,
         platformLabel,
         title: `${platformLabel} is not live for production publishing yet.`,
         explanation:
-          "Mollie can store the account metadata, but this marketplace still depends on simulated automation behavior. Production blocks it instead of implying the account is ready.",
+            "Mollie can store the account metadata, but this marketplace still depends on simulated automation behavior. Production blocks it instead of implying the account is ready.",
         severity: "ERROR",
         nextActions: [
           "Do not rely on this connector for production publish yet.",
@@ -688,20 +689,20 @@ export function getAutomationAccountReadiness(input: {
     };
   }
 
-  return {
-    state: "AUTOMATION_READY",
-    status: "READY",
-    publishMode: "automation" as const,
-    summary: `${platformLabel} automation is ready for publish jobs.`,
-    detail: "This account will publish through the isolated connector-runner.",
-    hint: buildAutomationHint({
-      platform: input.account.platform,
-      platformLabel,
-      title: `${platformLabel} is ready for automation publish jobs.`,
-      explanation: "Mollie can queue publish work for this account through the isolated automation runner.",
-      severity: "SUCCESS",
-      nextActions: ["Continue from inventory detail to publish an item.", "Check Executions if a publish later needs support review."],
-      canContinue: true
-    })
+    return {
+      state: "AUTOMATION_READY",
+      status: "READY",
+      publishMode: "automation" as const,
+      summary: `${platformLabel} automation is ready for remote publish jobs.`,
+      detail: "This account will publish through Mollie's remote automation runtime.",
+      hint: buildAutomationHint({
+        platform: input.account.platform,
+        platformLabel,
+        title: `${platformLabel} is ready for remote automation.`,
+        explanation: "Mollie can queue publish work for this account through the shared remote automation runtime.",
+        severity: "SUCCESS",
+        nextActions: ["Continue from inventory detail to publish an item.", "Check Executions if a publish later needs support review."],
+        canContinue: true
+      })
   };
 }

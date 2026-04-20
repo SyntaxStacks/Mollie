@@ -26,7 +26,7 @@ test("protected view redirects logged-out operators away from protected routes",
 
   assert.deepEqual(decision, {
     kind: "redirect",
-    location: "/onboarding",
+    location: "/onboarding?returnTo=%2Finventory",
     message: "Redirecting to onboarding..."
   });
 });
@@ -41,7 +41,7 @@ test("protected view redirects authenticated operators without a workspace", () 
 
   assert.deepEqual(decision, {
     kind: "redirect",
-    location: "/workspace",
+    location: "/workspace?returnTo=%2Finventory",
     message: "Redirecting to workspace setup..."
   });
 });

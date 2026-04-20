@@ -4,6 +4,7 @@ import { applyOperatorResearch, buildCatalogSourceReferences, classifyIdentifier
 import {
   addInventoryImage,
   addInventoryImageForWorkspace,
+  createExtensionTaskForWorkspace,
   createExecutionLog,
   createInventoryItem,
   db,
@@ -56,6 +57,129 @@ function resolveApiPublicBaseUrl(request: {
   }
 
   return `${protocol}://${host}`;
+}
+
+function normalizeInventoryText(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function poshmarkItemNeedsSizing(item: {
+  category?: string | null;
+  title?: string | null;
+  brand?: string | null;
+}) {
+  const haystack = `${item.category ?? ""} ${item.title ?? ""} ${item.brand ?? ""}`.toLowerCase();
+  return [
+    "jacket",
+    "coat",
+    "top",
+    "shoe",
+    "dress",
+    "pants",
+    "hoodie",
+    "shirt",
+    "sweater",
+    "shorts",
+    "skirt",
+    "jeans",
+    "sneaker",
+    "boot"
+  ].some((token) => haystack.includes(token));
+}
+
+function poshmarkBrandLikelyRequired(item: {
+  category?: string | null;
+  title?: string | null;
+}) {
+  const haystack = `${item.category ?? ""} ${item.title ?? ""}`.toLowerCase();
+  return ["apparel", "bags", "shoes", "accessories", "fashion", "clothing", "jewelry"].some((token) => haystack.includes(token));
+}
+
+async function getPoshmarkPublishReadiness(workspaceId: string, inventoryItemId: string) {
+  const item = await findInventoryItemDetailForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return {
+      item: null,
+      ready: false,
+      missingFields: ["inventory item"],
+      blockingReasons: ["Inventory item not found."]
+    };
+  }
+
+  const approvedDraft =
+    item.listingDrafts.find((draft) => draft.platform === "POSHMARK" && draft.reviewStatus === "APPROVED") ?? null;
+  const itemAttributes =
+    item.attributesJson && typeof item.attributesJson === "object" ? (item.attributesJson as Record<string, unknown>) : {};
+  const missingFields: string[] = [];
+  const blockingReasons: string[] = [];
+
+  if (!normalizeInventoryText(item.title)) {
+    missingFields.push("title");
+  }
+
+  if (!normalizeInventoryText(itemAttributes.description)) {
+    missingFields.push("description");
+  }
+
+  if (typeof item.priceRecommendation !== "number" || !Number.isFinite(item.priceRecommendation) || item.priceRecommendation <= 0) {
+    missingFields.push("price");
+  }
+
+  if (!normalizeInventoryText(item.category)) {
+    missingFields.push("category");
+  }
+
+  if (item.images.length === 0) {
+    missingFields.push("photos");
+  }
+
+  if (poshmarkItemNeedsSizing(item) && !normalizeInventoryText(item.size)) {
+    missingFields.push("size");
+  }
+
+  if (poshmarkBrandLikelyRequired(item) && !normalizeInventoryText(item.brand)) {
+    missingFields.push("brand");
+  }
+
+  if (!approvedDraft) {
+    blockingReasons.push("Approve a Poshmark draft before publishing.");
+  }
+
+  return {
+    item,
+    ready: missingFields.length === 0 && blockingReasons.length === 0,
+    missingFields,
+    blockingReasons
+  };
+}
+
+async function ensurePendingPoshmarkListing(inventoryItemId: string, marketplaceAccountId: string) {
+  const existing = await db.platformListing.findFirst({
+    where: {
+      inventoryItemId,
+      marketplaceAccountId,
+      platform: "POSHMARK"
+    }
+  });
+
+  if (existing) {
+    return db.platformListing.update({
+      where: { id: existing.id },
+      data: {
+        status: existing.status === "PUBLISHED" ? existing.status : "PENDING"
+      }
+    });
+  }
+
+  return db.platformListing.create({
+    data: {
+      inventoryItemId,
+      marketplaceAccountId,
+      platform: "POSHMARK",
+      status: "PENDING"
+    }
+  });
 }
 
 async function queuePublish(
@@ -114,6 +238,55 @@ async function queuePublish(
     }
 
     throw app.httpErrors.preconditionFailed(`Connect a ${platform} account first`);
+  }
+
+  if (platform === "POSHMARK") {
+    const readiness = await getPoshmarkPublishReadiness(workspaceId, inventoryItemId);
+
+    if (!readiness.item) {
+      throw app.httpErrors.notFound("Inventory item not found");
+    }
+
+    if (!readiness.ready) {
+      throw app.httpErrors.preconditionFailed(
+        [...readiness.blockingReasons, ...readiness.missingFields.map((field) => `Missing ${field}.`)].join(" ")
+      );
+    }
+
+    const correlationId = crypto.randomUUID();
+    const executionLog = await createExecutionLog({
+      workspaceId,
+      inventoryItemId,
+      jobName: getPublishJobName(platform),
+      connector: platform,
+      correlationId,
+      requestPayload: {
+        marketplaceAccountId: account.id,
+        mode: "remote-automation"
+      }
+    });
+
+    await ensurePendingPoshmarkListing(inventoryItemId, account.id);
+
+    const task = await createExtensionTaskForWorkspace(workspaceId, {
+      inventoryItemId,
+      marketplaceAccountId: account.id,
+      platform: "POSHMARK",
+      action: "PUBLISH_LISTING",
+      payload: {
+        remoteAutomation: true,
+        remoteTaskType: "PUBLISH_LISTING",
+        correlationId,
+        executionLogId: executionLog.id,
+        phase: "open_session"
+      }
+    });
+
+    return {
+      executionLog,
+      draft,
+      task
+    };
   }
 
   if (!draft) {

@@ -29,6 +29,7 @@ type AuthContextValue = AuthState & {
     user: { id: string; email: string };
     workspace: AuthState["workspace"];
     workspaces?: AuthState["workspaces"];
+    redirectTo?: string | null;
   }) => void;
   logout: () => void;
   refreshMe: () => Promise<void>;
@@ -118,7 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             workspaces: input.workspaces ?? (input.workspace ? [input.workspace] : []),
             hydrated: true
           });
-          router.push(input.workspace ? "/" : "/workspace");
+          router.push(input.redirectTo ?? (input.workspace ? "/" : "/workspace"));
         },
         logout() {
           window.localStorage.removeItem("reselleros.token");

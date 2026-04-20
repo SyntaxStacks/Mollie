@@ -553,10 +553,19 @@ function describeConnection(input: {
   const account = input.account;
 
   if (!account) {
+    const blocker =
+      input.platform === "POSHMARK"
+        ? "Open Poshmark in another tab, finish login there, then recheck it from Mollie."
+        : input.platform === "DEPOP"
+          ? "Open the marketplace in another tab, finish login there, then recheck it from Mollie."
+          : input.platform === "WHATNOT"
+            ? "Open Whatnot in another tab, finish login there, then recheck it from Mollie."
+            : "Open the marketplace in another tab, finish login there, then recheck it from Mollie.";
+
     return {
       connectionSummary: "No connected marketplace account",
       connectionTone: "warning" as const,
-      blocker: "Open the marketplace in another tab, finish login there, then recheck it from Mollie."
+      blocker
     };
   }
 
@@ -744,7 +753,7 @@ function summarizeMarketplaceReadiness(input: {
     case "DEPOP": {
       if (!input.account) {
         return {
-          summary: "Log in to Depop in another tab, then recheck",
+          summary: "Open Depop login, then recheck from Mollie",
           blocker: input.connectionBlocker
         };
       }
@@ -772,7 +781,7 @@ function summarizeMarketplaceReadiness(input: {
     case "POSHMARK": {
       if (!input.account) {
         return {
-          summary: "Log in to Poshmark in another tab, then recheck",
+          summary: "Open Poshmark login, then recheck from Mollie",
           blocker: input.connectionBlocker
         };
       }
@@ -784,19 +793,26 @@ function summarizeMarketplaceReadiness(input: {
         };
       }
 
+      if (!input.draft && input.capability?.publishMode !== "NONE") {
+        return {
+          summary: "Ready for Poshmark draft generation",
+          blocker: "Generate and approve a Poshmark draft before publishing."
+        };
+      }
+
       return {
         summary:
-          input.capability?.publishMode === "EXTENSION"
-            ? "Ready for Poshmark browser draft prep"
-            : "Poshmark browser session is connected, but listing prep is not live yet",
-        blocker: input.capability?.publishMode === "EXTENSION" ? input.connectionBlocker ?? input.extensionBlocker : input.connectionBlocker
+          input.capability?.publishMode === "API"
+            ? "Ready for Poshmark remote publish"
+            : "Poshmark account is connected, but remote publish is not live yet",
+        blocker: input.capability?.publishMode === "API" ? input.connectionBlocker : input.connectionBlocker ?? input.extensionBlocker
       };
     }
 
     case "WHATNOT": {
       if (!input.account) {
         return {
-          summary: "Log in to Whatnot in another tab, then recheck",
+          summary: "Open Whatnot login, then recheck from Mollie",
           blocker: input.connectionBlocker
         };
       }
@@ -894,7 +910,10 @@ function actionForState(input: {
   if (input.blocker) {
     if (!input.account) {
       return {
-        actionLabel: "Recheck login",
+        actionLabel:
+          input.platform === "POSHMARK" || input.platform === "DEPOP" || input.platform === "WHATNOT"
+            ? "Open login"
+            : "Recheck login",
         actionKind: "connect_account" as const
       };
     }

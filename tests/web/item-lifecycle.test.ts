@@ -449,9 +449,9 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
       capabilitySummary: [
         {
           platform: "POSHMARK",
-          capabilities: [],
+          capabilities: ["API_PUBLISH", "UPDATE"],
           importMode: "NONE",
-          publishMode: "NONE",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -469,8 +469,8 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
   ).find((entry) => entry.platform === "POSHMARK");
 
   assert.ok(poshmark);
-  assert.equal(poshmark.summary, "Poshmark browser session is connected, but listing prep is not live yet");
-  assert.equal(poshmark.actionLabel, "Unavailable");
+  assert.equal(poshmark.summary, "Ready for Poshmark draft generation");
+  assert.equal(poshmark.actionLabel, "Generate draft");
 });
 
 test("Poshmark rows block on required description and size", () => {

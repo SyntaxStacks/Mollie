@@ -3,8 +3,9 @@
 import { useParams, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 
-import type { AiStatusResponse, MarketplaceCapabilitySummary, Platform, UniversalListing } from "@reselleros/types";
+import type { AiStatusResponse, AutomationVendor, MarketplaceCapabilitySummary, Platform, UniversalListing } from "@reselleros/types";
 import { AppShell } from "../../../components/app-shell";
+import { HostedMarketplaceSigninModal } from "../../../components/hosted-marketplace-signin-modal";
 import {
   InventoryDetailView,
   type InventoryItemFormState,
@@ -16,7 +17,7 @@ import { useAuth } from "../../../components/auth-provider";
 import { useBrowserExtension } from "../../../components/use-browser-extension";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
 import { useAuthedResource } from "../../../lib/api";
-import { ensureMollieExtensionSession, handoffExtensionTask, recheckMarketplaceAuthInExtension } from "../../../lib/extension-bridge";
+import { handoffExtensionTask } from "../../../lib/extension-bridge";
 import type { MarketplaceAccountLike, MarketplaceActionKind } from "../../../lib/item-lifecycle";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -24,6 +25,11 @@ const automationVendorLabels = {
   DEPOP: "Depop",
   POSHMARK: "Poshmark",
   WHATNOT: "Whatnot"
+} as const;
+const automationVendorLoginUrls = {
+  DEPOP: "https://www.depop.com/login/",
+  POSHMARK: "https://poshmark.com/login",
+  WHATNOT: "https://www.whatnot.com/login"
 } as const;
 
 type InventoryItemResponse = {
@@ -56,6 +62,7 @@ export default function InventoryDetailPage() {
   const [pending, startTransition] = useTransition();
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const [hostedSignInAttempt, setHostedSignInAttempt] = useState<{ vendor: AutomationVendor; attemptId: string } | null>(null);
   const [itemForm, setItemForm] = useState<InventoryItemFormState>({
     title: "",
     brand: "",
@@ -88,7 +95,7 @@ export default function InventoryDetailPage() {
     depopCondition: "",
     depopShippingMode: ""
   });
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>(["EBAY"]);
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([]);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiPendingOperation, setAiPendingOperation] = useState<"title" | "description" | "price" | null>(null);
   const [handoffUrl, setHandoffUrl] = useState("");
@@ -237,19 +244,6 @@ export default function InventoryDetailPage() {
     });
   }, [data?.item]);
 
-  useEffect(() => {
-    const connectedPlatforms = (marketplaceAccounts.data?.accounts ?? [])
-      .filter((account) => account.status === "CONNECTED")
-      .map((account) => account.platform as Platform);
-
-    if (connectedPlatforms.length > 0) {
-      setSelectedPlatforms((current) => (current.length > 0 ? current.filter((platform) => connectedPlatforms.includes(platform)) : connectedPlatforms));
-      return;
-    }
-
-    setSelectedPlatforms((current) => (current.length > 0 ? current : ["EBAY"]));
-  }, [marketplaceAccounts.data?.accounts]);
-
   const continuityFingerprint = useMemo(() => {
     if (!data?.item) {
       return null;
@@ -378,27 +372,25 @@ export default function InventoryDetailPage() {
     });
   }
 
-  function moveImage(imageId: string, direction: -1 | 1) {
+  function setCoverImage(imageId: string) {
     const images = data?.item.images ?? [];
     const currentIndex = images.findIndex((image) => image.id === imageId);
-    const nextIndex = currentIndex + direction;
 
-    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= images.length) {
+    if (currentIndex <= 0) {
       return;
     }
 
-    const nextOrder = [...images];
-    const [image] = nextOrder.splice(currentIndex, 1);
+    const selectedImage = images[currentIndex];
 
-    if (!image) {
+    if (!selectedImage) {
       return;
     }
 
-    nextOrder.splice(nextIndex, 0, image);
+    const nextOrder = [selectedImage, ...images.filter((image) => image.id !== imageId)];
 
     void reorderImages(
-      nextOrder.map((candidate) => candidate.id),
-      direction < 0 ? "Image moved up" : "Image moved down"
+      nextOrder.map((image) => image.id),
+      "Cover photo updated"
     );
   }
 
@@ -725,71 +717,46 @@ export default function InventoryDetailPage() {
       return;
     }
 
-    if (!auth.token || !auth.user || !auth.workspace) {
-      return;
-    }
-
-    const label = automationVendorLabels[platform as keyof typeof automationVendorLabels];
-    if (!label) {
-      return;
-    }
-
-    if (!extension.installed) {
-      setActionError(`Install the Mollie browser extension to connect ${label}.`);
-      return;
-    }
-
-    const extensionSession = await ensureMollieExtensionSession({
-      token: auth.token,
-      userId: auth.user.id,
-      email: auth.user.email,
-      workspaceId: auth.workspace.id,
-      apiBaseUrl: API_BASE_URL
-    });
-
-    void extension.refresh();
-
-    if (!extensionSession.ok) {
-      setActionError(`Open Mollie in this browser so the extension can connect before checking ${label}.`);
-      return;
-    }
-
-    const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
-
-    setActionNotice(`Checking ${label} in your browser...`);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${platform}/connect/start`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${auth.token}`
-        },
-        body: JSON.stringify({
-          displayName: existingAccount?.displayName ?? `Main ${label} account`
-        })
-      });
-      const payload = (await response.json()) as { error?: string; attempt?: { id: string; helperNonce: string; displayName: string } };
-
-      if (!response.ok || !payload.attempt) {
-        throw new Error(payload.error ?? `Could not start ${label} login recheck.`);
+    if (platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT") {
+      if (!auth.token) {
+        setActionError(`Sign back into Mollie before refreshing ${automationVendorLabels[platform]}.`);
+        return;
       }
 
-      const result = await recheckMarketplaceAuthInExtension({
-        vendor: platform as "DEPOP" | "POSHMARK" | "WHATNOT",
-        attemptId: payload.attempt.id,
-        helperNonce: payload.attempt.helperNonce,
-        displayName: payload.attempt.displayName
-      });
+      const existingAccount = marketplaceAccounts.data?.accounts.find((account) => account.platform === platform);
+      const label = automationVendorLabels[platform];
+      setActionNotice(`Launching hosted ${label} sign-in...`);
 
-      if (!result.ok) {
-        throw new Error(result.error ?? `Could not recheck ${label} login.`);
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/marketplace-accounts/${platform}/connect/start`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${auth.token}`
+          },
+          body: JSON.stringify({
+            displayName: existingAccount?.displayName ?? `Main ${label} account`
+          })
+        });
+        const payload = (await response.json()) as {
+          error?: string;
+          attempt?: { id?: string | null };
+        };
+
+        if (!response.ok || !payload.attempt?.id) {
+          throw new Error(payload.error ?? `Could not launch hosted ${label} sign-in.`);
+        }
+
+        setHostedSignInAttempt({
+          vendor: platform,
+          attemptId: payload.attempt.id
+        });
+        setActionNotice(`Hosted ${label} sign-in is ready in Mollie.`);
+        window.open(automationVendorLoginUrls[platform], "_blank");
+      } catch (caughtError) {
+        setActionError(caughtError instanceof Error ? caughtError.message : `Could not launch hosted ${label} sign-in.`);
       }
-
-      setActionNotice(result.message ?? `${label} recheck submitted.`);
-      await Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
-    } catch (caughtError) {
-      setActionError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
+      return;
     }
   }
 
@@ -1141,72 +1108,89 @@ export default function InventoryDetailPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Inventory Detail">
+      <AppShell chrome="immersive" title="Inventory Detail">
         {error ? <div className="notice">{error}</div> : null}
         {!data ? (
           <div className="center-state">Loading inventory item...</div>
         ) : (
-          <InventoryDetailView
-            continuityNotice={continuity.continuityNotice}
-            ebayDraft={ebayDraft}
-            ebayDraftForm={ebayDraftForm}
-            ebayPreflight={ebayPreflight.data?.preflight ?? null}
-            ebayPreflightError={ebayPreflight.error}
-            handoffUrl={handoffUrl}
-            item={data.item}
-            lastSyncedLabel={continuity.lastSyncedLabel}
-            onAddImage={addImage}
-            onApproveEbayDraft={() => void runMutation(`/api/drafts/${ebayDraft?.id}/approve`)}
-            onDeleteImage={(imageId) => void deleteImage(imageId)}
-            onDeleteItem={() => void deleteItem()}
-            onEbayDraftFormChange={(field, value) =>
-              setEbayDraftForm((current) => ({
-                ...current,
-                [field]: value
-              }))
-            }
-            onFieldChange={(field, value) =>
-              setItemForm((current) => ({
-                ...current,
-                [field]: value
-              }))
-            }
-            aiMessage={aiMessage}
-            aiPendingOperation={aiPendingOperation}
-            aiStatus={aiStatus.data ?? null}
-            onAiAssist={(operation) => void runAiAssist(operation)}
-            onGenerateDrafts={(platforms) =>
-              void runMutation(`/api/inventory/${data.item.id}/generate-drafts`, {
-                platforms
-              })
-            }
-            extensionCapabilities={extensionStatus.data?.capabilitySummary ?? []}
-            onMoveImage={(imageId, direction) => moveImage(imageId, direction)}
-            onPublishLinked={(platforms) => void runMutation(`/api/inventory/${data.item.id}/publish-linked`, { platforms })}
-            onSaveEbayDraft={saveEbayDraft}
-            onSaveItemDetails={saveItemDetails}
-            extensionConnected={extension.connected}
-            extensionInstalled={extension.installed}
-            extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
-            marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
-            onMarketplaceAction={handleMarketplaceAction}
-            onMarketplaceSecondaryAction={handleMarketplaceSecondaryAction}
-            onOpenMarketplaces={() => router.push("/marketplaces")}
-            onRefreshExtension={() => {
-              void extension.refresh();
-              void extensionStatus.refresh();
-            }}
-            itemForm={itemForm}
-            selectedPlatforms={selectedPlatforms}
-            onTogglePlatform={(platform, checked) =>
-              setSelectedPlatforms((current) =>
-                checked ? [...new Set([...current, platform])] : current.filter((entry) => entry !== platform)
-              )
-            }
-            pending={pending}
-            submitError={submitError}
-            uploadStatus={uploadStatus}
-          />
+          <>
+            <InventoryDetailView
+              continuityNotice={continuity.continuityNotice}
+              ebayDraft={ebayDraft}
+              ebayDraftForm={ebayDraftForm}
+              ebayPreflight={ebayPreflight.data?.preflight ?? null}
+              ebayPreflightError={ebayPreflight.error}
+              handoffUrl={handoffUrl}
+              item={data.item}
+              lastSyncedLabel={continuity.lastSyncedLabel}
+              onAddImage={addImage}
+              onBackToInventory={() => router.push("/inventory")}
+              onApproveEbayDraft={() => void runMutation(`/api/drafts/${ebayDraft?.id}/approve`)}
+              onDeleteImage={(imageId) => void deleteImage(imageId)}
+              onDeleteItem={() => void deleteItem()}
+              onDelistEverywhere={() => {
+                setSubmitError(null);
+                setUploadStatus("Delist everywhere is not live yet.");
+              }}
+              onEbayDraftFormChange={(field, value) =>
+                setEbayDraftForm((current) => ({
+                  ...current,
+                  [field]: value
+                }))
+              }
+              onFieldChange={(field, value) =>
+                setItemForm((current) => ({
+                  ...current,
+                  [field]: value
+                }))
+              }
+              aiMessage={aiMessage}
+              aiPendingOperation={aiPendingOperation}
+              aiStatus={aiStatus.data ?? null}
+              onAiAssist={(operation) => void runAiAssist(operation)}
+              onGenerateDrafts={(platforms) =>
+                void runMutation(`/api/inventory/${data.item.id}/generate-drafts`, {
+                  platforms
+                })
+              }
+              extensionCapabilities={extensionStatus.data?.capabilitySummary ?? []}
+              onSetCoverImage={(imageId) => setCoverImage(imageId)}
+              onPublishLinked={(platforms) => void runMutation(`/api/inventory/${data.item.id}/publish-linked`, { platforms })}
+              onSaveEbayDraft={saveEbayDraft}
+              onSaveItemDetails={saveItemDetails}
+              extensionConnected={extension.connected}
+              extensionInstalled={extension.installed}
+              extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
+              marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
+              onMarketplaceAction={handleMarketplaceAction}
+              onMarketplaceSecondaryAction={handleMarketplaceSecondaryAction}
+              onOpenMarketplaces={() => router.push("/marketplaces")}
+              onRefreshExtension={() => {
+                void extension.refresh();
+                void extensionStatus.refresh();
+              }}
+              itemForm={itemForm}
+              selectedPlatforms={selectedPlatforms}
+              onTogglePlatform={(platform, checked) =>
+                setSelectedPlatforms((current) =>
+                  checked ? [...new Set([...current, platform])] : current.filter((entry) => entry !== platform)
+                )
+              }
+              pending={pending}
+              submitError={submitError}
+              uploadStatus={uploadStatus}
+            />
+            <HostedMarketplaceSigninModal
+              attemptId={hostedSignInAttempt?.attemptId ?? ""}
+              onClose={() => setHostedSignInAttempt(null)}
+              onConnected={() => {
+                void Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
+              }}
+              open={Boolean(hostedSignInAttempt)}
+              token={auth.token}
+              vendor={hostedSignInAttempt?.vendor ?? "POSHMARK"}
+            />
+          </>
         )}
       </AppShell>
     </ProtectedView>
