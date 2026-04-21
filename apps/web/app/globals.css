@@ -1075,16 +1075,18 @@ body {
 }
 
 .app-topbar-actions {
-  display: grid;
+  display: flex;
   gap: 0.75rem;
-  justify-items: end;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
 }
 
 .app-header-shortcuts {
   display: flex;
   gap: 0.75rem;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
 }
 
@@ -3545,7 +3547,12 @@ select {
 }
 
 .app-topbar-actions {
-  align-self: stretch;
+  align-self: flex-start;
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-end;
 }
 
 .app-utility-link,

@@ -113,11 +113,6 @@ export function AppShell({
                 <Plus size={16} /> Create
               </Button>
             </Link>
-            <Link href="/imports">
-              <Button kind="secondary" type="button">
-                <Download size={16} /> Import
-              </Button>
-            </Link>
           </div>
           <div className="app-settings-menu" ref={settingsMenuRef}>
             <button
