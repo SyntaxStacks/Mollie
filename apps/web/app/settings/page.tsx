@@ -5,25 +5,17 @@ import { useState, useTransition } from "react";
 import { Button, Card } from "@reselleros/ui";
 
 import { AppShell } from "../../components/app-shell";
-import { BrowserExtensionStatusCard } from "../../components/browser-extension-status-card";
 import { ProtectedView } from "../../components/protected-view";
 import { useAuth } from "../../components/auth-provider";
-import { useBrowserExtension } from "../../components/use-browser-extension";
 import { useAuthedResource } from "../../lib/api";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
-type ExtensionStatusResponse = {
-  tasks: Array<{ id: string; state: string }>;
-};
-
 export default function SettingsPage() {
   const auth = useAuth();
-  const extension = useBrowserExtension();
   const audit = useAuthedResource<{
     logs: Array<{ id: string; action: string; targetType: string; targetId: string; createdAt: string }>;
   }>("/api/audit-logs", auth.token);
-  const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
   const members = useAuthedResource<{
     canManageMembers: boolean;
     members: Array<{
@@ -67,7 +59,7 @@ export default function SettingsPage() {
       };
 
       if (!response.ok || !payload.workspace) {
-        setError(payload.error ?? "Could not update connector automation setting");
+        setError(payload.error ?? "Could not update automation status");
         return;
       }
 
@@ -105,13 +97,13 @@ export default function SettingsPage() {
       };
 
       if (!response.ok || !payload.member) {
-        setMemberError(payload.error ?? "Could not add workspace member");
+        setMemberError(payload.error ?? "Could not add operator");
         setMemberNotice(null);
         return;
       }
 
       setMemberError(null);
-      setMemberNotice(`Added ${payload.member.user.email}. They can sign in on onboarding to join this workspace.`);
+      setMemberNotice(`Added ${payload.member.user.email}. They can sign in through the normal onboarding flow.`);
       setMemberEmail("");
       setMemberName("");
       form.reset();
@@ -122,50 +114,44 @@ export default function SettingsPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Settings + Billing Skeleton">
-        <BrowserExtensionStatusCard
-          connected={extension.connected}
-          installed={extension.installed}
-          loading={extension.loading}
-          onRefresh={() => {
-            void extension.refresh();
-            void extensionStatus.refresh();
-          }}
-          pendingTasks={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
-        />
-
+      <AppShell title="Settings">
         <div className="grid-2">
           <Card eyebrow="Workspace" title={auth.workspace?.name ?? "No workspace"}>
             <div className="stack muted">
               <span>Plan: {auth.workspace?.plan ?? "pilot"}</span>
-              <span>Billing customer: {auth.workspace?.billingCustomerId ?? "Provisioned when workspace is created"}</span>
-              <span>Authenticated user: {auth.user?.email}</span>
-              <span>
-                Connector automation: {auth.workspace?.connectorAutomationEnabled === false ? "Disabled" : "Enabled"}
-              </span>
+              <span>Owner session: {auth.user?.email}</span>
+              <span>Billing customer: {auth.workspace?.billingCustomerId ?? "Created with the workspace"}</span>
+              <span>Automation: {auth.workspace?.connectorAutomationEnabled === false ? "Paused" : "Live"}</span>
             </div>
+          </Card>
+
+          <Card eyebrow="Automation" title="Background posting">
+            <p className="muted">
+              Marketplace posting, queueing, and session checks now run through Mollie. Use this control only when you
+              need to pause automation across the whole workspace.
+            </p>
             <div className="actions" style={{ marginTop: "1rem" }}>
               <Button
                 disabled={pending || auth.workspace?.connectorAutomationEnabled === true}
                 onClick={() => toggleConnectorAutomation(true)}
               >
-                Enable automation
+                Turn automation on
               </Button>
               <Button
                 kind="secondary"
                 disabled={pending || auth.workspace?.connectorAutomationEnabled === false}
                 onClick={() => toggleConnectorAutomation(false)}
               >
-                Disable automation
+                Pause automation
               </Button>
             </div>
             {error ? <div className="notice">{error}</div> : null}
           </Card>
 
-          <Card eyebrow="MVP boundary" title="Billing placeholder">
+          <Card eyebrow="Plan" title="Billing and access">
             <p className="muted">
-              Stripe customer bootstrap is provisioned at workspace creation. Subscription management can hang off this
-              screen without changing the core inventory and publish workflows.
+              Keep this page focused on who can access Mollie and whether background automation should stay active.
+              Billing setup is attached to the workspace at creation time.
             </p>
           </Card>
         </div>
@@ -173,8 +159,7 @@ export default function SettingsPage() {
         <Card eyebrow="Workspace access" title="Operators">
           <div className="stack">
             <p className="muted">
-              Mollie now supports multiple operators per workspace. Add a teammate by email, then have them sign in
-              through the normal onboarding code flow.
+              Add teammates by email so they can work inside the same inventory, marketplaces, and activity feed.
             </p>
 
             {members.data?.canManageMembers ? (
@@ -230,7 +215,7 @@ export default function SettingsPage() {
           </div>
         </Card>
 
-        <Card eyebrow="Audit trail" title="Recent audited actions">
+        <Card eyebrow="Audit trail" title="Recent activity">
           <div className="stack">
             {(audit.data?.logs ?? []).map((log) => (
               <div className="split" key={log.id}>

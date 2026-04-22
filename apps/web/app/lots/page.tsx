@@ -63,9 +63,9 @@ export default function LotsPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Mac.bid Source Lots">
+      <AppShell title="Lots">
         <div className="grid-2">
-          <Card eyebrow="Ingest" title="Add a Mac.bid lot URL">
+          <Card eyebrow="Source" title="Add a Mac.bid lot URL">
             <form className="stack" onSubmit={handleImport}>
               <label className="label">
                 Lot URL
@@ -82,7 +82,7 @@ export default function LotsPage() {
             </form>
           </Card>
 
-          <Card eyebrow="Rule" title="MVP sourcing posture">
+          <Card eyebrow="Workflow" title="Human-in-the-loop sourcing">
             <p className="muted">
               The lot flow is human-in-the-loop. Import the lot, inspect valuation, then convert only viable lots into
               inventory. No autonomous bidding is enabled in MVP.
@@ -90,7 +90,7 @@ export default function LotsPage() {
           </Card>
         </div>
 
-        <Card eyebrow="Queue" title="Imported lots">
+        <Card eyebrow="Lots" title="Imported lots">
           {error ? <div className="notice">{error}</div> : null}
           <table className="table">
             <thead>

@@ -1,16 +1,16 @@
 import {
-  claimExtensionTaskForWorkspace,
+  claimAutomationTaskForWorkspace,
   db,
   findInventoryItemDetailForWorkspace,
-  heartbeatExtensionTaskForWorkspace,
-  updateExtensionTask,
+  heartbeatAutomationTaskForWorkspace,
+  updateAutomationTask,
   type Prisma
 } from "@reselleros/db";
 import { createLogger } from "@reselleros/observability";
 
-const logger = createLogger("remote-poshmark-runtime");
-const runnerInstanceId = `remote-poshmark-${crypto.randomUUID()}`;
-type ExtensionTaskRecord = NonNullable<Awaited<ReturnType<typeof claimExtensionTaskForWorkspace>>>;
+const logger = createLogger("remote-marketplace-runtime");
+const runnerInstanceId = `remote-marketplace-${crypto.randomUUID()}`;
+type AutomationTaskRecord = NonNullable<Awaited<ReturnType<typeof claimAutomationTaskForWorkspace>>>;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,9 +39,11 @@ function getExecutionLogId(payloadJson: unknown) {
 }
 
 async function listCandidateTasks() {
-  const tasks = await db.extensionTask.findMany({
+  const tasks = await db.automationTask.findMany({
     where: {
-      platform: "POSHMARK",
+      platform: {
+        in: ["DEPOP", "POSHMARK"]
+      },
       action: {
         in: ["PUBLISH_LISTING", "UPDATE_LISTING"]
       },
@@ -59,7 +61,7 @@ async function listCandidateTasks() {
   });
 }
 
-async function markExecutionLogFailure(task: ExtensionTaskRecord | null, message: string) {
+async function markExecutionLogFailure(task: AutomationTaskRecord | null, message: string) {
   const executionLogId = getExecutionLogId(task?.payloadJson);
 
   if (!executionLogId) {
@@ -79,7 +81,7 @@ async function markExecutionLogFailure(task: ExtensionTaskRecord | null, message
   });
 }
 
-async function markExecutionLogSuccess(task: ExtensionTaskRecord | null, responsePayload: Record<string, unknown>) {
+async function markExecutionLogSuccess(task: AutomationTaskRecord | null, responsePayload: Record<string, unknown>) {
   const executionLogId = getExecutionLogId(task?.payloadJson);
 
   if (!executionLogId) {
@@ -96,7 +98,7 @@ async function markExecutionLogSuccess(task: ExtensionTaskRecord | null, respons
   });
 }
 
-async function updatePublishedListing(task: ExtensionTaskRecord | null, result: Record<string, unknown>) {
+async function updatePublishedListing(task: AutomationTaskRecord | null, result: Record<string, unknown>) {
   if (!task?.inventoryItemId || !task.marketplaceAccountId) {
     return;
   }
@@ -105,7 +107,7 @@ async function updatePublishedListing(task: ExtensionTaskRecord | null, result: 
     where: {
       inventoryItemId: task.inventoryItemId,
       marketplaceAccountId: task.marketplaceAccountId,
-      platform: "POSHMARK"
+      platform: task.platform
     }
   });
 
@@ -127,7 +129,7 @@ async function updatePublishedListing(task: ExtensionTaskRecord | null, result: 
       data: {
         inventoryItemId: task.inventoryItemId,
         marketplaceAccountId: task.marketplaceAccountId,
-        platform: "POSHMARK",
+        platform: task.platform,
         status: "PUBLISHED",
         externalListingId: typeof result.externalListingId === "string" ? result.externalListingId : null,
         externalUrl: typeof result.externalUrl === "string" ? result.externalUrl : null,
@@ -147,7 +149,7 @@ async function updatePublishedListing(task: ExtensionTaskRecord | null, result: 
   });
 }
 
-async function updateSocialStatus(task: ExtensionTaskRecord | null, action: string) {
+async function updateSocialStatus(task: AutomationTaskRecord | null, action: string) {
   if (!task?.marketplaceAccountId) {
     return;
   }
@@ -194,9 +196,9 @@ async function updateSocialStatus(task: ExtensionTaskRecord | null, action: stri
   });
 }
 
-async function processPublishTask(task: ExtensionTaskRecord) {
+async function processPublishTask(task: AutomationTaskRecord) {
   if (!task?.inventoryItemId) {
-    throw new Error("Poshmark publish task is missing inventory item.");
+    throw new Error(`${task.platform} publish task is missing inventory item.`);
   }
 
   const item = await findInventoryItemDetailForWorkspace(task.workspaceId, task.inventoryItemId);
@@ -207,82 +209,93 @@ async function processPublishTask(task: ExtensionTaskRecord) {
     : null;
 
   if (!item) {
-    throw new Error("Inventory item missing for remote Poshmark publish.");
+    throw new Error(`Inventory item missing for remote ${task.platform} publish.`);
   }
 
+  const platformLabel = task.platform === "DEPOP" ? "Depop" : "Poshmark";
+
   if (!account || account.validationStatus !== "VALID") {
-    await updateExtensionTask(task.id, {
+    await updateAutomationTask(task.id, {
       state: "NEEDS_INPUT",
-      needsInputReason: "Poshmark sign-in expired. Launch the hosted sign-in flow and retry.",
+      needsInputReason: `${platformLabel} sign-in expired. Launch the hosted sign-in flow and retry.`,
       lastErrorCode: "AUTH_REQUIRED",
-      lastErrorMessage: "Poshmark sign-in expired. Launch the hosted sign-in flow and retry.",
+      lastErrorMessage: `${platformLabel} sign-in expired. Launch the hosted sign-in flow and retry.`,
       completedAt: new Date(),
       resultJson: asJsonValue({
         phase: "open_session",
         retryClass: "CHALLENGE"
       })
     });
-    await markExecutionLogFailure(task, "Poshmark sign-in expired.");
+    await markExecutionLogFailure(task, `${platformLabel} sign-in expired.`);
     return;
   }
 
   const approvedDraft =
-    item.listingDrafts.find((draft) => draft.platform === "POSHMARK" && draft.reviewStatus === "APPROVED") ?? null;
+    item.listingDrafts.find((draft) => draft.platform === task.platform && draft.reviewStatus === "APPROVED") ?? null;
   const draftPrice =
     typeof approvedDraft?.generatedPrice === "number" && Number.isFinite(approvedDraft.generatedPrice) ? approvedDraft.generatedPrice : null;
   const publishedPrice =
     draftPrice ??
     (typeof item.priceRecommendation === "number" && Number.isFinite(item.priceRecommendation) ? item.priceRecommendation : 0);
   const publishedTitle = approvedDraft?.generatedTitle ?? item.title;
+  const externalListingId = `${task.platform.toLowerCase()}_${crypto.randomUUID().slice(0, 12)}`;
+  const externalUrl =
+    task.platform === "DEPOP"
+      ? `https://www.depop.com/products/${externalListingId}`
+      : `https://poshmark.com/listing/${externalListingId}`;
 
-  await heartbeatExtensionTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
+  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase: "open_session",
       retryClass: "NONE",
-      statusMessage: "Opening hosted Poshmark session"
+      runtime: "browser-grid",
+      statusMessage: `Opening hosted ${platformLabel} session on the browser grid`
     })
   });
   await sleep(150);
 
-  await heartbeatExtensionTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
+  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase: "upload_photos",
       retryClass: "NONE",
-      statusMessage: "Uploading Poshmark listing photos"
+      runtime: "browser-grid",
+      statusMessage: `Uploading ${platformLabel} listing photos`
     })
   });
   await sleep(150);
 
-  await heartbeatExtensionTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
+  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase: "fill_fields",
       retryClass: "NONE",
-      statusMessage: "Filling Poshmark listing fields"
+      runtime: "browser-grid",
+      statusMessage: `Filling ${platformLabel} listing fields`
     })
   });
   await sleep(150);
 
-  await heartbeatExtensionTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
+  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase: "submit",
       retryClass: "NONE",
-      statusMessage: "Submitting Poshmark listing"
+      runtime: "browser-grid",
+      statusMessage: `Submitting ${platformLabel} listing`
     })
   });
   await sleep(150);
 
-  const externalListingId = `poshmark_${crypto.randomUUID().slice(0, 12)}`;
   const result = {
     phase: "confirm_live",
     retryClass: "NONE",
+    runtime: "browser-grid",
     externalListingId,
-    externalUrl: `https://poshmark.com/listing/${externalListingId}`,
+    externalUrl,
     publishedTitle,
     publishedPrice,
     artifactUrls: []
   };
 
-  await updateExtensionTask(task.id, {
+  await updateAutomationTask(task.id, {
     state: "SUCCEEDED",
     lastHeartbeatAt: new Date(),
     completedAt: new Date(),
@@ -295,11 +308,11 @@ async function processPublishTask(task: ExtensionTaskRecord) {
   await markExecutionLogSuccess(task, result);
 }
 
-async function processSocialTask(task: ExtensionTaskRecord, action: string) {
+async function processSocialTask(task: AutomationTaskRecord, action: string) {
   const phase =
     action === "SHARE_CLOSET" ? "share_closet" : action === "SHARE_LISTING" ? "share_listing" : "send_offer_to_likers";
 
-  await heartbeatExtensionTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
+  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase,
       retryClass: "NONE",
@@ -315,7 +328,7 @@ async function processSocialTask(task: ExtensionTaskRecord, action: string) {
     message: `Completed ${action.toLowerCase()} in the remote Poshmark runtime.`
   };
 
-  await updateExtensionTask(task.id, {
+  await updateAutomationTask(task.id, {
     state: "SUCCEEDED",
     lastHeartbeatAt: new Date(),
     completedAt: new Date(),
@@ -335,7 +348,7 @@ export async function processRemotePoshmarkAutomationCycle() {
     return false;
   }
 
-  const claimed = await claimExtensionTaskForWorkspace(nextTask.workspaceId, nextTask.id, {
+  const claimed = await claimAutomationTaskForWorkspace(nextTask.workspaceId, nextTask.id, {
     runnerInstanceId
   });
 
@@ -360,9 +373,9 @@ export async function processRemotePoshmarkAutomationCycle() {
 
     return true;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Remote Poshmark automation failed.";
-    logger.error({ taskId: task.id, error }, "remote poshmark automation failed");
-    await updateExtensionTask(task.id, {
+    const message = error instanceof Error ? error.message : "Remote marketplace automation failed.";
+    logger.error({ taskId: task.id, platform: task.platform, error }, "remote marketplace automation failed");
+    await updateAutomationTask(task.id, {
       state: "FAILED",
       lastHeartbeatAt: new Date(),
       completedAt: new Date(),
@@ -378,3 +391,7 @@ export async function processRemotePoshmarkAutomationCycle() {
     return false;
   }
 }
+
+
+
+

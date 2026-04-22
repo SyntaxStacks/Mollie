@@ -84,7 +84,7 @@ function buildWhatnotInvalidHint(explanation: string, nextActions: string[]) {
     severity: "ERROR",
     nextActions,
     canContinue: false,
-    helpText: "Whatnot should be opened in a normal browser tab, then rechecked through the Mollie browser extension so the signed-in session can be validated."
+    helpText: "Whatnot should be connected through Mollie's hosted remote browser session so the signed-in session can be validated."
   });
 }
 
@@ -106,7 +106,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
         platformLabel: "Whatnot",
         title: "Whatnot sign-in starts in another browser tab.",
         explanation:
-          "Whatnot sessions should be completed in the operator's own browser tab, especially when the account uses Google sign-in. Mollie will recheck that signed-in tab through the browser extension before marking the account ready.",
+          "Whatnot sessions should be completed through Mollie's hosted remote browser flow. Mollie will validate the captured session before marking the account ready.",
         severity: "INFO",
         nextActions: [
           "Open Whatnot in another tab and finish login there.",
@@ -114,7 +114,7 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
           "Return to Mollie and click recheck login."
         ],
         canContinue: true,
-        helpText: "The browser extension is the supported Whatnot recheck path."
+        helpText: "The hosted remote browser is the supported Whatnot recheck path."
       }),
       helperPath: "/marketplaces/connect-helper?vendor=whatnot",
       expiresInSeconds: 15 * 60,
@@ -132,20 +132,20 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
       sessionLabel: input.sessionLabel
     });
 
-    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "EXTENSION_BROWSER") {
+    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "REMOTE_BROWSER") {
       return {
         state: "FAILED",
         prompts: [
           {
             kind: "LOGIN",
-            label: "Use the browser extension recheck for Whatnot",
-            detail: "Whatnot sign-in should be rechecked through the Mollie browser extension so the real browser session can be validated.",
+            label: "Use the hosted recheck for Whatnot",
+            detail: "Whatnot sign-in should be rechecked through Mollie's hosted browser so the real browser session can be validated.",
             required: true
           }
         ],
         hint: buildWhatnotInvalidHint(
-          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Open Whatnot in another tab and recheck it through the browser extension instead.",
-          ["Open Whatnot in another tab.", "Finish the Whatnot or Google sign-in there.", "Return to Mollie and click recheck login."]
+          "The popup helper did not provide the browser session data Mollie needs for Whatnot. Reopen the hosted Whatnot sign-in and recheck it from Mollie.",
+          ["Open the hosted Whatnot sign-in.", "Finish the Whatnot or Google sign-in there.", "Return to Mollie and click recheck login."]
         ),
         metadata: {
           pendingSession: null
@@ -286,16 +286,16 @@ export const whatnotConnectAdapter: AutomationVendorConnectAdapter = {
       };
     }
 
-    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "EXTENSION_BROWSER") {
+    if (input.captureMode !== "LOCAL_BRIDGE" && input.captureMode !== "REMOTE_BROWSER") {
       return {
         validationStatus: "INVALID",
         accountHandle: normalizedHandle,
         externalAccountId: input.externalAccountId ?? null,
-        summary: "Whatnot sign-in requires the browser extension recheck.",
+        summary: "Whatnot sign-in requires the hosted browser recheck.",
         detail: "The popup flow did not provide a reusable browser session artifact for Whatnot.",
         operatorHint: buildWhatnotInvalidHint(
-          "Whatnot should be connected through the browser extension recheck so Mollie can validate the real browser session.",
-          ["Open Whatnot in another tab.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow.", "Return to Mollie and click recheck login."]
+          "Whatnot should be connected through the hosted browser recheck so Mollie can validate the real browser session.",
+          ["Open the hosted Whatnot sign-in.", "Complete the Whatnot or Google sign-in there instead of the popup-only flow.", "Return to Mollie and click recheck login."]
         )
       };
     }
@@ -363,12 +363,12 @@ export const whatnotAdapter: MarketplaceAdapter = {
       {
         capability: "CONNECT_ACCOUNT",
         support: "SUPPORTED",
-        detail: "Operators connect Whatnot by signing in on another tab and rechecking that browser session through the Mollie extension."
+        detail: "Operators connect Whatnot by signing in through Mollie's hosted browser session."
       },
       {
         capability: "VALIDATE_AUTH",
         support: "SUPPORTED",
-        detail: "Whatnot sessions are validated against extension-rechecked browser state before the account is marked ready."
+        detail: "Whatnot sessions are validated against hosted browser state before the account is marked ready."
       },
       {
         capability: "REFRESH_AUTH",

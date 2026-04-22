@@ -1,16 +1,17 @@
 import { z } from "zod";
 
 import {
-  createExtensionTaskForWorkspace,
+  createAutomationTaskForWorkspace,
   db,
   findInventoryItemDetailForWorkspace,
-  findExtensionTaskForWorkspace,
-  listExtensionTasksForWorkspace,
+  findAutomationTaskForWorkspace,
+  listAutomationTasksForWorkspace,
   recordAuditLog,
-  updateExtensionTask,
+  updateAutomationTask,
   type Prisma
 } from "@reselleros/db";
 import {
+  type MarketplaceCapabilitySummary,
   poshmarkSocialActions,
   poshmarkSocialConfigSchema,
   poshmarkReadinessSchema,
@@ -29,6 +30,41 @@ import {
 import { getAutomationAccountReadiness } from "@reselleros/marketplaces";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+
+const capabilitySummary: MarketplaceCapabilitySummary[] = [
+  {
+    platform: "EBAY",
+    capabilities: ["API_PUBLISH", "UPDATE", "DELIST", "RELIST"],
+    importMode: "NONE",
+    publishMode: "API",
+    bulkImport: false,
+    bulkPublish: false
+  },
+  {
+    platform: "DEPOP",
+    capabilities: ["API_PUBLISH", "REMOTE_AUTOMATION"],
+    importMode: "NONE",
+    publishMode: "API",
+    bulkImport: false,
+    bulkPublish: false
+  },
+  {
+    platform: "POSHMARK",
+    capabilities: ["API_PUBLISH", "REMOTE_AUTOMATION", "UPDATE"],
+    importMode: "NONE",
+    publishMode: "API",
+    bulkImport: false,
+    bulkPublish: false
+  },
+  {
+    platform: "WHATNOT",
+    capabilities: ["REMOTE_AUTOMATION"],
+    importMode: "NONE",
+    publishMode: "NONE",
+    bulkImport: false,
+    bulkPublish: false
+  }
+];
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -148,7 +184,7 @@ function getRemoteTaskType(payloadJson: unknown): RemoteAutomationTaskType | nul
     : null;
 }
 
-function serializeRemoteTask(task: Awaited<ReturnType<typeof findExtensionTaskForWorkspace>>): RemoteAutomationTaskView | null {
+function serializeRemoteTask(task: Awaited<ReturnType<typeof findAutomationTaskForWorkspace>>): RemoteAutomationTaskView | null {
   if (!task) {
     return null;
   }
@@ -298,6 +334,14 @@ async function ensurePendingPoshmarkListing(input: {
 }
 
 export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) {
+  app.get("/api/automation/capabilities", async (request) => {
+    await context.requireWorkspace(await context.requireAuth(request));
+
+    return {
+      capabilitySummary
+    };
+  });
+
   app.get("/api/automation/poshmark/readiness/:inventoryItemId", async (request) => {
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
@@ -321,7 +365,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
         inventoryItemId: z.string().min(1).optional()
       })
       .parse(request.query);
-    const tasks = await listExtensionTasksForWorkspace(workspace.id, {
+    const tasks = await listAutomationTasksForWorkspace(workspace.id, {
       inventoryItemId: query.inventoryItemId,
       platform: "POSHMARK"
     });
@@ -368,7 +412,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       });
     }
 
-    const created = await createExtensionTaskForWorkspace(workspace.id, {
+    const created = await createAutomationTaskForWorkspace(workspace.id, {
       inventoryItemId: body.inventoryItemId ?? null,
       marketplaceAccountId: account.id,
       platform: "POSHMARK",
@@ -384,7 +428,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       workspaceId: workspace.id,
       actorUserId: auth.userId,
       action: `automation.poshmark.${body.taskType.toLowerCase()}.queued`,
-      targetType: "extension_task",
+      targetType: "automation_task",
       targetId: created.id,
       metadata: {
         inventoryItemId: body.inventoryItemId ?? null
@@ -400,14 +444,14 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = remoteAutomationTaskActionSchema.extend({ taskId: z.string().min(1) }).parse(request.params);
-    const task = await findExtensionTaskForWorkspace(workspace.id, params.taskId);
+    const task = await findAutomationTaskForWorkspace(workspace.id, params.taskId);
     const serialized = serializeRemoteTask(task);
 
     if (!task || !serialized) {
       throw app.httpErrors.notFound("Automation task not found");
     }
 
-    const updated = await updateExtensionTask(task.id, {
+    const updated = await updateAutomationTask(task.id, {
       state: "CANCELED",
       completedAt: new Date(),
       lastErrorCode: null,
@@ -419,7 +463,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       workspaceId: workspace.id,
       actorUserId: auth.userId,
       action: "automation.poshmark.task_canceled",
-      targetType: "extension_task",
+      targetType: "automation_task",
       targetId: updated.id
     });
 
@@ -432,14 +476,14 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
     const auth = await context.requireAuth(request);
     const workspace = await context.requireWorkspace(auth);
     const params = remoteAutomationTaskActionSchema.extend({ taskId: z.string().min(1) }).parse(request.params);
-    const task = await findExtensionTaskForWorkspace(workspace.id, params.taskId);
+    const task = await findAutomationTaskForWorkspace(workspace.id, params.taskId);
     const serialized = serializeRemoteTask(task);
 
     if (!task || !serialized) {
       throw app.httpErrors.notFound("Automation task not found");
     }
 
-    const updated = await updateExtensionTask(task.id, {
+    const updated = await updateAutomationTask(task.id, {
       state: "QUEUED",
       runnerInstanceId: null,
       claimedAt: null,
@@ -460,7 +504,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       workspaceId: workspace.id,
       actorUserId: auth.userId,
       action: "automation.poshmark.task_retried",
-      targetType: "extension_task",
+      targetType: "automation_task",
       targetId: updated.id
     });
 
@@ -557,7 +601,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       throw app.httpErrors.preconditionFailed(readiness?.summary ?? "Connect a ready Poshmark account first.");
     }
 
-    const task = await createExtensionTaskForWorkspace(workspace.id, {
+    const task = await createAutomationTaskForWorkspace(workspace.id, {
       marketplaceAccountId: account.id,
       platform: "POSHMARK",
       action: "UPDATE_LISTING",
@@ -572,7 +616,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
       workspaceId: workspace.id,
       actorUserId: auth.userId,
       action: `automation.poshmark.social.${body.action.toLowerCase()}.queued`,
-      targetType: "extension_task",
+      targetType: "automation_task",
       targetId: task.id
     });
 
@@ -581,3 +625,5 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
     };
   });
 }
+
+

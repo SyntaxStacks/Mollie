@@ -70,7 +70,8 @@ export function MarketplaceStatusRow({
   selected = false,
   onToggle,
   onAction,
-  onSecondaryAction
+  onSecondaryAction,
+  onRequirementSelect
 }: {
   state: MarketplaceStatusSummary;
   selectable?: boolean;
@@ -78,6 +79,7 @@ export function MarketplaceStatusRow({
   onToggle?: ((checked: boolean) => void) | null;
   onAction?: (() => void) | null;
   onSecondaryAction?: (() => void) | null;
+  onRequirementSelect?: ((requirement: string) => void) | null;
 }) {
   const expanded = !selectable || selected;
   const interactive = Boolean(selectable && onToggle);
@@ -145,7 +147,22 @@ export function MarketplaceStatusRow({
             ) : null}
             {state.missingRequirements.length > 0 && !blockerDuplicatesMissingRequirements ? (
               <div className="marketplace-missing-inline">
-                Missing: {missingRequirementsCopy}
+                Missing:{" "}
+                {state.missingRequirements.map((requirement, index) => (
+                  <span key={requirement}>
+                    <button
+                      className="marketplace-requirement-link"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onRequirementSelect?.(requirement);
+                      }}
+                      type="button"
+                    >
+                      {requirement}
+                    </button>
+                    {index < state.missingRequirements.length - 1 ? ", " : null}
+                  </span>
+                ))}
               </div>
             ) : null}
             {state.missingRequirements.length === 0 && state.recommendedRequirements.length > 0 ? (

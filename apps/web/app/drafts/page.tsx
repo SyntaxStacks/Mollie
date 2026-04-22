@@ -51,9 +51,9 @@ export default function DraftsPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Draft Review Queue">
+      <AppShell title="Drafts">
         {error ? <div className="notice">{error}</div> : null}
-        <Card eyebrow="Review queue" title="AI-generated drafts awaiting approval">
+        <Card eyebrow="Drafts" title="Generated listings waiting for approval">
           <div className="stack">
             {(inventory.data?.items ?? []).flatMap((item) =>
               item.listingDrafts.map((draft) => (

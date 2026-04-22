@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition, type FormEvent } from "react";
 
 import { Button } from "@reselleros/ui";
+import type { ProductLookupCandidate } from "@reselleros/types";
 
+import { clearScanCreateDraft, readScanCreateDraft, type ScanCreateDraft } from "../lib/scan-create-draft";
 import { ActionRail } from "./action-rail";
 import { SourceSearchPanel } from "./source-search-panel";
 
@@ -20,6 +22,7 @@ type ExistingInventoryItem = {
 type InventoryCreateWorkspaceProps = {
   token: string;
   existingItems: ExistingInventoryItem[];
+  scanDraftId?: string | null;
 };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
@@ -53,10 +56,74 @@ function formatCurrencyInput(value: string) {
   }).format(parsed);
 }
 
-export function InventoryCreateWorkspace({ token, existingItems }: InventoryCreateWorkspaceProps) {
+function sourceMarketForUrl(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase() ?? "";
+
+  if (!normalized) {
+    return "OTHER" as const;
+  }
+
+  if (normalized.includes("amazon.")) {
+    return "AMAZON" as const;
+  }
+
+  if (normalized.includes("ebay.")) {
+    return "EBAY" as const;
+  }
+
+  return "OTHER" as const;
+}
+
+function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | null) {
+  if (!candidate) {
+    return "OTHER" as const;
+  }
+
+  return candidate.provider === "AMAZON_ENRICHMENT" ? "AMAZON" : "OTHER";
+}
+
+function uniqueTrimmedValues(values: Array<string | null | undefined>) {
+  return [...new Set(values.map((value) => value?.trim() ?? "").filter(Boolean))];
+}
+
+function parseOptionalNumber(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function toValidUrl(value: string | null | undefined) {
+  const trimmed = value?.trim() ?? "";
+
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return null;
+  }
+}
+
+function validUrlList(values: Array<string | null | undefined>) {
+  return uniqueTrimmedValues(values)
+    .map((value) => toValidUrl(value))
+    .filter((value): value is string => Boolean(value));
+}
+
+export function InventoryCreateWorkspace({ token, existingItems, scanDraftId }: InventoryCreateWorkspaceProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [scanDraftError, setScanDraftError] = useState<string | null>(null);
+  const [scanDraft, setScanDraft] = useState<ScanCreateDraft | null>(null);
+  const [selectedScanCandidateId, setSelectedScanCandidateId] = useState("");
   const [identifier, setIdentifier] = useState("");
   const [title, setTitle] = useState("");
   const [brand, setBrand] = useState("");
@@ -78,6 +145,35 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
   const detailEditorMainRef = useRef<HTMLDivElement | null>(null);
   const detailSidebarRef = useRef<HTMLDivElement | null>(null);
 
+  function applyScanDraftToForm(draft: ScanCreateDraft, candidateId?: string | null) {
+    const candidate =
+      draft.candidates.find((entry) => entry.id === candidateId) ??
+      draft.candidates.find((entry) => entry.id === draft.selectedCandidateId) ??
+      draft.candidates[0] ??
+      null;
+    const sourceUrlValue =
+      candidate?.productUrl?.trim() ||
+      draft.manualSourceUrl.trim() ||
+      draft.amazonUrl.trim() ||
+      draft.ebayUrl.trim();
+
+    setIdentifier(draft.barcode || candidate?.barcode || "");
+    setTitle(candidate?.title?.trim() || draft.title.trim() || "");
+    setBrand(candidate?.brand?.trim() || draft.brand.trim() || "");
+    setLookupQuery(draft.lookupQuery.trim() || candidate?.title?.trim() || draft.title.trim() || "");
+    setSourceUrl(sourceUrlValue);
+    setCategory(candidate?.category?.trim() || draft.category.trim() || "General Merchandise");
+    setCondition(draft.condition.trim() || "Good used condition");
+    setSize(candidate?.size?.trim() || candidate?.model?.trim() || draft.size.trim() || "");
+    setColor(candidate?.color?.trim() || draft.color.trim() || "");
+    setQuantity("1");
+    setCostBasis(draft.costBasis || "0");
+    setEstimatedResaleMin("");
+    setEstimatedResaleMax("");
+    setPriceRecommendation(draft.priceRecommendation || "");
+    setDescription(draft.description || "");
+  }
+
   const duplicateMatches = useMemo(() => {
     const normalizedIdentifier = normalizeIdentifier(identifier);
     const normalizedTitle = normalizeTitle(title);
@@ -96,10 +192,30 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
       })
       .slice(0, 3);
   }, [existingItems, identifier, title]);
+  const activeScanCandidate = useMemo(
+    () =>
+      scanDraft?.candidates.find((candidate) => candidate.id === selectedScanCandidateId) ??
+      scanDraft?.candidates.find((candidate) => candidate.id === scanDraft.selectedCandidateId) ??
+      scanDraft?.candidates[0] ??
+      null,
+    [scanDraft, selectedScanCandidateId]
+  );
+  const scanSourceImages = useMemo(() => {
+    if (activeScanCandidate?.imageUrls.length) {
+      return activeScanCandidate.imageUrls;
+    }
+
+    return scanDraft?.imageUrls ?? [];
+  }, [activeScanCandidate, scanDraft]);
+  const createActionLabel = scanDraft?.generateDrafts ? "Create item and queue drafts" : "Create item";
 
   const workingTitle = title.trim() || "New inventory item";
-  const sourceMode = lookupQuery.trim() || sourceUrl.trim() ? "Manual lookup" : "Manual entry";
-  const nextStep = title.trim() ? "Create item and move into listing work" : "Name the item and capture the shared facts";
+  const sourceMode = scanDraft ? "Scan prefill" : lookupQuery.trim() || sourceUrl.trim() ? "Manual lookup" : "Manual entry";
+  const nextStep = scanDraft
+    ? "Review the scan prefill, pick the best match, then create the item"
+    : title.trim()
+      ? "Create item and move into listing work"
+      : "Name the item and capture the shared facts";
   const duplicateSummary =
     duplicateMatches.length === 0
       ? "No likely duplicates"
@@ -115,6 +231,30 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
     }
   }, []);
 
+  useEffect(() => {
+    if (!scanDraftId) {
+      setScanDraft(null);
+      setScanDraftError(null);
+      setSelectedScanCandidateId("");
+      return;
+    }
+
+    const storedDraft = readScanCreateDraft(scanDraftId);
+
+    if (!storedDraft) {
+      setScanDraft(null);
+      setSelectedScanCandidateId("");
+      setScanDraftError("The scan prefill expired. Start a new scan to continue from barcode lookup.");
+      return;
+    }
+
+    const initialCandidateId = storedDraft.selectedCandidateId ?? storedDraft.candidates[0]?.id ?? "";
+    setScanDraft(storedDraft);
+    setScanDraftError(null);
+    setSelectedScanCandidateId(initialCandidateId);
+    applyScanDraftToForm(storedDraft, initialCandidateId);
+  }, [scanDraftId]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -123,67 +263,151 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
         const parsedLabels = splitCsv(labels);
         const trimmedSourceUrl = sourceUrl.trim();
         const trimmedLookupQuery = lookupQuery.trim();
-        const response = await fetch(`${API_BASE_URL}/api/inventory`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            title: title.trim(),
-            brand: brand.trim() || null,
-            category: category.trim(),
-            condition: condition.trim(),
-            size: size.trim() || null,
-            color: color.trim() || null,
-            quantity: Math.max(1, Number(quantity || 1)),
-            costBasis: Number(costBasis || 0),
-            estimatedResaleMin: estimatedResaleMin.trim() ? Number(estimatedResaleMin) : null,
-            estimatedResaleMax: estimatedResaleMax.trim() ? Number(estimatedResaleMax) : null,
-            priceRecommendation: priceRecommendation.trim() ? Number(priceRecommendation) : null,
-            attributes: {
-              importSource: trimmedLookupQuery || trimmedSourceUrl ? "MANUAL_LOOKUP" : "MANUAL_ENTRY",
-              ...(trimmedLookupQuery
-                ? {
-                    sourceQuery: trimmedLookupQuery
-                  }
-                : {}),
-              ...(trimmedSourceUrl
-                ? {
-                    primarySourceUrl: trimmedSourceUrl,
-                    referenceUrls: [trimmedSourceUrl]
-                  }
-                : {}),
-              ...(identifier.trim()
-                ? {
-                    identifier: normalizeIdentifier(identifier)
-                  }
-                : {}),
-              ...(description.trim()
-                ? {
-                    description: description.trim()
-                  }
-                : {}),
-              ...(parsedLabels.length > 0
-                ? {
-                    labels: parsedLabels
-                  }
-                : {}),
-              ...(internalNote.trim()
-                ? {
-                    internalNote: internalNote.trim()
-                  }
-                : {})
-            }
-          })
-        });
-        const payload = (await response.json()) as { error?: string; item?: { id: string } };
+        const currentScanDraft = scanDraft;
+        const normalizedScanIdentifier = normalizeIdentifier(identifier || scanDraft?.barcode || activeScanCandidate?.barcode || "");
+        const useScanImport = Boolean(currentScanDraft && normalizedScanIdentifier);
+        const scanPrimarySourceUrl = toValidUrl(
+          trimmedSourceUrl ||
+            activeScanCandidate?.productUrl ||
+            currentScanDraft?.manualSourceUrl ||
+            currentScanDraft?.amazonUrl ||
+            currentScanDraft?.ebayUrl ||
+            null
+        );
+        const payloadBase = {
+          title: title.trim(),
+          brand: brand.trim() || null,
+          category: category.trim(),
+          condition: condition.trim(),
+          size: size.trim() || null,
+          color: color.trim() || null,
+          quantity: Math.max(1, Number(quantity || 1)),
+          costBasis: Number(costBasis || 0),
+          estimatedResaleMin: parseOptionalNumber(estimatedResaleMin),
+          estimatedResaleMax: parseOptionalNumber(estimatedResaleMax),
+          priceRecommendation: parseOptionalNumber(priceRecommendation),
+          description: description.trim() || null,
+          labels: parsedLabels,
+          internalNote: internalNote.trim() || null
+        };
+
+        const response = useScanImport && currentScanDraft
+          ? await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                identifier: normalizedScanIdentifier,
+                barcode: normalizedScanIdentifier,
+                identifierType: activeScanCandidate?.identifierType ?? currentScanDraft.identifierType ?? null,
+                intakeDecision: currentScanDraft.intakeDecision,
+                ...payloadBase,
+                primarySourceMarket:
+                  primarySourceMarketForCandidate(activeScanCandidate) !== "OTHER"
+                    ? primarySourceMarketForCandidate(activeScanCandidate)
+                    : sourceMarketForUrl(trimmedSourceUrl || currentScanDraft.amazonUrl || currentScanDraft.ebayUrl),
+                primarySourceUrl: scanPrimarySourceUrl,
+                referenceUrls: validUrlList([
+                  trimmedSourceUrl,
+                  currentScanDraft.manualSourceUrl,
+                  currentScanDraft.amazonUrl,
+                  currentScanDraft.ebayUrl,
+                  activeScanCandidate?.productUrl
+                ]),
+                imageUrls: validUrlList([
+                  ...(activeScanCandidate?.imageUrls ?? []),
+                  ...(currentScanDraft.imageUrls ?? [])
+                ]),
+                observations: [
+                  currentScanDraft.amazonPrice
+                    ? {
+                        market: "AMAZON",
+                        label: "Amazon",
+                        price: Number(currentScanDraft.amazonPrice),
+                        sourceUrl: toValidUrl(currentScanDraft.amazonUrl),
+                        note: "Captured during scan to identify."
+                      }
+                    : null,
+                  currentScanDraft.ebayPrice
+                    ? {
+                        market: "EBAY",
+                        label: "eBay",
+                        price: Number(currentScanDraft.ebayPrice),
+                        sourceUrl: toValidUrl(currentScanDraft.ebayUrl),
+                        note: "Captured during scan to identify."
+                      }
+                    : null
+                ].filter((value): value is NonNullable<typeof value> => Boolean(value)),
+                acceptedCandidate: activeScanCandidate,
+                generateDrafts: currentScanDraft.generateDrafts,
+                draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
+              })
+            })
+          : await fetch(`${API_BASE_URL}/api/inventory`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                ...payloadBase,
+                attributes: {
+                  importSource: scanDraft ? "SCAN_PREFILL" : trimmedLookupQuery || trimmedSourceUrl ? "MANUAL_LOOKUP" : "MANUAL_ENTRY",
+                  ...(scanDraft
+                    ? {
+                        intakeDecision: scanDraft.intakeDecision,
+                        scanDraftId: scanDraft.id,
+                        selectedCandidate: activeScanCandidate,
+                        identifierType: activeScanCandidate?.identifierType ?? scanDraft.identifierType ?? null
+                      }
+                    : {}),
+                  ...(trimmedLookupQuery
+                    ? {
+                        sourceQuery: trimmedLookupQuery
+                      }
+                    : {}),
+                  ...(trimmedSourceUrl
+                    ? {
+                        primarySourceUrl: trimmedSourceUrl,
+                        referenceUrls: validUrlList([trimmedSourceUrl])
+                      }
+                    : {}),
+                  ...(identifier.trim()
+                    ? {
+                        identifier: normalizeIdentifier(identifier)
+                      }
+                    : {}),
+                  ...(payloadBase.description
+                    ? {
+                        description: payloadBase.description
+                      }
+                    : {}),
+                  ...(parsedLabels.length > 0
+                    ? {
+                        labels: parsedLabels
+                      }
+                    : {}),
+                  ...(payloadBase.internalNote
+                    ? {
+                        internalNote: payloadBase.internalNote
+                      }
+                    : {})
+                }
+              })
+            });
+        const payload = (await response.json()) as { error?: string; item?: { id: string }; draftsQueued?: boolean };
 
         if (!response.ok || !payload.item?.id) {
           throw new Error(payload.error ?? "Could not create this inventory item");
         }
 
-        router.push(`/inventory/${payload.item.id}`);
+        if (scanDraftId) {
+          clearScanCreateDraft(scanDraftId);
+        }
+
+        router.push(payload.draftsQueued ? `/drafts?fromScan=${payload.item.id}` : `/inventory/${payload.item.id}`);
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Could not create this inventory item");
       }
@@ -211,19 +435,28 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
             </Button>
           </Link>
         </div>
-      </div>
+        </div>
 
-      {error ? <div className="notice">{error}</div> : null}
+        {error ? <div className="notice">{error}</div> : null}
+        {scanDraftError ? <div className="notice warning">{scanDraftError}</div> : null}
 
-      <div className="detail-editor-workspace">
+        <div className="detail-editor-workspace">
         <div className="listing-workbench-layout detail-editor-layout">
           <aside className="listing-marketplace-rail inventory-create-intake-rail" ref={marketplaceRailRef}>
             <div className="listing-rail-summary">
               <div className="listing-rail-summary-copy">
                 <p className="eyebrow">Create path</p>
-                <strong>{sourceMode === "Manual lookup" ? "Researching before save" : "Create the shared item first"}</strong>
+                <strong>
+                  {scanDraft
+                    ? "Scan found a starting point"
+                    : sourceMode === "Manual lookup"
+                      ? "Researching before save"
+                      : "Create the shared item first"}
+                </strong>
                 <p className="muted listing-rail-helper">
-                  This page now mirrors item detail so the same left-center-right workflow carries from intake into listing.
+                  {scanDraft
+                    ? "Review the scan prefill here, switch matches if needed, and keep the same workspace shape you will use after save."
+                    : "This page now mirrors item detail so the same left-center-right workflow carries from intake into listing."}
                 </p>
               </div>
               <Link href="/inventory">
@@ -234,13 +467,31 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
             </div>
 
             <div className="inventory-create-rail-stack">
+              {scanDraft ? (
+                <section className="inventory-create-mode-card inventory-create-mode-card-active">
+                  <div className="inventory-create-mode-header">
+                    <Sparkles size={18} />
+                    <div>
+                      <strong>Scan prefill is loaded</strong>
+                      <p className="muted">
+                        {scanDraft.barcode
+                          ? `Barcode ${scanDraft.barcode} brought in ${scanDraft.candidates.length || 1} suggested match${scanDraft.candidates.length === 1 ? "" : "es"}.`
+                          : "The scanner handed this item off with prefilled source data."}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
+
               <section className="inventory-create-mode-card inventory-create-mode-card-active">
                 <div className="inventory-create-mode-header">
                   <Search size={18} />
                   <div>
-                    <strong>Manual/source lookup</strong>
+                    <strong>{scanDraft ? "Editable source details" : "Manual/source lookup"}</strong>
                     <p className="muted">
-                      Research the item, keep only the facts you trust, and start the shared record without leaving the workspace.
+                      {scanDraft
+                        ? "The scan filled these fields first. Keep what is right, replace what is wrong, and save only the details you trust."
+                        : "Research the item, keep only the facts you trust, and start the shared record without leaving the workspace."}
                     </p>
                   </div>
                 </div>
@@ -274,11 +525,87 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
           </aside>
 
           <div className="detail-editor-main" ref={detailEditorMainRef}>
+            {scanDraft ? (
+              <section className="listing-form-section inventory-create-scan-prefill-card">
+                <div className="listing-form-section-heading">
+                  <div>
+                    <p className="eyebrow">Scan prefill</p>
+                    <h3>Start from the best match, then edit freely</h3>
+                    <p className="muted">
+                      The scan already populated the form below. If the lookup returned multiple matches, switch the source here and Mollie will refresh the prefill.
+                    </p>
+                  </div>
+                </div>
+                <div className="inventory-create-scan-prefill-grid">
+                  {scanDraft.candidates.length > 1 ? (
+                    <label className="label inventory-create-grid-span-2">
+                      Match to use
+                      <select
+                        className="field"
+                        value={selectedScanCandidateId}
+                        onChange={(event) => {
+                          setSelectedScanCandidateId(event.target.value);
+                          if (scanDraft) {
+                            applyScanDraftToForm(scanDraft, event.target.value);
+                          }
+                        }}
+                      >
+                        {scanDraft.candidates.map((candidate, index) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            Match {index + 1}: {candidate.title}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : activeScanCandidate ? (
+                    <div className="inventory-create-scan-prefill-meta inventory-create-grid-span-2">
+                      <span className="muted">Using match</span>
+                      <strong>{activeScanCandidate.title}</strong>
+                    </div>
+                  ) : null}
+                  <div className="inventory-create-scan-prefill-meta">
+                    <span className="muted">Barcode</span>
+                    <strong>{scanDraft.barcode || "Manual scan result"}</strong>
+                  </div>
+                  <div className="inventory-create-scan-prefill-meta">
+                    <span className="muted">Source</span>
+                    <strong>{activeScanCandidate?.provider ?? "Manual review"}</strong>
+                  </div>
+                  <div className="inventory-create-scan-prefill-meta">
+                    <span className="muted">Confidence</span>
+                    <strong>
+                      {activeScanCandidate
+                        ? `${Math.round(activeScanCandidate.confidenceScore * 100)}% ${activeScanCandidate.confidenceState.toLowerCase()}`
+                        : "Operator controlled"}
+                    </strong>
+                  </div>
+                  <div className="inventory-create-scan-prefill-meta">
+                    <span className="muted">Intent</span>
+                    <strong>{scanDraft.intakeDecision.replaceAll("_", " ")}</strong>
+                  </div>
+                </div>
+                {activeScanCandidate?.productUrl || sourceUrl.trim() ? (
+                  <a
+                    className="secondary-link-button"
+                    href={activeScanCandidate?.productUrl ?? sourceUrl.trim()}
+                    rel="noreferrer"
+                    target="_blank"
+                  >
+                    <ExternalLink size={16} /> Open source page
+                  </a>
+                ) : null}
+              </section>
+            ) : null}
+
             <div className="listing-form-section listing-photo-panel">
               <div className="listing-form-section-heading listing-photo-section-heading">
                 <div className="listing-photo-section-heading-copy">
                   <h3>Photos</h3>
-                  <p className="muted">Start from scan now or create the item first and upload, reorder, and review images on the item page.</p>
+                  <p className="muted">
+                    {scanSourceImages.length > 0
+                      ? "These source images came from the scan result and will attach to the item when you save."
+                      : "Start from scan now or create the item first and upload, reorder, and review images on the item page."}
+                  </p>
                 </div>
                 <Link href="/inventory?scan=barcode">
                   <Button kind="secondary" type="button">
@@ -286,11 +613,22 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
                   </Button>
                 </Link>
               </div>
-              <div className="inventory-create-photo-dropzone">
-                <Plus size={28} />
-                <strong>No photos attached yet</strong>
-                <p className="muted">The item detail page will handle photo upload, sorting, cover selection, and cleanup after save.</p>
-              </div>
+              {scanSourceImages.length > 0 ? (
+                <div className="inventory-create-scan-photo-grid">
+                  {scanSourceImages.slice(0, 5).map((imageUrl, index) => (
+                    <div className={`inventory-create-scan-photo-card${index === 0 ? " inventory-create-scan-photo-card-cover" : ""}`} key={imageUrl}>
+                      <img alt={`${workingTitle} source ${index + 1}`} src={imageUrl} />
+                      {index === 0 ? <span className="inventory-create-scan-photo-badge">Source preview</span> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="inventory-create-photo-dropzone">
+                  <Plus size={28} />
+                  <strong>No photos attached yet</strong>
+                  <p className="muted">The item detail page will handle photo upload, sorting, cover selection, and cleanup after save.</p>
+                </div>
+              )}
             </div>
 
             <form className="stack" id="inventory-create-form" onSubmit={handleSubmit}>
@@ -423,6 +761,9 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
               <div className="detail-editor-sidebar-facts">
                 <div className="detail-meta-row"><span className="muted">Source mode</span><strong>{sourceMode}</strong></div>
                 <div className="detail-meta-row"><span className="muted">Duplicate check</span><strong>{duplicateSummary}</strong></div>
+                {scanDraft ? (
+                  <div className="detail-meta-row"><span className="muted">Scan matches</span><strong>{Math.max(scanDraft.candidates.length, 1)}</strong></div>
+                ) : null}
               </div>
               {sourceUrl.trim() ? (
                 <a className="secondary-link-button" href={sourceUrl.trim()} rel="noreferrer" target="_blank">
@@ -481,7 +822,7 @@ export function InventoryCreateWorkspace({ token, existingItems }: InventoryCrea
                 </Button>
               </Link>
               <Button data-testid="manual-inventory-create" disabled={pending} form="inventory-create-form" type="submit">
-                <Plus size={16} /> {pending ? "Creating..." : "Create item"}
+                <Plus size={16} /> {pending ? "Creating..." : createActionLabel}
               </Button>
             </div>
           </div>

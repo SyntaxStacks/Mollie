@@ -45,7 +45,7 @@ Expected outcome:
 - Keep the inventory item as the canonical source of truth.
 - Keep platform-specific overrides inline instead of creating disconnected listing editors.
 - Keep marketplace support honest; do not imply capabilities that are not implemented.
-- Preserve the existing lifecycle and extension model where possible.
+- Preserve the existing lifecycle and remote automation model where possible.
 - Avoid feature creep. These passes are about structure, interpretation, and hierarchy.
 
 ## Success Condition
@@ -56,6 +56,6 @@ At the end of the full sequence, the item detail page should feel like:
 It should not feel like:
 - several listing editors
 - a marketplace account manager
-- an extension admin page
+- an automation admin page
 - a debug console
 - a pile of overlapping controls

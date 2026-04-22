@@ -69,7 +69,7 @@ export type InventoryItemFormState = {
   depopDepartment: string;
   depopProductType: string;
   depopCondition: string;
-  depopShippingMode: string;
+  depopPackageSize: string;
 };
 
 export type InventoryDetailRecord = {
@@ -100,7 +100,7 @@ export type InventoryDetailRecord = {
     attributesJson: Record<string, unknown> | null;
   }>;
   platformListings: Array<{ id: string; platform: string; status: string; externalUrl: string | null }>;
-  extensionTasks: Array<{
+  automationTasks: Array<{
     id: string;
     platform: string;
     action: string;
@@ -164,13 +164,9 @@ type InventoryDetailViewProps = {
   itemForm: InventoryItemFormState;
   onFieldChange: (field: keyof InventoryItemFormState, value: string | boolean) => void;
   onSaveItemDetails: (event: FormEvent<HTMLFormElement>) => void;
-  extensionInstalled: boolean;
-  extensionConnected: boolean;
-  extensionPendingCount: number;
-  onRefreshExtension: () => void;
   marketplaceAccounts: MarketplaceAccountLike[];
   pendingConnectAttempts?: Partial<Record<string, { attemptId: string; helperNonce: string }>>;
-  extensionCapabilities: MarketplaceCapabilitySummary[];
+  marketplaceCapabilities: MarketplaceCapabilitySummary[];
   selectedPlatforms: Array<"EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT">;
   onTogglePlatform: (platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT", checked: boolean) => void;
   aiStatus: AiStatusResponse | null;
@@ -219,13 +215,45 @@ const depopConditionOptions = [
   "Fair"
 ] as const;
 
-const depopShippingModeOptions = [
-  { value: "DEPOP_SHIPPING", label: "Depop shipping" },
-  { value: "OWN_SHIPPING", label: "My own shipping" }
+const depopPackageSizeOptions = [
+  { value: "Extra extra small", label: "Extra extra small", helper: "Under 4oz" },
+  { value: "Extra small", label: "Extra small", helper: "Under 8oz" },
+  { value: "Small", label: "Small", helper: "Under 12oz" },
+  { value: "Medium", label: "Medium", helper: "Under 1lb" },
+  { value: "Large", label: "Large", helper: "Under 2lb" },
+  { value: "Extra large", label: "Extra large", helper: "Under 10lb" }
 ] as const;
+
+const requirementAnchorMap: Record<string, string> = {
+  photos: "inventory-anchor-photos",
+  title: "inventory-anchor-title",
+  brand: "inventory-anchor-brand",
+  category: "inventory-anchor-category",
+  condition: "inventory-anchor-condition",
+  size: "inventory-anchor-size",
+  "depop size": "inventory-anchor-size",
+  description: "inventory-anchor-description",
+  "depop description": "inventory-anchor-description",
+  "show notes": "inventory-anchor-description",
+  price: "inventory-anchor-price",
+  "base price": "inventory-anchor-price",
+  "depop base price": "inventory-anchor-price",
+  "shipping weight": "inventory-anchor-shipping-weight",
+  "package size": "inventory-anchor-package-size",
+  "ebay category mapping": "inventory-anchor-ebay-category",
+  "depop department": "inventory-anchor-depop-department",
+  "depop product type": "inventory-anchor-depop-product-type",
+  "depop shipping": "inventory-anchor-depop-package-size",
+  "depop package size": "inventory-anchor-depop-package-size"
+};
 
 function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
+}
+
+function getRequirementAnchorId(requirement: string) {
+  const normalizedRequirement = requirement.trim().replace(/\s+/g, " ").toLowerCase();
+  return requirementAnchorMap[normalizedRequirement] ?? null;
 }
 
 function ContinueOnMobileModal({ open, url, title, onClose }: { open: boolean; url: string; title: string; onClose: () => void }) {
@@ -440,13 +468,9 @@ export function InventoryDetailView({
   itemForm,
   onFieldChange,
   onSaveItemDetails,
-  extensionInstalled,
-  extensionConnected,
-  extensionPendingCount,
-  onRefreshExtension,
   marketplaceAccounts,
   pendingConnectAttempts,
-  extensionCapabilities,
+  marketplaceCapabilities,
   selectedPlatforms,
   onTogglePlatform,
   aiStatus,
@@ -467,9 +491,7 @@ export function InventoryDetailView({
   const detailSidebarRef = useRef<HTMLDivElement | null>(null);
   const marketStatuses = getMarketplaceStatusSummaries(item, {
     marketplaceAccounts,
-    capabilitySummary: extensionCapabilities,
-    extensionInstalled,
-    extensionConnected,
+    capabilitySummary: marketplaceCapabilities,
     pendingConnectAttempts
   });
   const selectedMarketStatuses = marketStatuses.filter((state) =>
@@ -479,13 +501,12 @@ export function InventoryDetailView({
     .filter((state) => state.actionKind === "generate_draft")
     .map((state) => state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT");
   const postReadyPlatforms = selectedMarketStatuses
-    .filter((state) => state.actionKind === "publish_api" || state.actionKind === "publish_extension")
+    .filter((state) => state.actionKind === "publish_api")
     .map((state) => state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT");
   const lifecycle = getItemLifecycleState(item);
   const profit = getProfitEstimate(item);
   const nextAction = getNextActionLabel(item);
   const identifier = getIdentifierValue(item);
-  const recentExtensionTasks = item.extensionTasks.slice(0, 4);
   const selectedCount = selectedPlatforms.length;
   const selectedBlockedCount = selectedMarketStatuses.filter((state) => state.missingRequirements.length > 0).length;
   const requirementToPlatforms = useMemo(() => {
@@ -554,6 +575,69 @@ export function InventoryDetailView({
   const allBackgroundPreviewsActive =
     item.images.length > 0 && item.images.every((image) => backgroundPreviewIdSet.has(image.id));
   const activePhoto = photoDetailId ? item.images.find((entry) => entry.id === photoDetailId) ?? null : null;
+
+  function focusRequirementTarget(requirement: string, platform: "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT") {
+    const anchorId = getRequirementAnchorId(requirement);
+
+    if (!anchorId || typeof document === "undefined") {
+      return;
+    }
+
+    const normalizedRequirement = requirement.trim().replace(/\s+/g, " ").toLowerCase();
+    const requiresPlatformAdjustments =
+      normalizedRequirement === "depop department" ||
+      normalizedRequirement === "depop product type" ||
+      normalizedRequirement === "depop shipping" ||
+      normalizedRequirement === "depop package size";
+
+    if (requiresPlatformAdjustments && !selectedPlatforms.includes(platform)) {
+      onTogglePlatform(platform, true);
+    }
+
+    const attemptFocus = (remainingAttempts: number) => {
+      const target = document.getElementById(anchorId);
+
+      if (!target) {
+        if (remainingAttempts > 0) {
+          window.setTimeout(() => attemptFocus(remainingAttempts - 1), 80);
+        }
+        return;
+      }
+
+      const details = target.closest("details");
+      if (details instanceof HTMLDetailsElement) {
+        details.open = true;
+      }
+
+      const scrollContainer = target.closest<HTMLElement>(".detail-editor-main, .listing-marketplace-rail, .detail-editor-sidebar");
+
+      if (scrollContainer) {
+        const containerRect = scrollContainer.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        const targetTop = scrollContainer.scrollTop + targetRect.top - containerRect.top - 24;
+
+        scrollContainer.scrollTo({
+          top: Math.max(0, targetTop),
+          behavior: "smooth"
+        });
+      } else {
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+      }
+
+      const focusTarget =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLSelectElement ||
+        target instanceof HTMLTextAreaElement
+          ? target
+          : target.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("input, select, textarea");
+
+      window.setTimeout(() => {
+        focusTarget?.focus?.({ preventScroll: true });
+      }, 220);
+    };
+
+    attemptFocus(4);
+  }
 
   useEffect(() => {
     const columns = [marketplaceRailRef.current, detailEditorMainRef.current, detailSidebarRef.current];
@@ -722,6 +806,9 @@ export function InventoryDetailView({
                     selected={selectedPlatforms.includes(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")}
                     onToggle={(checked) => onTogglePlatform(state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT", checked)}
                     onAction={state.actionKind === "unavailable" ? null : () => onMarketplaceAction(state.platform, state.actionKind)}
+                    onRequirementSelect={(requirement) =>
+                      focusRequirementTarget(requirement, state.platform as "EBAY" | "DEPOP" | "POSHMARK" | "WHATNOT")
+                    }
                     onSecondaryAction={state.secondaryActionKind ? () => onMarketplaceSecondaryAction(state.platform, state.secondaryActionKind ?? "unavailable") : null}
                     state={state}
                   />
@@ -730,7 +817,7 @@ export function InventoryDetailView({
             </aside>
 
             <div className="detail-editor-main" ref={detailEditorMainRef}>
-                <div className={cx("listing-form-section", "listing-photo-panel", fieldIsMissing("photos") && "listing-form-section-missing")}>
+                <div className={cx("listing-form-section", "listing-photo-panel", fieldIsMissing("photos") && "listing-form-section-missing")} id="inventory-anchor-photos">
                   <div className="listing-form-section-heading listing-photo-section-heading">
                     <div className="listing-photo-section-heading-copy">
                       <h3>Photos</h3>
@@ -911,7 +998,7 @@ export function InventoryDetailView({
                       <p className="muted">These fields apply across marketplaces unless you add a platform-specific adjustment below.</p>
                     </div>
                     <div className="scan-import-grid">
-                      <label className={cx("label", "listing-ai-field", fieldIsMissing("title") && "label-missing")}>
+                      <label className={cx("label", "listing-ai-field", fieldIsMissing("title") && "label-missing")} id="inventory-anchor-title">
                         <span className="listing-ai-label-row">
                           Title
                           {aiStatus?.enabled ? (
@@ -923,22 +1010,22 @@ export function InventoryDetailView({
                         <input className={cx("field", fieldIsMissing("title") && "field-missing")} required value={itemForm.title} onChange={(event) => onFieldChange("title", event.target.value)} />
                         {renderRequirementNote("title")}
                       </label>
-                      <label className={cx("label", fieldIsMissing("brand") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("brand") && "label-missing")} id="inventory-anchor-brand">
                         Brand
                         <input className={cx("field", fieldIsMissing("brand") && "field-missing")} value={itemForm.brand} onChange={(event) => onFieldChange("brand", event.target.value)} />
                         {renderRequirementNote("brand")}
                       </label>
-                      <label className={cx("label", fieldIsMissing("category") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("category") && "label-missing")} id="inventory-anchor-category">
                         Category
                         <input className={cx("field", fieldIsMissing("category") && "field-missing")} required value={itemForm.category} onChange={(event) => onFieldChange("category", event.target.value)} />
                         {renderRequirementNote("category")}
                       </label>
-                      <label className={cx("label", fieldIsMissing("condition") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("condition") && "label-missing")} id="inventory-anchor-condition">
                         Condition
                         <input className={cx("field", fieldIsMissing("condition") && "field-missing")} required value={itemForm.condition} onChange={(event) => onFieldChange("condition", event.target.value)} />
                         {renderRequirementNote("condition")}
                       </label>
-                      <label className={cx("label", fieldIsMissing("size") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("size") && "label-missing")} id="inventory-anchor-size">
                         Size
                         <input className={cx("field", fieldIsMissing("size") && "field-missing")} value={itemForm.size} onChange={(event) => onFieldChange("size", event.target.value)} />
                         {renderRequirementNote("size")}
@@ -952,7 +1039,7 @@ export function InventoryDetailView({
                         <input className="field" min="1" step="1" type="number" value={itemForm.quantity} onChange={(event) => onFieldChange("quantity", event.target.value)} />
                       </label>
                     </div>
-                    <label className={cx("label", "listing-ai-field", fieldIsMissing("description", "show notes") && "label-missing")}>
+                    <label className={cx("label", "listing-ai-field", fieldIsMissing("description", "show notes") && "label-missing")} id="inventory-anchor-description">
                       <span className="listing-ai-label-row">
                         Description
                         {aiStatus?.enabled ? (
@@ -972,6 +1059,7 @@ export function InventoryDetailView({
                       fieldIsMissing("price") &&
                         "listing-form-section-missing"
                     )}
+                    id="inventory-anchor-price"
                   >
                     <div className="listing-form-section-heading">
                       <h3>Price</h3>
@@ -1031,7 +1119,7 @@ export function InventoryDetailView({
                       <p className="muted">Complete shipping once here so eBay and other structured marketplaces are easier to post.</p>
                     </div>
                     <div className="scan-import-grid">
-                      <label className={cx("label", fieldIsMissing("shipping weight") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("shipping weight") && "label-missing")} id="inventory-anchor-shipping-weight">
                         Shipping weight
                         <div className="scan-field-row">
                           <input className={cx("field", fieldIsMissing("shipping weight") && "field-missing")} min="0" step="0.01" type="number" value={itemForm.shippingWeightValue} onChange={(event) => onFieldChange("shippingWeightValue", event.target.value)} />
@@ -1041,7 +1129,7 @@ export function InventoryDetailView({
                         </div>
                         {renderRequirementNote("shipping weight")}
                       </label>
-                      <label className={cx("label", fieldIsMissing("package size") && "label-missing")}>
+                      <label className={cx("label", fieldIsMissing("package size") && "label-missing")} id="inventory-anchor-package-size">
                         Dimensions
                         <div className="listing-dimension-grid">
                           <input className={cx("field", fieldIsMissing("package size") && "field-missing")} placeholder="L" type="number" value={itemForm.shippingLength} onChange={(event) => onFieldChange("shippingLength", event.target.value)} />
@@ -1053,6 +1141,18 @@ export function InventoryDetailView({
                         </div>
                         {renderRequirementNote("package size")}
                       </label>
+                      {selectedPlatforms.includes("DEPOP") || fieldIsMissing("Depop package size") ? (
+                        <label className={cx("label", fieldIsMissing("Depop package size") && "label-missing")} id="inventory-anchor-depop-package-size">
+                          Depop package size
+                          <select className={cx("field", fieldIsMissing("Depop package size") && "field-missing")} value={itemForm.depopPackageSize} onChange={(event) => onFieldChange("depopPackageSize", event.target.value)}>
+                            <option value="">Select package size</option>
+                            {depopPackageSizeOptions.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label} - {option.helper}</option>
+                            ))}
+                          </select>
+                          {renderRequirementNote("Depop package size")}
+                        </label>
+                      ) : null}
                     </div>
                     <label className="checkbox-row">
                       <input checked={itemForm.freeShipping} onChange={(event) => onFieldChange("freeShipping", event.target.checked)} type="checkbox" />
@@ -1111,7 +1211,7 @@ export function InventoryDetailView({
 
                             {state.platform === "DEPOP" ? (
                               <div className="listing-platform-adjustment-fields">
-                                <label className="label">
+                                <label className="label" id="inventory-anchor-depop-department">
                                   Depop department
                                   <select className={cx("field", fieldIsMissing("Depop department") && "field-missing")} value={itemForm.depopDepartment} onChange={(event) => onFieldChange("depopDepartment", event.target.value)}>
                                     <option value="">Select department</option>
@@ -1121,7 +1221,7 @@ export function InventoryDetailView({
                                   </select>
                                   {renderRequirementNote("Depop department")}
                                 </label>
-                                <label className="label">
+                                <label className="label" id="inventory-anchor-depop-product-type">
                                   Depop product type
                                   <select className={cx("field", fieldIsMissing("Depop product type") && "field-missing")} value={itemForm.depopProductType} onChange={(event) => onFieldChange("depopProductType", event.target.value)}>
                                     <option value="">Select product type</option>
@@ -1140,16 +1240,9 @@ export function InventoryDetailView({
                                     ))}
                                   </select>
                                 </label>
-                                <label className="label">
-                                  Depop shipping
-                                  <select className={cx("field", fieldIsMissing("Depop shipping") && "field-missing")} value={itemForm.depopShippingMode} onChange={(event) => onFieldChange("depopShippingMode", event.target.value)}>
-                                    <option value="">Select shipping</option>
-                                    {depopShippingModeOptions.map((option) => (
-                                      <option key={option.value} value={option.value}>{option.label}</option>
-                                    ))}
-                                  </select>
-                                  {renderRequirementNote("Depop shipping")}
-                                </label>
+                                <div className={cx("muted", "listing-override-note", fieldIsMissing("Depop package size") && "listing-override-note-missing")}>
+                                  Depop package size is set in the <strong>Shipping</strong> section above.
+                                </div>
                                 <label className="label">
                                   Depop price override
                                   <input className="field" min="0" step="0.01" type="number" value={itemForm.depopPrice} onChange={(event) => onFieldChange("depopPrice", event.target.value)} />
@@ -1202,10 +1295,10 @@ export function InventoryDetailView({
                   <div className="listing-form-section">
                     <div className="listing-form-section-heading">
                       <h3>Advanced</h3>
-                      <p className="muted">Less-used controls and debug detail stay here so the main workflow stays focused.</p>
+                      <p className="muted">Less-used marketplace controls stay here so the main workflow stays focused.</p>
                     </div>
                     <div className="detail-advanced-stack">
-                      <details className={cx("detail-advanced-panel", fieldIsMissing("eBay category mapping") && "detail-advanced-panel-missing")}>
+                      <details className={cx("detail-advanced-panel", fieldIsMissing("eBay category mapping") && "detail-advanced-panel-missing")} id="inventory-anchor-ebay-category">
                         <summary>Advanced eBay settings</summary>
                         <div className="detail-advanced-content">
                           {!ebayDraft ? (
@@ -1229,31 +1322,6 @@ export function InventoryDetailView({
                               <div className="notice">{ebayPreflight.summary}</div>
                             </div>
                           ) : null}
-                        </div>
-                      </details>
-
-                      <details className="detail-advanced-panel">
-                        <summary>Automation details</summary>
-                        <div className="detail-advanced-content">
-                          <div className="inventory-preflight-meta">
-                            <span>{extensionConnected ? "Browser automation connected" : extensionInstalled ? "Browser automation detected" : "Browser automation missing"}</span>
-                            <span>Pending tasks: {extensionPendingCount}</span>
-                          </div>
-                          <div className="actions">
-                            <Button kind="secondary" onClick={onRefreshExtension} type="button"><RefreshCw size={16} /> Refresh row state</Button>
-                          </div>
-                          <div className="activity-list">
-                            {recentExtensionTasks.length === 0 ? <div className="muted">No recent browser-side work for this item.</div> : null}
-                            {recentExtensionTasks.map((task) => (
-                              <div className="activity-row" key={task.id}>
-                                <div>
-                                  <strong>{task.platform} {task.action.replace(/_/g, " ").toLowerCase()}</strong>
-                                  <div className="muted">{task.lastErrorMessage ?? `Task state: ${task.state.toLowerCase()}`}</div>
-                                </div>
-                                <div className="muted">{task.updatedAt ? formatDate(task.updatedAt) : "Recently updated"}</div>
-                              </div>
-                            ))}
-                          </div>
                         </div>
                       </details>
                     </div>

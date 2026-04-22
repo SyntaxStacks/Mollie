@@ -216,8 +216,7 @@ function InventoryPageContent() {
         const response = await fetch(`${API_BASE_URL}${path}`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${auth.token}`,
-            "Content-Type": "application/json"
+            Authorization: `Bearer ${auth.token}`
           }
         });
         const payload = (await response.json().catch(() => ({ error: "Action failed" }))) as { error?: string };
@@ -245,8 +244,7 @@ function InventoryPageContent() {
         const response = await fetch(`${API_BASE_URL}/api/inventory/${itemId}`, {
           method: "DELETE",
           headers: {
-            Authorization: `Bearer ${auth.token}`,
-            "Content-Type": "application/json"
+            Authorization: `Bearer ${auth.token}`
           }
         });
         const payload = (await response.json().catch(() => ({ error: "Delete failed" }))) as { error?: string };
@@ -280,8 +278,7 @@ function InventoryPageContent() {
             fetch(`${API_BASE_URL}/api/inventory/${item.id}/publish-linked`, {
               method: "POST",
               headers: {
-                Authorization: `Bearer ${auth.token}`,
-                "Content-Type": "application/json"
+                Authorization: `Bearer ${auth.token}`
               }
             })
           )

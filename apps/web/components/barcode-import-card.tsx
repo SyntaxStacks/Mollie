@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, 
 import type { ProductLookupCandidate, ProductLookupResult } from "@reselleros/types";
 import { Button, Card } from "@reselleros/ui";
 
+import { createScanCreateDraftId, writeScanCreateDraft } from "../lib/scan-create-draft";
 import { OperatorHintCard } from "./operator-hint-card";
 import { ScanResultSheet } from "./scan-result-sheet";
 import { SourceSearchPanel } from "./source-search-panel";
@@ -322,14 +323,6 @@ function providerLabel(provider: ProductLookupCandidate["provider"]) {
     default:
       return "Simulated";
   }
-}
-
-function primarySourceMarketForCandidate(candidate: ProductLookupCandidate | null) {
-  if (!candidate) {
-    return "OTHER" as const;
-  }
-
-  return candidate.provider === "AMAZON_ENRICHMENT" ? "AMAZON" : "OTHER";
 }
 
 function sourceMarketForUrl(value: string | null | undefined) {
@@ -1036,179 +1029,63 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
 
   function submitButtonLabel(decision: IntakeDecision, draftsEnabled: boolean) {
     if (draftsEnabled || decision === "POST_NOW") {
-      return "Create item and queue drafts";
+      return "Continue and queue drafts";
     }
 
     switch (decision) {
       case "HOLD":
-        return "Save as hold";
+        return "Continue as hold";
       case "LIST_LATER":
-        return "Save for later";
+        return "Continue for later";
       default:
-        return "Add to inventory";
+        return "Continue to create page";
     }
   }
 
-  async function submitManualCreate(
-    decisionOverride: IntakeDecision = intakeDecision,
-    generateDraftsOverride: boolean = generateDrafts
-  ) {
-    const normalizedLookupQuery = lookupQuery.trim();
-    const normalizedSourceUrl = manualSourceUrl.trim();
-
-    const createResponse = await fetch(`${API_BASE_URL}/api/inventory`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        title,
-        brand: brand || null,
-        category,
-        condition,
-        size: size || null,
-        color: color || null,
-        quantity: 1,
-        costBasis: Number(costBasis || 0),
-        priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
-        estimatedResaleMin: null,
-        estimatedResaleMax: null,
-        attributes: {
-          importSource: normalizedLookupQuery || normalizedSourceUrl ? "MANUAL_LOOKUP" : "MANUAL_ENTRY",
-          intakeDecision: decisionOverride,
-          ...(normalizedLookupQuery
-            ? {
-                sourceQuery: normalizedLookupQuery
-              }
-            : {}),
-          ...(normalizedSourceUrl
-            ? {
-                primarySourceUrl: normalizedSourceUrl,
-                referenceUrls: [normalizedSourceUrl]
-              }
-            : {}),
-          ...(barcode.trim()
-            ? {
-                identifier: barcode.trim()
-              }
-            : {})
-        }
-      })
-    });
-    const createPayload = (await createResponse.json().catch(() => ({ error: "Could not create this inventory item." }))) as {
-      error?: string;
-      item?: { id: string };
-    };
-
-    if (!createResponse.ok || !createPayload.item?.id) {
-      throw new Error(createPayload.error ?? "Could not create this inventory item.");
-    }
-
-    const itemId = createPayload.item.id;
-
-    if (generateDraftsOverride) {
-      const draftsResponse = await fetch(`${API_BASE_URL}/api/inventory/${itemId}/generate-drafts`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          platforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
-        })
-      });
-      const draftsPayload = (await draftsResponse.json().catch(() => ({ error: "Could not queue listing drafts." }))) as {
-        error?: string;
-      };
-
-      if (!draftsResponse.ok) {
-        throw new Error(draftsPayload.error ?? "Could not queue listing drafts.");
-      }
-    }
-
-    resetForm();
-    router.push(generateDraftsOverride ? `/drafts?fromScan=${itemId}` : `/inventory/${itemId}`);
-  }
-
-  async function submitImport(
+  async function continueToCreateWorkspace(
     decisionOverride: IntakeDecision = intakeDecision,
     generateDraftsOverride: boolean = generateDrafts
   ) {
     try {
-      if (!barcode.trim() && entryMode === "MANUAL") {
-        await submitManualCreate(decisionOverride, generateDraftsOverride);
-        return;
-      }
-
-      const observations = [
-        amazonPrice
-          ? {
-              market: "AMAZON",
-              label: "Amazon",
-              price: Number(amazonPrice),
-              sourceUrl: amazonUrl || null,
-              note: "Captured during Scan to identify."
-            }
-          : null,
-        ebayPrice
-          ? {
-              market: "EBAY",
-              label: "eBay",
-              price: Number(ebayPrice),
-              sourceUrl: ebayUrl || null,
-              note: "Captured during Scan to identify."
-            }
-          : null
-      ].filter((value): value is NonNullable<typeof value> => Boolean(value));
-
+      const draftId = createScanCreateDraftId();
+      const normalizedLookupQuery = lookupQuery.trim();
+      const normalizedSourceUrl = manualSourceUrl.trim();
+      const normalizedBarcode = barcode.trim();
       const normalizedImageUrls = normalizeImageUrls(imageUrls);
-      const primarySourceUrl = amazonUrl || selectedCandidate?.productUrl || ebayUrl || null;
-      const response = await fetch(`${API_BASE_URL}/api/inventory/import/barcode`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          identifier: barcode,
-          identifierType: lookupResult?.identifierType ?? selectedCandidate?.identifierType ?? null,
-          intakeDecision: decisionOverride,
-          title,
-          brand: brand || null,
-          category,
-          condition,
-          size: size || null,
-          color: color || null,
-          costBasis: Number(costBasis || 0),
-          priceRecommendation: priceRecommendation ? Number(priceRecommendation) : null,
-          primarySourceMarket: primarySourceMarketForCandidate(selectedCandidate),
-          primarySourceUrl,
-          referenceUrls: [amazonUrl, ebayUrl, selectedCandidate?.productUrl].filter(
-            (value, index, array): value is string => Boolean(value) && array.indexOf(value) === index
-          ),
-          imageUrls: normalizedImageUrls,
-          observations,
-          acceptedCandidate: selectedCandidate,
-          generateDrafts: generateDraftsOverride,
-          draftPlatforms: ["EBAY", "DEPOP", "POSHMARK", "WHATNOT"]
-        })
+      const candidates = lookupResult?.candidates ?? (selectedCandidate ? [selectedCandidate] : []);
+
+      writeScanCreateDraft({
+        id: draftId,
+        createdAt: new Date().toISOString(),
+        barcode: normalizedBarcode,
+        identifierType: lookupResult?.identifierType ?? selectedCandidate?.identifierType ?? null,
+        entryMode,
+        intakeDecision: decisionOverride,
+        generateDrafts: generateDraftsOverride,
+        lookupQuery: normalizedLookupQuery,
+        manualSourceUrl: normalizedSourceUrl,
+        title: title.trim(),
+        brand: brand.trim(),
+        category: category.trim(),
+        condition: condition.trim(),
+        size: size.trim(),
+        color: color.trim(),
+        costBasis,
+        priceRecommendation,
+        description: "",
+        amazonPrice,
+        amazonUrl,
+        ebayPrice,
+        ebayUrl,
+        imageUrls: normalizedImageUrls,
+        candidates,
+        selectedCandidateId: selectedCandidate?.id ?? null
       });
-      const payload = (await response.json().catch(() => ({ error: "Could not create inventory from this match." }))) as {
-        error?: string;
-        item?: { id: string };
-        draftsQueued?: boolean;
-      };
 
-      if (!response.ok || !payload.item?.id) {
-        throw new Error(payload.error ?? "Could not create inventory from this match.");
-      }
-
-      const createdItemId = payload.item.id;
       resetForm();
-      router.push(payload.draftsQueued ? `/drafts?fromScan=${createdItemId}` : `/inventory/${createdItemId}`);
+      router.push(`/inventory/create?scanDraft=${encodeURIComponent(draftId)}`);
     } catch (caughtError) {
-      setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not create inventory from this match.");
+      setSubmitError(caughtError instanceof Error ? caughtError.message : "Could not continue from this scan.");
     }
   }
 
@@ -1216,7 +1093,7 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
     event.preventDefault();
 
     startTransition(async () => {
-      await submitImport();
+      await continueToCreateWorkspace();
     });
   }
 
@@ -1235,7 +1112,7 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
     }
 
     startTransition(async () => {
-      await submitImport(decision, draftsEnabled);
+      await continueToCreateWorkspace(decision, draftsEnabled);
     });
   }
 
@@ -1727,10 +1604,10 @@ export function BarcodeImportCard({ token, presentation = "embedded", autoOpenCa
           <div className="scan-result-actions-footer">
             <div className="muted">
               {canSubmit
-                ? `${decisionActionLabel(intakeDecision)} is ready. Save now or keep refining the item below.`
+                ? `${decisionActionLabel(intakeDecision)} is ready. Continue into the create workspace now or keep refining the item below.`
                 : entryMode === "MANUAL"
-                  ? "Find a source or fill the item details below before saving."
-                  : "Choose a source or finish the item details below before saving this scan."}
+                  ? "Find a source or fill the item details below before continuing."
+                  : "Choose a source or finish the item details below before continuing from this scan."}
             </div>
             <Button
               className="scan-result-action-skip"

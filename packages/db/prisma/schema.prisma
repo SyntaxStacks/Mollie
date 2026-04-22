@@ -145,7 +145,7 @@ enum InventoryImportItemStatus {
   FAILED
 }
 
-enum ExtensionTaskAction {
+enum AutomationTaskAction {
   IMPORT_LISTING
   PREPARE_DRAFT
   PUBLISH_LISTING
@@ -154,7 +154,7 @@ enum ExtensionTaskAction {
   RELIST_LISTING
 }
 
-enum ExtensionTaskState {
+enum AutomationTaskState {
   QUEUED
   RUNNING
   NEEDS_INPUT
@@ -218,7 +218,7 @@ model Workspace {
   marketplaceConnectAttempts MarketplaceConnectAttempt[]
   marketplaceAccounts MarketplaceAccount[]
   inventoryImportRuns InventoryImportRun[]
-    extensionTasks     ExtensionTask[]
+    automationTasks    AutomationTask[]
     aiUsageDaily       WorkspaceAiUsageDaily[]
     sourceLots         SourceLot[]
   inventoryItems     InventoryItem[]
@@ -276,7 +276,7 @@ model MarketplaceAccount {
   workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   connectAttempts MarketplaceConnectAttempt[]
   importRuns      InventoryImportRun[]
-  extensionTasks  ExtensionTask[]
+  automationTasks AutomationTask[]
   platformListings PlatformListing[]
 
   @@index([workspaceId, platform])
@@ -358,7 +358,7 @@ model InventoryItem {
   platformListings     PlatformListing[]
   sales                Sale[]
   executionLogs        ExecutionLog[]
-  extensionTasks       ExtensionTask[]
+  automationTasks      AutomationTask[]
   importedFrom         InventoryImportItem[]
 
   @@index([workspaceId, status])
@@ -391,7 +391,7 @@ model InventoryImportRun {
   workspace          Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   marketplaceAccount MarketplaceAccount?        @relation(fields: [marketplaceAccountId], references: [id], onDelete: SetNull)
   items              InventoryImportItem[]
-  extensionTasks     ExtensionTask[]
+  automationTasks    AutomationTask[]
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, status, createdAt])
@@ -419,15 +419,15 @@ model InventoryImportItem {
   @@index([dedupeKey])
 }
 
-model ExtensionTask {
+model AutomationTask {
   id                  String             @id @default(cuid())
   workspaceId         String
   inventoryItemId     String?
   inventoryImportRunId String?
   marketplaceAccountId String?
   platform            MarketplacePlatform
-  action              ExtensionTaskAction
-  state               ExtensionTaskState @default(QUEUED)
+  action              AutomationTaskAction
+  state               AutomationTaskState @default(QUEUED)
   queuedAt            DateTime           @default(now())
   attemptCount        Int                @default(0)
   runnerInstanceId    String?

@@ -256,7 +256,7 @@ async function completeAutomationAttempt(input: {
   accountHandle: string;
   externalAccountId?: string | null;
   sessionLabel?: string | null;
-  captureMode: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "EXTENSION_BROWSER";
+  captureMode: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "REMOTE_BROWSER";
   cookieCount?: number | null;
   origin?: string | null;
   storageStateJson?: Record<string, unknown> | null;
@@ -659,7 +659,7 @@ export function registerMarketplaceAccountRoutes(app: ApiApp, context: ApiRouteC
       accountHandle?: string;
       externalAccountId?: string | null;
       sessionLabel?: string | null;
-      captureMode?: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "EXTENSION_BROWSER";
+      captureMode?: "WEB_POPUP_HELPER" | "LOCAL_BRIDGE" | "REMOTE_BROWSER";
       cookieCount?: number | null;
       origin?: string | null;
       storageStateJson?: Record<string, unknown> | null;

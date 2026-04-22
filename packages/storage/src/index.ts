@@ -46,17 +46,17 @@ function resolveStorageBackend(): StorageBackend {
 }
 
 function buildStorageKey(workspaceId: string, inventoryItemId: string, filename: string, contentType: string) {
-  const extension = resolveFileExtension(filename, contentType);
+  const fileExt = resolveFileExt(filename, contentType);
   return [
     "workspaces",
     sanitizeSegment(workspaceId),
     "inventory",
     sanitizeSegment(inventoryItemId),
-    `${crypto.randomUUID()}${extension}`
+    `${crypto.randomUUID()}${fileExt}`
   ].join("/");
 }
 
-function resolveFileExtension(filename: string, contentType: string) {
+function resolveFileExt(filename: string, contentType: string) {
   const explicit = path.extname(filename).toLowerCase();
 
   if ([".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(explicit)) {
@@ -97,9 +97,9 @@ function decodeStorageKeyFromUrlPath(pathname: string) {
 }
 
 export function inferContentTypeFromStorageKey(storageKey: string) {
-  const extension = path.extname(storageKey).toLowerCase();
+  const fileExt = path.extname(storageKey).toLowerCase();
 
-  switch (extension) {
+  switch (fileExt) {
     case ".jpg":
     case ".jpeg":
       return "image/jpeg";

@@ -119,7 +119,7 @@ async function writeRuntimeNote(folder: string, name: string, contents: Record<s
   return filePath;
 }
 
-function getFileExtension(url: string, contentType: string | null) {
+function getFileExt(url: string, contentType: string | null) {
   if (contentType?.includes("png")) {
     return ".png";
   }
@@ -138,8 +138,8 @@ function getFileExtension(url: string, contentType: string | null) {
 
   try {
     const pathname = new URL(url).pathname;
-    const extension = path.extname(pathname);
-    return extension || ".jpg";
+    const fileExt = path.extname(pathname);
+    return fileExt || ".jpg";
   } catch {
     return ".jpg";
   }
@@ -168,8 +168,8 @@ async function downloadListingImages(input: {
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
-    const extension = getFileExtension(imageUrl, response.headers.get("content-type"));
-    const filePath = path.join(input.folder, `image-${String(index + 1).padStart(2, "0")}${extension}`);
+    const fileExt = getFileExt(imageUrl, response.headers.get("content-type"));
+    const filePath = path.join(input.folder, `image-${String(index + 1).padStart(2, "0")}${fileExt}`);
     await writeFile(filePath, buffer);
     paths.push(filePath);
   }

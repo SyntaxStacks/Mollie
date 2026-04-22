@@ -125,8 +125,8 @@ export default function ExecutionsPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Execution Logs">
-        <Card eyebrow="Observability" title="Publish and automation runs">
+      <AppShell title="Automation Activity">
+        <Card eyebrow="Activity" title="Runs, retries, and automation history">
           <form
             className="form-grid"
             onSubmit={(event) => {

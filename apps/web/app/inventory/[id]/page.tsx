@@ -13,11 +13,10 @@ import {
 } from "../../../components/inventory-detail-view";
 import { ProtectedView } from "../../../components/protected-view";
 import { useAuth } from "../../../components/auth-provider";
-import { useBrowserExtension } from "../../../components/use-browser-extension";
 import { useCrossDeviceContinuity } from "../../../components/use-cross-device-continuity";
 import { useAuthedResource } from "../../../lib/api";
-import { handoffExtensionTask } from "../../../lib/extension-bridge";
 import type { MarketplaceAccountLike, MarketplaceActionKind } from "../../../lib/item-lifecycle";
+import { buildAuthedJsonMutationInit } from "../../../lib/mutation-request";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 const automationVendorLabels = {
@@ -44,15 +43,8 @@ type EbayPreflightResponse = {
   preflight: InventoryPreflightRecord;
 };
 
-type ExtensionStatusResponse = {
+type AutomationCapabilitiesResponse = {
   capabilitySummary: MarketplaceCapabilitySummary[];
-  tasks: Array<{
-    id: string;
-    inventoryItemId?: string | null;
-    platform: string;
-    action: string;
-    state: string;
-  }>;
 };
 
 type MarketplaceAccountsResponse = {
@@ -102,7 +94,7 @@ export default function InventoryDetailPage() {
     depopDepartment: "",
     depopProductType: "",
     depopCondition: "",
-    depopShippingMode: ""
+    depopPackageSize: ""
   });
   const [selectedPlatforms, setSelectedPlatforms] = useState<Platform[]>([]);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -116,10 +108,9 @@ export default function InventoryDetailPage() {
   });
   const { data, error, refresh } = useAuthedResource<InventoryItemResponse>(`/api/inventory/${params.id}`, auth.token, [params.id]);
   const ebayPreflight = useAuthedResource<EbayPreflightResponse>(`/api/inventory/${params.id}/preflight/ebay`, auth.token, [params.id]);
-  const extensionStatus = useAuthedResource<ExtensionStatusResponse>("/api/extension/status", auth.token);
+  const automationCapabilities = useAuthedResource<AutomationCapabilitiesResponse>("/api/automation/capabilities", auth.token);
   const marketplaceAccounts = useAuthedResource<MarketplaceAccountsResponse>("/api/marketplace-accounts", auth.token);
   const aiStatus = useAuthedResource<AiStatusResponse>("/api/ai/status", auth.token);
-  const extension = useBrowserExtension();
   const ebayDraft =
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY" && draft.reviewStatus === "APPROVED") ??
     data?.item.listingDrafts.find((draft) => draft.platform === "EBAY") ??
@@ -255,7 +246,10 @@ export default function InventoryDetailPage() {
       depopDepartment: typeof depopOverrideAttributes.department === "string" ? depopOverrideAttributes.department : "",
       depopProductType: typeof depopOverrideAttributes.productType === "string" ? depopOverrideAttributes.productType : "",
       depopCondition: typeof depopOverrideAttributes.condition === "string" ? depopOverrideAttributes.condition : "",
-      depopShippingMode: typeof depopOverrideAttributes.shippingMode === "string" ? depopOverrideAttributes.shippingMode : ""
+      depopPackageSize:
+        typeof depopOverrideAttributes.packageSize === "string"
+          ? depopOverrideAttributes.packageSize
+          : ""
     });
   }, [data?.item]);
 
@@ -470,19 +464,22 @@ export default function InventoryDetailPage() {
   }
 
   async function runMutation(path: string, body?: unknown) {
+    if (!auth.token) {
+      setSubmitError("Sign in again before retrying this action.");
+      return;
+    }
+
+    const token = auth.token;
+
     startTransition(async () => {
-      const response = await fetch(`${API_BASE_URL}${path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${auth.token}`
-        },
-        body: body ? JSON.stringify(body) : undefined
-      });
+      const response = await fetch(`${API_BASE_URL}${path}`, buildAuthedJsonMutationInit(token, body));
 
       if (!response.ok) {
-        const payload = (await response.json()) as { error?: string };
-        setSubmitError(payload.error ?? "Action failed");
+        const payload = (await response.json().catch(() => ({ error: "Action failed" }))) as {
+          error?: string;
+          message?: string;
+        };
+        setSubmitError(payload.error ?? payload.message ?? "Action failed");
         return;
       }
 
@@ -529,7 +526,7 @@ export default function InventoryDetailPage() {
       itemForm.depopDepartment.trim() ||
       itemForm.depopProductType.trim() ||
       itemForm.depopCondition.trim() ||
-      itemForm.depopShippingMode.trim()
+      itemForm.depopPackageSize.trim()
     ) {
       marketplaceOverrides.DEPOP = {
         ...(marketplaceOverrides.DEPOP ?? {}),
@@ -539,7 +536,7 @@ export default function InventoryDetailPage() {
           ...(itemForm.depopDepartment.trim() ? { department: itemForm.depopDepartment.trim() } : {}),
           ...(itemForm.depopProductType.trim() ? { productType: itemForm.depopProductType.trim() } : {}),
           ...(itemForm.depopCondition.trim() ? { condition: itemForm.depopCondition.trim() } : {}),
-          ...(itemForm.depopShippingMode.trim() ? { shippingMode: itemForm.depopShippingMode.trim() } : {})
+          ...(itemForm.depopPackageSize.trim() ? { packageSize: itemForm.depopPackageSize.trim() } : {})
         }
       };
     }
@@ -640,98 +637,7 @@ export default function InventoryDetailPage() {
     }
   }
 
-  function getPreferredExtensionPlatform() {
-    const extensionFirst = selectedPlatforms.find((platform) => {
-      const capability = extensionStatus.data?.capabilitySummary.find((entry) => entry.platform === platform);
-      return capability?.publishMode === "EXTENSION" || capability?.importMode === "EXTENSION";
-    });
-
-    return extensionFirst ?? selectedPlatforms[0] ?? "EBAY";
-  }
-
-  function getLatestExtensionTask(platform: Platform) {
-    return data?.item.extensionTasks.find((task) => task.platform === platform) ?? null;
-  }
-
-  function getExtensionTaskTabUrl(platform: Platform) {
-    const task = getLatestExtensionTask(platform);
-    const resultJson =
-      task && "resultJson" in task && task.resultJson && typeof task.resultJson === "object"
-        ? (task.resultJson as Record<string, unknown>)
-        : null;
-    const tabUrl = typeof resultJson?.tabUrl === "string" ? resultJson.tabUrl : null;
-    const externalUrl = typeof resultJson?.externalUrl === "string" ? resultJson.externalUrl : null;
-
-    return externalUrl ?? tabUrl;
-  }
-
-  async function sendToExtension(
-    platform: Platform = getPreferredExtensionPlatform(),
-    action: "PREPARE_DRAFT" | "PUBLISH_LISTING" = "PREPARE_DRAFT"
-  ) {
-    if (!auth.token || !auth.workspace) {
-      return;
-    }
-
-    const workspaceId = auth.workspace.id;
-
-    if (!extension.connected) {
-      setActionError("Refresh the browser extension connection first.");
-      return;
-    }
-
-    startTransition(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/api/extension/tasks/handoff`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${auth.token}`,
-          "x-workspace-id": workspaceId
-        },
-        body: JSON.stringify({
-          inventoryItemId: params.id,
-          platform,
-          action
-        })
-      });
-        const payload = (await response.json().catch(() => ({ error: "Could not create extension handoff" }))) as {
-          error?: string;
-          task?: { id: string; platform: string; action: string };
-          listing?: Record<string, unknown>;
-        };
-
-        if (!response.ok || !payload.task || !payload.listing) {
-          throw new Error(payload.error ?? "Could not create extension handoff");
-        }
-
-        const handoff = await handoffExtensionTask({
-          taskId: payload.task.id,
-          platform: payload.task.platform,
-          action: payload.task.action,
-          listing: payload.listing
-        });
-
-        if (!handoff.ok) {
-          throw new Error(handoff.error ?? "Extension did not accept the task");
-        }
-
-        const platformLabel =
-          platform === "EBAY" ? "eBay" : platform === "DEPOP" ? "Depop" : platform === "POSHMARK" ? "Poshmark" : "Whatnot";
-
-        setActionNotice(
-          action === "PUBLISH_LISTING"
-            ? `Queued ${platformLabel} publish in the browser extension.`
-            : `Queued ${platformLabel} draft prep in the browser extension.`
-        );
-        await Promise.all([refresh(), extensionStatus.refresh()]);
-      } catch (caughtError) {
-        setActionError(caughtError instanceof Error ? caughtError.message : "Could not send item to extension");
-      }
-    });
-  }
-
-  async function recheckMarketplaceAccountInExtension(platform: Platform) {
+  async function recheckMarketplaceAccount(platform: Platform) {
     if (platform === "EBAY") {
       router.push("/marketplaces");
       return;
@@ -787,7 +693,7 @@ export default function InventoryDetailPage() {
             return next;
           });
           setActionNotice(`${label} login rechecked.`);
-          await Promise.all([refresh(), marketplaceAccounts.refresh(), extensionStatus.refresh(), ebayPreflight.refresh()]);
+          await Promise.all([refresh(), marketplaceAccounts.refresh(), automationCapabilities.refresh(), ebayPreflight.refresh()]);
         } catch (caughtError) {
           setActionError(caughtError instanceof Error ? caughtError.message : `Could not recheck ${label} login.`);
         }
@@ -878,38 +784,16 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "connect_account") {
-      void recheckMarketplaceAccountInExtension(platform as Platform);
+      void recheckMarketplaceAccount(platform as Platform);
       return;
     }
 
     if (action === "check_again") {
       if (platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT") {
-        void recheckMarketplaceAccountInExtension(platform as Platform);
+        void recheckMarketplaceAccount(platform as Platform);
       } else {
-        void Promise.all([refresh(), ebayPreflight.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh()]);
+        void Promise.all([refresh(), ebayPreflight.refresh(), automationCapabilities.refresh(), marketplaceAccounts.refresh()]);
       }
-      return;
-    }
-
-    if (action === "check_extension") {
-      void Promise.all([extension.refresh(), extensionStatus.refresh(), marketplaceAccounts.refresh(), refresh(), ebayPreflight.refresh()]);
-      return;
-    }
-
-    if (action === "open_extension") {
-      const taskTabUrl = getExtensionTaskTabUrl(platform as Platform);
-
-      if (taskTabUrl) {
-        window.open(taskTabUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-
-      void sendToExtension(platform as Platform);
-      return;
-    }
-
-    if (action === "publish_extension") {
-      void sendToExtension(platform as Platform, "PUBLISH_LISTING");
       return;
     }
 
@@ -919,20 +803,6 @@ export default function InventoryDetailPage() {
     }
 
     if (action === "publish_api" || action === "retry") {
-      const capability = extensionStatus.data?.capabilitySummary.find((entry) => entry.platform === platform);
-      const latestTask = getLatestExtensionTask(platform as Platform);
-
-      if (
-        capability?.publishMode === "EXTENSION" &&
-        (platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT")
-      ) {
-        void sendToExtension(
-          platform as Platform,
-          latestTask?.action === "PUBLISH_LISTING" ? "PUBLISH_LISTING" : "PREPARE_DRAFT"
-        );
-        return;
-      }
-
       if (platform === "EBAY") {
         void runMutation(`/api/inventory/${data?.item.id}/publish/ebay`);
       } else if (platform === "DEPOP") {
@@ -954,30 +824,7 @@ export default function InventoryDetailPage() {
 
   function handleMarketplaceSecondaryAction(platform: string, action: MarketplaceActionKind) {
     if (action === "connect_account") {
-      void recheckMarketplaceAccountInExtension(platform as Platform);
-      return;
-    }
-
-    if (action === "check_extension") {
-      void extension.refresh();
-      void extensionStatus.refresh();
-      return;
-    }
-
-    if (action === "open_extension") {
-      const taskTabUrl = getExtensionTaskTabUrl(platform as Platform);
-
-      if (taskTabUrl) {
-        window.open(taskTabUrl, "_blank", "noopener,noreferrer");
-        return;
-      }
-
-      void sendToExtension(platform as Platform);
-      return;
-    }
-
-    if (action === "publish_extension") {
-      void sendToExtension(platform as Platform, "PUBLISH_LISTING");
+      void recheckMarketplaceAccount(platform as Platform);
       return;
     }
 
@@ -1055,6 +902,7 @@ export default function InventoryDetailPage() {
         delete existingDepopAttributes.productType;
         delete existingDepopAttributes.condition;
         delete existingDepopAttributes.shippingMode;
+        delete existingDepopAttributes.packageSize;
 
         if (itemForm.depopPrice.trim()) {
           existingDepopOverride.price = Number(itemForm.depopPrice);
@@ -1083,8 +931,8 @@ export default function InventoryDetailPage() {
           existingDepopAttributes.condition = itemForm.depopCondition.trim();
         }
 
-        if (itemForm.depopShippingMode.trim()) {
-          existingDepopAttributes.shippingMode = itemForm.depopShippingMode.trim();
+        if (itemForm.depopPackageSize.trim()) {
+          existingDepopAttributes.packageSize = itemForm.depopPackageSize.trim();
         }
 
         if (Object.keys(existingDepopAttributes).length > 0) {
@@ -1229,23 +1077,16 @@ export default function InventoryDetailPage() {
                   platforms
                 })
               }
-              extensionCapabilities={extensionStatus.data?.capabilitySummary ?? []}
+              marketplaceCapabilities={automationCapabilities.data?.capabilitySummary ?? []}
               onSetCoverImage={(imageId) => setCoverImage(imageId)}
               onPublishLinked={(platforms) => void runMutation(`/api/inventory/${data.item.id}/publish-linked`, { platforms })}
               onSaveEbayDraft={saveEbayDraft}
               onSaveItemDetails={saveItemDetails}
-              extensionConnected={extension.connected}
-              extensionInstalled={extension.installed}
-              extensionPendingCount={extensionStatus.data?.tasks.filter((task) => task.state === "QUEUED" || task.state === "RUNNING").length ?? 0}
               marketplaceAccounts={marketplaceAccounts.data?.accounts ?? []}
               pendingConnectAttempts={pendingConnectAttempts}
               onMarketplaceAction={handleMarketplaceAction}
               onMarketplaceSecondaryAction={handleMarketplaceSecondaryAction}
               onOpenMarketplaces={() => router.push("/marketplaces")}
-              onRefreshExtension={() => {
-                void extension.refresh();
-                void extensionStatus.refresh();
-              }}
               itemForm={itemForm}
               selectedPlatforms={selectedPlatforms}
               onTogglePlatform={(platform, checked) =>

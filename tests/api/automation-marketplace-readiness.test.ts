@@ -420,7 +420,7 @@ test("production blocks automation marketplace readiness when the connector is s
   }
 });
 
-test("production allows Depop extension-browser sessions to surface as extension-ready", async () => {
+test("production blocks non-remote Depop sessions from remote publish readiness", async () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalAllow = process.env.ALLOW_SIMULATED_MARKETPLACE_PATHS;
   const originalExpose = process.env.AUTH_EXPOSE_DEV_CODE;
@@ -429,7 +429,7 @@ test("production allows Depop extension-browser sessions to surface as extension
   process.env.AUTH_EXPOSE_DEV_CODE = "true";
 
   try {
-    const session = await createWorkspaceSession("automation-production-extension-ready");
+    const session = await createWorkspaceSession("automation-production-legacy-session-blocked");
 
     await db.marketplaceAccount.create({
       data: {
@@ -445,7 +445,7 @@ test("production allows Depop extension-browser sessions to surface as extension
           publishMode: "automation",
           accountHandle: "main-depop-shop",
           vendorSessionArtifact: {
-            captureMode: "EXTENSION_BROWSER"
+            captureMode: "REMOTE_BROWSER"
           }
         }
       }
@@ -479,13 +479,13 @@ test("production allows Depop extension-browser sessions to surface as extension
 
     const depop = body.accounts.find((account) => account.platform === "DEPOP");
     assert.ok(depop?.readiness);
-    assert.equal(depop.readiness.state, "AUTOMATION_READY");
-    assert.equal(depop.readiness.status, "READY");
-    assert.equal(depop.readiness.publishMode, "extension");
-    assert.match(depop.readiness.summary, /browser session is ready/i);
-    assert.match(depop.readiness.detail, /browser extension/i);
-    assert.equal(depop.readiness.hint?.severity, "SUCCESS");
-    assert.equal(depop.readiness.hint?.canContinue, true);
+    assert.equal(depop.readiness.state, "AUTOMATION_BLOCKED");
+    assert.equal(depop.readiness.status, "BLOCKED");
+    assert.equal(depop.readiness.publishMode, "automation");
+    assert.match(depop.readiness.summary, /not enabled in production yet/i);
+    assert.match(depop.readiness.detail, /remote runtime/i);
+    assert.equal(depop.readiness.hint?.severity, "ERROR");
+    assert.equal(depop.readiness.hint?.canContinue, false);
   } finally {
     process.env.NODE_ENV = originalNodeEnv;
     if (originalAllow === undefined) {

@@ -32,14 +32,11 @@ export type MarketplaceListingState =
 
 export type MarketplaceActionKind =
   | "publish_api"
-  | "publish_extension"
   | "generate_draft"
-  | "open_extension"
   | "open_listing"
   | "review_sale"
   | "connect_account"
   | "check_again"
-  | "check_extension"
   | "fix_details"
   | "retry"
   | "watch"
@@ -73,7 +70,7 @@ export type InventoryListLikeItem = {
     status?: string | null;
     externalUrl?: string | null;
   }>;
-  extensionTasks?: Array<{
+  automationTasks?: Array<{
     id: string;
     platform: string;
     action: string;
@@ -116,8 +113,6 @@ export type MarketplaceStatusSummary = {
   summary: string;
   executionMode: string;
   capabilitySummary: string;
-  extensionRequired: boolean;
-  extensionSummary: string;
   connectionSummary: string;
   connectionTone: "success" | "warning" | "neutral" | "danger";
   blocker: string | null;
@@ -127,19 +122,17 @@ export type MarketplaceStatusSummary = {
 export type MarketplaceStatusOptions = {
   marketplaceAccounts?: MarketplaceAccountLike[];
   capabilitySummary?: MarketplaceCapabilitySummary[];
-  extensionInstalled?: boolean;
-  extensionConnected?: boolean;
   pendingConnectAttempts?: Partial<Record<string, { attemptId: string; helperNonce: string }>>;
 };
 
 type ListingDraftLike = NonNullable<InventoryListLikeItem["listingDrafts"]>[number];
-type ExtensionTaskLike = NonNullable<InventoryListLikeItem["extensionTasks"]>[number];
+type AutomationTaskLike = NonNullable<InventoryListLikeItem["automationTasks"]>[number];
 type PlatformRequirements = {
   required: string[];
   recommended: string[];
 };
 
-type ExtensionTaskResultLike = {
+type AutomationTaskResultLike = {
   missingFields?: unknown;
 };
 
@@ -279,7 +272,9 @@ function humanizeGenericRequirement(flag: ListingReadinessFlag) {
   }
 }
 
-function humanizeExtensionField(field: string) {
+function humanizeAutomationField(field: string, platform?: string | null) {
+  const isDepop = platform === "DEPOP";
+
   switch (field.trim().toLowerCase()) {
     case "title":
       return "title";
@@ -302,7 +297,11 @@ function humanizeExtensionField(field: string) {
     case "shipping mode":
     case "shipping_mode":
     case "depop shipping":
-      return "Depop shipping";
+      return isDepop ? "Depop package size" : "shipping";
+    case "package size":
+    case "package_size":
+    case "depop package size":
+      return isDepop ? "Depop package size" : "package size";
     case "condition":
       return "condition";
     case "size":
@@ -323,13 +322,46 @@ function isGenericMissingFieldMessage(message: string | null | undefined) {
   return normalized.includes("needs a few required fields") || normalized.includes("still needs required item fields");
 }
 
-function getExtensionTaskMissingFields(extensionTask?: ExtensionTaskLike | null) {
-  if (!extensionTask?.resultJson || typeof extensionTask.resultJson !== "object") {
+function isLegacyBrowserTransportMessage(message: string | null | undefined) {
+  if (!message) {
+    return false;
+  }
+
+  const normalized = message.trim().toLowerCase();
+
+  return (
+    normalized.includes("receiving end does not exist") ||
+    normalized.includes("could not establish connection") ||
+    normalized.includes("message port closed")
+  );
+}
+
+function isRemoteGridPublishPlatform(platform: string, capability?: MarketplaceCapabilitySummary | null) {
+  return (platform === "DEPOP" || platform === "POSHMARK") && capability?.publishMode === "API";
+}
+
+function getPlatformLabel(platform: string) {
+  switch (platform) {
+    case "DEPOP":
+      return "Depop";
+    case "POSHMARK":
+      return "Poshmark";
+    case "WHATNOT":
+      return "Whatnot";
+    case "EBAY":
+      return "eBay";
+    default:
+      return platform;
+  }
+}
+
+function getAutomationTaskMissingFields(automationTask?: AutomationTaskLike | null) {
+  if (!automationTask?.resultJson || typeof automationTask.resultJson !== "object") {
     return [];
   }
 
-  const result = extensionTask.resultJson as ExtensionTaskResultLike;
-  return uniqueStrings(getStringArray(result.missingFields).map(humanizeExtensionField));
+  const result = automationTask.resultJson as AutomationTaskResultLike;
+  return uniqueStrings(getStringArray(result.missingFields).map((field) => humanizeAutomationField(field, automationTask.platform)));
 }
 
 function marketplaceFieldHasValue(item: InventoryListLikeItem, platform: string, field: string, draft?: ListingDraftLike | null) {
@@ -353,8 +385,8 @@ function marketplaceFieldHasValue(item: InventoryListLikeItem, platform: string,
       return hasValue(overrideAttributes?.department);
     case "Depop product type":
       return hasValue(overrideAttributes?.productType);
-    case "Depop shipping":
-      return hasValue(overrideAttributes?.shippingMode);
+    case "Depop package size":
+      return hasValue(overrideAttributes?.packageSize);
     case "condition":
       return hasValue(override?.condition) || hasValue(item.condition);
     case "size":
@@ -452,8 +484,8 @@ function getPlatformRequirements(input: {
       required.push("Depop product type");
     }
 
-    if (!hasValue(depopAttributes?.shippingMode)) {
-      required.push("Depop shipping");
+    if (!hasValue(depopAttributes?.packageSize)) {
+      required.push("Depop package size");
     }
 
     const sharedTags = getStringArray(attributes.tags);
@@ -503,15 +535,7 @@ function describeCapabilities(platform: string, capability?: MarketplaceCapabili
     return {
       executionMode: "Unavailable",
       capabilitySummary: "No live marketplace workflow",
-      extensionRequired: false
-    };
-  }
-
-  if (capability.publishMode === "API" && capability.importMode === "EXTENSION") {
-    return {
-      executionMode: "API",
-      capabilitySummary: "API publish with optional browser import",
-      extensionRequired: false
+      automationRequired: false
     };
   }
 
@@ -519,30 +543,14 @@ function describeCapabilities(platform: string, capability?: MarketplaceCapabili
     return {
       executionMode: "API",
       capabilitySummary: "Publish through Mollie",
-      extensionRequired: false
-    };
-  }
-
-  if (capability.publishMode === "EXTENSION") {
-    return {
-      executionMode: "Browser",
-      capabilitySummary: "Marketplace work runs in your browser extension",
-      extensionRequired: true
-    };
-  }
-
-  if (capability.importMode === "EXTENSION") {
-    return {
-      executionMode: "Browser",
-      capabilitySummary: "Import or draft prep is available in the browser extension",
-      extensionRequired: false
+      automationRequired: false
     };
   }
 
   return {
     executionMode: "Unavailable",
     capabilitySummary: "No live marketplace workflow",
-    extensionRequired: false
+    automationRequired: false
   };
 }
 
@@ -567,18 +575,6 @@ function describeConnection(input: {
       connectionSummary: "No connected marketplace account",
       connectionTone: "warning" as const,
       blocker
-    };
-  }
-
-  if (
-    input.capability?.publishMode === "EXTENSION" &&
-    account.status === "CONNECTED" &&
-    account.validationStatus === "VALID"
-  ) {
-    return {
-      connectionSummary: `Browser session ready${account.displayName ? ` - ${account.displayName}` : ""}`,
-      connectionTone: "success" as const,
-      blocker: null
     };
   }
 
@@ -613,38 +609,6 @@ function describeConnection(input: {
   };
 }
 
-function describeExtensionState(options: MarketplaceStatusOptions, extensionRequired: boolean) {
-  if (!extensionRequired) {
-    return {
-      extensionSummary: options.extensionConnected
-        ? "Browser extension is connected for optional browser-side work"
-        : options.extensionInstalled
-          ? "Browser extension is installed but not connected to Mollie"
-          : "Browser extension is optional for this marketplace",
-      extensionBlocker: null
-    };
-  }
-
-  if (options.extensionConnected) {
-    return {
-      extensionSummary: "Browser extension connected and ready",
-      extensionBlocker: null
-    };
-  }
-
-  if (options.extensionInstalled) {
-    return {
-      extensionSummary: "Browser extension installed but not connected",
-      extensionBlocker: "Refresh the browser extension connection."
-    };
-  }
-
-  return {
-    extensionSummary: "Browser extension not installed in this browser",
-    extensionBlocker: "Install the Mollie browser extension."
-  };
-}
-
 function summarizeMarketplaceReadiness(input: {
   platform: string;
   listingState: MarketplaceListingState;
@@ -654,8 +618,7 @@ function summarizeMarketplaceReadiness(input: {
   capability?: MarketplaceCapabilitySummary | null;
   account?: MarketplaceAccountLike | null;
   connectionBlocker: string | null;
-  extensionBlocker: string | null;
-  extensionTask?: ExtensionTaskLike | null;
+  automationTask?: AutomationTaskLike | null;
   needsBrowserInput: boolean;
 }) {
   const primaryMissing = input.requiredRequirements[0] ?? null;
@@ -672,11 +635,11 @@ function summarizeMarketplaceReadiness(input: {
   if (input.listingState === "queued" || input.listingState === "publishing") {
     return {
       summary:
-        input.extensionTask?.state === "QUEUED"
-          ? "Queued in the browser extension"
-          : input.extensionTask?.state === "RUNNING"
-            ? "Browser extension execution is active"
-            : "Marketplace work is in flight",
+        input.automationTask?.state === "QUEUED"
+          ? "Queued for posting"
+          : input.automationTask?.state === "RUNNING"
+            ? "Posting is in progress"
+            : "Marketplace work is in progress",
       blocker: null
     };
   }
@@ -693,25 +656,50 @@ function summarizeMarketplaceReadiness(input: {
     }
 
     const browserRetrySummary =
-      input.platform === "DEPOP" ? "Depop publish needs another browser pass." : "The marketplace flow needs another browser pass.";
+      input.platform === "DEPOP" ? "Depop publish needs another pass." : "The marketplace flow needs another pass.";
+    const legacyTransportFailure =
+      isLegacyBrowserTransportMessage(input.automationTask?.lastErrorMessage) ||
+      isLegacyBrowserTransportMessage(input.automationTask?.needsInputReason);
+
+    if (legacyTransportFailure && isRemoteGridPublishPlatform(input.platform, input.capability)) {
+      const platformLabel = getPlatformLabel(input.platform);
+
+      return {
+        summary: `${platformLabel} publish is ready to retry on the remote grid.`,
+        blocker: "The last automation attempt could not reach a worker. Retry publish to queue it on Mollie's remote browser grid."
+      };
+    }
 
     return {
       summary:
-        isGenericMissingFieldMessage(input.extensionTask?.lastErrorMessage)
+        isGenericMissingFieldMessage(input.automationTask?.lastErrorMessage)
           ? browserRetrySummary
-          : input.extensionTask?.lastErrorMessage ?? browserRetrySummary,
+          : input.automationTask?.lastErrorMessage ?? browserRetrySummary,
       blocker:
-        isGenericMissingFieldMessage(input.extensionTask?.needsInputReason)
-          ? "Mollie has the required fields. Retry the browser publish so the extension can map them onto this Depop page."
-          : input.extensionTask?.needsInputReason ??
-        "The browser extension needs another pass to finish the marketplace flow."
+        isGenericMissingFieldMessage(input.automationTask?.needsInputReason)
+          ? "Mollie has the required fields. Retry the publish so Mollie can map them onto this Depop page."
+          : input.automationTask?.needsInputReason ??
+        "Mollie needs another pass to finish the marketplace flow."
     };
   }
 
   if (input.listingState === "failed") {
+    const legacyTransportFailure =
+      isLegacyBrowserTransportMessage(input.automationTask?.lastErrorMessage) ||
+      isLegacyBrowserTransportMessage(input.automationTask?.needsInputReason);
+
+    if (legacyTransportFailure && isRemoteGridPublishPlatform(input.platform, input.capability)) {
+      const platformLabel = getPlatformLabel(input.platform);
+
+      return {
+        summary: `${platformLabel} publish is ready to retry on the remote grid.`,
+        blocker: "The last automation attempt could not reach a worker. Retry publish to queue it on Mollie's remote browser grid."
+      };
+    }
+
     return {
-      summary: input.extensionTask?.lastErrorMessage ?? "Marketplace work failed and needs attention",
-      blocker: input.extensionTask?.needsInputReason ?? input.extensionTask?.lastErrorMessage ?? input.connectionBlocker ?? fallbackBlocker
+      summary: input.automationTask?.lastErrorMessage ?? "Marketplace work failed and needs attention",
+      blocker: input.automationTask?.needsInputReason ?? input.automationTask?.lastErrorMessage ?? input.connectionBlocker ?? fallbackBlocker
     };
   }
 
@@ -720,7 +708,7 @@ function summarizeMarketplaceReadiness(input: {
       if (input.draft) {
         return {
           summary: input.draft.reviewStatus === "APPROVED" ? "Ready for eBay API publish" : "eBay draft needs review",
-          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
+          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker
         };
       }
 
@@ -747,7 +735,7 @@ function summarizeMarketplaceReadiness(input: {
 
       return {
         summary: primaryMissing ? `Finish ${primaryMissing} for eBay` : "eBay needs more listing detail",
-        blocker: fallbackBlocker ?? input.connectionBlocker ?? input.extensionBlocker
+        blocker: fallbackBlocker ?? input.connectionBlocker
       };
     }
 
@@ -761,21 +749,14 @@ function summarizeMarketplaceReadiness(input: {
 
       if (input.draft) {
         return {
-          summary: input.draft.reviewStatus === "APPROVED" ? "Ready for Depop browser posting" : "Depop draft needs review",
-          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker ?? input.extensionBlocker
-        };
-      }
-
-      if (input.capability?.publishMode === "EXTENSION" && input.requiredRequirements.length === 0) {
-        return {
-          summary: "Ready for Depop browser draft prep",
-          blocker: input.connectionBlocker ?? input.extensionBlocker
+          summary: input.draft.reviewStatus === "APPROVED" ? "Ready for Depop publish" : "Depop draft needs review",
+          blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker
         };
       }
 
       return {
         summary: primaryMissing ? `Finish ${primaryMissing} before Depop draft prep` : "Depop needs a little more listing detail",
-        blocker: fallbackBlocker ?? input.connectionBlocker ?? input.extensionBlocker
+        blocker: fallbackBlocker ?? input.connectionBlocker
       };
     }
 
@@ -806,7 +787,7 @@ function summarizeMarketplaceReadiness(input: {
           input.capability?.publishMode === "API"
             ? "Ready for Poshmark remote publish"
             : "Poshmark account is connected, but remote publish is not live yet",
-        blocker: input.capability?.publishMode === "API" ? input.connectionBlocker : input.connectionBlocker ?? input.extensionBlocker
+        blocker: input.connectionBlocker
       };
     }
 
@@ -827,17 +808,17 @@ function summarizeMarketplaceReadiness(input: {
 
       return {
         summary:
-          input.capability?.publishMode === "EXTENSION"
-            ? "Ready for Whatnot browser prep"
-            : "Whatnot browser session is connected, but listing prep is not live yet",
-        blocker: input.capability?.publishMode === "EXTENSION" ? input.connectionBlocker ?? input.extensionBlocker : input.connectionBlocker
+          input.capability?.publishMode === "API"
+            ? "Ready for Whatnot remote publish"
+            : "Whatnot is connected, but listing prep is not live yet",
+        blocker: input.connectionBlocker
       };
     }
 
     default:
       return {
         summary: primaryMissing ? `Finish ${primaryMissing}` : "Needs more item setup",
-        blocker: fallbackBlocker ?? input.connectionBlocker ?? input.extensionBlocker
+        blocker: fallbackBlocker ?? input.connectionBlocker
       };
   }
 }
@@ -848,12 +829,10 @@ function actionForState(input: {
   hasDraft: boolean;
   hasBlockingFields: boolean;
   capability?: MarketplaceCapabilitySummary | null;
-  extensionRequired: boolean;
-  extensionConnected?: boolean;
   account?: MarketplaceAccountLike | null;
   blocker: string | null;
   needsBrowserInput: boolean;
-  extensionTaskAction?: string | null;
+  automationTaskAction?: string | null;
   pendingConnectAttempt?: boolean;
 }): {
   actionLabel: string;
@@ -891,21 +870,11 @@ function actionForState(input: {
     return {
       actionLabel:
         input.platform === "DEPOP"
-          ? input.extensionTaskAction === "PUBLISH_LISTING"
+          ? input.automationTaskAction === "PUBLISH_LISTING"
             ? "Retry publish"
             : "Retry draft prep"
-          : "Retry in browser",
+          : "Retry",
       actionKind: "retry" as const
-    };
-  }
-
-  if (input.listingState === "failed" && input.capability?.publishMode === "EXTENSION") {
-    const actionKind: MarketplaceActionKind =
-      input.extensionTaskAction === "PUBLISH_LISTING" ? "publish_extension" : "open_extension";
-
-    return {
-      actionLabel: input.extensionTaskAction === "PUBLISH_LISTING" ? "Retry publish" : "Retry draft prep",
-      actionKind
     };
   }
 
@@ -919,13 +888,6 @@ function actionForState(input: {
               : "Open login"
             : "Recheck login",
         actionKind: input.pendingConnectAttempt ? ("check_again" as const) : ("connect_account" as const)
-      };
-    }
-
-    if (input.extensionRequired && !input.extensionConnected) {
-      return {
-        actionLabel: "Check extension",
-        actionKind: "check_extension" as const
       };
     }
 
@@ -945,14 +907,17 @@ function actionForState(input: {
   if (input.hasDraft || input.listingState === "draft") {
     if (input.capability?.publishMode === "API") {
       return {
-        actionLabel: "Publish via API",
+        actionLabel:
+          input.platform === "DEPOP" || input.platform === "POSHMARK" || input.platform === "WHATNOT"
+            ? "Publish now"
+            : "Publish via API",
         actionKind: "publish_api" as const
       };
     }
 
     return {
-      actionLabel: input.platform === "DEPOP" ? "Post in browser" : "Open in extension",
-      actionKind: "publish_extension" as const
+      actionLabel: "Unavailable",
+      actionKind: "unavailable" as const
     };
   }
 
@@ -967,13 +932,6 @@ function actionForState(input: {
     return {
       actionLabel: "Publish via API",
       actionKind: "publish_api" as const
-    };
-  }
-
-  if (input.capability?.importMode === "EXTENSION" || input.capability?.publishMode === "EXTENSION") {
-    return {
-      actionLabel: "Open in extension",
-      actionKind: "open_extension" as const
     };
   }
 
@@ -1000,15 +958,15 @@ export function getMarketplaceStatusSummaries(
   return platforms.map((platform) => {
     const listing = item.platformListings?.find((candidate) => candidate.platform === platform) ?? null;
     const draft = item.listingDrafts?.find((candidate) => candidate.platform === platform) ?? null;
-    const extensionTask =
-      item.extensionTasks?.find((candidate) => candidate.platform === platform) ?? null;
+    const automationTask =
+      item.automationTasks?.find((candidate) => candidate.platform === platform) ?? null;
     const baseListingState = listing ? getMarketplaceListingState(listing.status) : draft ? "draft" : "not_started";
     const listingState =
-      extensionTask?.state === "QUEUED"
+      automationTask?.state === "QUEUED"
         ? "queued"
-        : extensionTask?.state === "RUNNING"
+        : automationTask?.state === "RUNNING"
           ? "publishing"
-          : extensionTask?.state === "FAILED"
+          : automationTask?.state === "FAILED"
             ? "failed"
             : baseListingState;
     const requirements = getPlatformRequirements({
@@ -1017,10 +975,10 @@ export function getMarketplaceStatusSummaries(
       genericFlags: flags,
       draft
     });
-    const extensionTaskMissingFields = getExtensionTaskMissingFields(extensionTask).filter(
+    const automationTaskMissingFields = getAutomationTaskMissingFields(automationTask).filter(
       (field) => !marketplaceFieldHasValue(item, platform, field, draft)
     );
-    const missingRequirements = uniqueStrings([...requirements.required, ...extensionTaskMissingFields]);
+    const missingRequirements = uniqueStrings([...requirements.required, ...automationTaskMissingFields]);
     const capability = options.capabilitySummary?.find((entry) => entry.platform === platform) ?? null;
     const pendingConnectAttempt = options.pendingConnectAttempts?.[platform] ?? null;
     const account =
@@ -1033,8 +991,7 @@ export function getMarketplaceStatusSummaries(
       capability,
       account
     });
-    const extensionDetail = describeExtensionState(options, capabilityDetail.extensionRequired);
-    const needsBrowserInput = extensionTask?.state === "NEEDS_INPUT";
+    const needsBrowserInput = automationTask?.state === "NEEDS_INPUT";
     const readinessCopy = summarizeMarketplaceReadiness({
       platform,
       listingState,
@@ -1044,8 +1001,7 @@ export function getMarketplaceStatusSummaries(
       capability,
       account,
       connectionBlocker: connectionDetail.blocker,
-      extensionBlocker: extensionDetail.extensionBlocker,
-      extensionTask,
+      automationTask,
       needsBrowserInput
     });
     let summary = readinessCopy.summary;
@@ -1056,8 +1012,8 @@ export function getMarketplaceStatusSummaries(
       blocker = connectionDetail.blocker;
     }
 
-    if (!blocker && (connectionDetail.blocker || extensionDetail.extensionBlocker) && listingState !== "published" && listingState !== "sold") {
-      blocker = connectionDetail.blocker ?? extensionDetail.extensionBlocker;
+    if (!blocker && connectionDetail.blocker && listingState !== "published" && listingState !== "sold") {
+      blocker = connectionDetail.blocker;
     }
 
     const action = actionForState({
@@ -1066,19 +1022,25 @@ export function getMarketplaceStatusSummaries(
       hasDraft: Boolean(draft),
       hasBlockingFields: missingRequirements.length > 0,
       capability,
-      extensionRequired: capabilityDetail.extensionRequired,
-      extensionConnected: options.extensionConnected,
       account,
       blocker,
       needsBrowserInput,
-      extensionTaskAction: extensionTask?.action ?? null,
+      automationTaskAction: automationTask?.action ?? null,
       pendingConnectAttempt: Boolean(pendingConnectAttempt)
     });
+    const legacyRemoteRetry =
+      listingState === "failed" &&
+      isRemoteGridPublishPlatform(platform, capability) &&
+      (isLegacyBrowserTransportMessage(automationTask?.lastErrorMessage) ||
+        isLegacyBrowserTransportMessage(automationTask?.needsInputReason));
 
     let secondaryActionLabel: string | null = null;
     let secondaryActionKind: MarketplaceActionKind | null = null;
 
-    if (!account) {
+    if (legacyRemoteRetry) {
+      secondaryActionLabel = null;
+      secondaryActionKind = null;
+    } else if (!account) {
       secondaryActionLabel =
         platform === "DEPOP" || platform === "POSHMARK" || platform === "WHATNOT"
           ? pendingConnectAttempt
@@ -1091,13 +1053,7 @@ export function getMarketplaceStatusSummaries(
             ? "connect_account"
             : "connect_account"
           : "connect_account";
-    } else if (capabilityDetail.extensionRequired && !options.extensionConnected) {
-      secondaryActionLabel = "Check again";
-      secondaryActionKind = "check_extension";
-    } else if (capability?.importMode === "EXTENSION" && platform === "EBAY" && action.actionKind !== "open_extension") {
-      secondaryActionLabel = "Open in extension";
-      secondaryActionKind = "open_extension";
-    } else if (account || capabilityDetail.extensionRequired) {
+    } else if (account) {
       secondaryActionLabel = "Check again";
       secondaryActionKind = "check_again";
     }
@@ -1115,8 +1071,6 @@ export function getMarketplaceStatusSummaries(
       summary,
       executionMode: capabilityDetail.executionMode,
       capabilitySummary: capabilityDetail.capabilitySummary,
-      extensionRequired: capabilityDetail.extensionRequired,
-      extensionSummary: extensionDetail.extensionSummary,
       connectionSummary: connectionDetail.connectionSummary,
       connectionTone: connectionDetail.connectionTone,
       blocker,

@@ -19,7 +19,7 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
             attributes: {
               department: "Men",
               productType: "Jackets",
-              shippingMode: "DEPOP_SHIPPING"
+              packageSize: "Small"
             }
           }
         }
@@ -35,7 +35,7 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
         }
       ],
       platformListings: [],
-      extensionTasks: [
+      automationTasks: [
         {
           id: "task-1",
           platform: "DEPOP",
@@ -50,14 +50,12 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
       ]
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "DEPOP",
-          capabilities: ["EXTENSION_PUBLISH"],
+          capabilities: ["API_PUBLISH"],
           importMode: "NONE",
-          publishMode: "EXTENSION",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -85,13 +83,13 @@ test("Depop rows surface exact missing fields in Mollie instead of sending the o
   assert.equal(depop.state, "draft");
   assert.equal(depop.actionLabel, "Fix details");
   assert.equal(depop.actionKind, "fix_details");
-  assert.equal(depop.connectionSummary, "Browser session ready - main closet");
+  assert.equal(depop.connectionSummary, "Blocked by old automation runtime");
   assert.equal(depop.summary, "Depop still needs required item fields before publish.");
   assert.equal(depop.blocker, "Missing description.");
   assert.deepEqual(depop.missingRequirements, ["description"]);
 });
 
-test("Depop rows retry browser publish when Mollie already has the required fields", () => {
+test("Depop rows retry remote publish when Mollie already has the required fields", () => {
   const depop = getMarketplaceStatusSummaries(
     {
       id: "item-1b",
@@ -107,7 +105,7 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
             attributes: {
               department: "Men",
               productType: "Jackets",
-              shippingMode: "DEPOP_SHIPPING"
+              packageSize: "Small"
             }
           }
         }
@@ -123,7 +121,7 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
         }
       ],
       platformListings: [],
-      extensionTasks: [
+      automationTasks: [
         {
           id: "task-1b",
           platform: "DEPOP",
@@ -138,14 +136,12 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
       ]
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "DEPOP",
-          capabilities: ["EXTENSION_PUBLISH"],
+          capabilities: ["API_PUBLISH"],
           importMode: "NONE",
-          publishMode: "EXTENSION",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -172,6 +168,87 @@ test("Depop rows retry browser publish when Mollie already has the required fiel
   );
 });
 
+test("Depop rows convert legacy browser transport failures into remote retry guidance", () => {
+  const depop = getMarketplaceStatusSummaries(
+    {
+      id: "item-legacy-browser-failure",
+      title: "Leather shoes",
+      category: "Shoes",
+      condition: "Good used condition",
+      size: "10",
+      priceRecommendation: 35,
+      attributesJson: {
+        description: "Leather shoes ready for Depop.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Shoes",
+              packageSize: "Small"
+            }
+          }
+        }
+      },
+      images: [{ id: "img-legacy", url: "https://images.example.com/shoes.jpg", position: 0 }],
+      listingDrafts: [
+        {
+          id: "draft-legacy",
+          platform: "DEPOP",
+          reviewStatus: "APPROVED",
+          generatedPrice: 35,
+          generatedTitle: "Leather shoes"
+        }
+      ],
+      platformListings: [],
+      automationTasks: [
+        {
+          id: "task-legacy",
+          platform: "DEPOP",
+          action: "PUBLISH_LISTING",
+          state: "FAILED",
+          needsInputReason: "Could not establish connection. Receiving end does not exist.",
+          lastErrorMessage: "Could not establish connection. Receiving end does not exist.",
+          resultJson: {
+            missingFields: []
+          }
+        }
+      ]
+    },
+    {
+      capabilitySummary: [
+        {
+          platform: "DEPOP",
+          capabilities: ["API_PUBLISH"],
+          importMode: "NONE",
+          publishMode: "API",
+          bulkImport: false,
+          bulkPublish: false
+        }
+      ],
+      marketplaceAccounts: [
+        {
+          id: "acct-legacy",
+          platform: "DEPOP",
+          displayName: "main closet",
+          status: "CONNECTED",
+          validationStatus: "VALID"
+        }
+      ]
+    }
+  ).find((entry) => entry.platform === "DEPOP");
+
+  assert.ok(depop);
+  assert.equal(depop.actionLabel, "Retry");
+  assert.equal(depop.actionKind, "retry");
+  assert.equal(depop.secondaryActionLabel, null);
+  assert.equal(depop.secondaryActionKind, null);
+  assert.equal(depop.summary, "Depop publish is ready to retry on the remote grid.");
+  assert.equal(
+    depop.blocker,
+    "The last automation attempt could not reach a worker. Retry publish to queue it on Mollie's remote browser grid."
+  );
+});
+
 test("Depop rows do not re-mark shared fields as missing when Mollie already has them", () => {
   const depop = getMarketplaceStatusSummaries(
     {
@@ -188,7 +265,7 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
             attributes: {
               department: "Other",
               productType: "Beauty & Personal Care",
-              shippingMode: "DEPOP_SHIPPING"
+              packageSize: "Small"
             }
           }
         }
@@ -204,7 +281,7 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
         }
       ],
       platformListings: [],
-      extensionTasks: [
+      automationTasks: [
         {
           id: "task-1c",
           platform: "DEPOP",
@@ -219,14 +296,12 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
       ]
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "DEPOP",
-          capabilities: ["EXTENSION_PUBLISH"],
+          capabilities: ["API_PUBLISH"],
           importMode: "NONE",
-          publishMode: "EXTENSION",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -254,7 +329,7 @@ test("Depop rows do not re-mark shared fields as missing when Mollie already has
   );
 });
 
-test("Depop rows offer browser publish when a ready draft exists", () => {
+test("Depop rows offer remote publish when a ready draft exists", () => {
   const depop = getMarketplaceStatusSummaries(
     {
       id: "item-2",
@@ -270,7 +345,7 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
             attributes: {
               department: "Women",
               productType: "Coats",
-              shippingMode: "DEPOP_SHIPPING",
+              packageSize: "Small",
               tags: ["burberry", "wool", "coat"]
             }
           }
@@ -287,17 +362,15 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
         }
       ],
       platformListings: [],
-      extensionTasks: []
+      automationTasks: []
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "DEPOP",
-          capabilities: ["EXTENSION_PUBLISH"],
+          capabilities: ["API_PUBLISH"],
           importMode: "NONE",
-          publishMode: "EXTENSION",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -315,9 +388,9 @@ test("Depop rows offer browser publish when a ready draft exists", () => {
   ).find((entry) => entry.platform === "DEPOP");
 
   assert.ok(depop);
-  assert.equal(depop.actionLabel, "Post in browser");
-  assert.equal(depop.actionKind, "publish_extension");
-  assert.equal(depop.summary, "Ready for Depop browser posting");
+  assert.equal(depop.actionLabel, "Publish now");
+  assert.equal(depop.actionKind, "publish_api");
+  assert.equal(depop.summary, "Ready for Depop publish");
 });
 
 test("Depop tags stay recommended instead of blocking draft prep", () => {
@@ -336,7 +409,7 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
             attributes: {
               department: "Men",
               productType: "Jackets",
-              shippingMode: "DEPOP_SHIPPING"
+              packageSize: "Small"
             }
           }
         }
@@ -344,17 +417,15 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
       images: [{ id: "img-1", url: "https://images.example.com/jacket.jpg", position: 0 }],
       listingDrafts: [],
       platformListings: [],
-      extensionTasks: []
+      automationTasks: []
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "DEPOP",
-          capabilities: ["EXTENSION_PUBLISH"],
+          capabilities: ["API_PUBLISH"],
           importMode: "NONE",
-          publishMode: "EXTENSION",
+          publishMode: "API",
           bulkImport: false,
           bulkPublish: false
         }
@@ -376,7 +447,7 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
   assert.equal(depop.actionKind, "generate_draft");
   assert.deepEqual(depop.missingRequirements, []);
   assert.deepEqual(depop.recommendedRequirements, ["Depop discovery tags"]);
-  assert.equal(depop.summary, "Ready for Depop browser draft prep");
+  assert.equal(depop.summary, "Depop needs a little more listing detail");
 });
 
 test("eBay rows prioritize shipping and category readiness", () => {
@@ -390,7 +461,7 @@ test("eBay rows prioritize shipping and category readiness", () => {
       images: [{ id: "img-1", url: "https://images.example.com/fleece.jpg", position: 0 }],
       listingDrafts: [],
       platformListings: [],
-      extensionTasks: [],
+      automationTasks: [],
       attributesJson: {}
     },
     {
@@ -398,7 +469,7 @@ test("eBay rows prioritize shipping and category readiness", () => {
         {
           platform: "EBAY",
           capabilities: ["API_PUBLISH"],
-          importMode: "EXTENSION",
+          importMode: "NONE",
           publishMode: "API",
           bulkImport: false,
           bulkPublish: false
@@ -441,11 +512,9 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
       images: [{ id: "img-1", url: "https://images.example.com/bag.jpg", position: 0 }],
       listingDrafts: [],
       platformListings: [],
-      extensionTasks: []
+      automationTasks: []
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "POSHMARK",
@@ -470,7 +539,7 @@ test("Poshmark rows stay honest when only browser session connectivity exists", 
 
   assert.ok(poshmark);
   assert.equal(poshmark.summary, "Ready for Poshmark draft generation");
-  assert.equal(poshmark.actionLabel, "Generate draft");
+  assert.equal(poshmark.actionLabel, "Retry");
 });
 
 test("Poshmark rows block on required description and size", () => {
@@ -484,11 +553,9 @@ test("Poshmark rows block on required description and size", () => {
       images: [{ id: "img-1", url: "https://images.example.com/hoodie.jpg", position: 0 }],
       listingDrafts: [],
       platformListings: [],
-      extensionTasks: []
+      automationTasks: []
     },
     {
-      extensionInstalled: true,
-      extensionConnected: true,
       capabilitySummary: [
         {
           platform: "POSHMARK",

@@ -251,7 +251,7 @@ export async function listWorkspaceInventory(workspaceId: string) {
       sourceLot: true,
       listingDrafts: true,
       platformListings: true,
-      extensionTasks: {
+      automationTasks: {
         orderBy: { createdAt: "desc" }
       },
       sales: true
@@ -820,7 +820,7 @@ export async function findInventoryItemDetailForWorkspace(workspaceId: string, i
       sourceLot: true,
       listingDrafts: true,
       platformListings: true,
-      extensionTasks: {
+      automationTasks: {
         orderBy: { createdAt: "desc" }
       },
       sales: true
@@ -828,7 +828,7 @@ export async function findInventoryItemDetailForWorkspace(workspaceId: string, i
   });
 }
 
-export async function createExtensionTaskForWorkspace(
+export async function createAutomationTaskForWorkspace(
   workspaceId: string,
   input: {
     inventoryItemId?: string | null;
@@ -858,7 +858,7 @@ export async function createExtensionTaskForWorkspace(
     completedAt?: Date | null;
   }
 ) {
-  return db.extensionTask.create({
+  return db.automationTask.create({
     data: {
       workspaceId,
       inventoryItemId: input.inventoryItemId ?? null,
@@ -884,8 +884,8 @@ export async function createExtensionTaskForWorkspace(
   });
 }
 
-export async function findExtensionTaskForWorkspace(workspaceId: string, taskId: string) {
-  return db.extensionTask.findFirst({
+export async function findAutomationTaskForWorkspace(workspaceId: string, taskId: string) {
+  return db.automationTask.findFirst({
     where: {
       id: taskId,
       workspaceId
@@ -893,7 +893,7 @@ export async function findExtensionTaskForWorkspace(workspaceId: string, taskId:
   });
 }
 
-export async function listExtensionTasksForWorkspace(
+export async function listAutomationTasksForWorkspace(
   workspaceId: string,
   filters?: {
     inventoryItemId?: string;
@@ -901,7 +901,7 @@ export async function listExtensionTasksForWorkspace(
     state?: "QUEUED" | "RUNNING" | "NEEDS_INPUT" | "FAILED" | "SUCCEEDED" | "CANCELED";
   }
 ) {
-  return db.extensionTask.findMany({
+  return db.automationTask.findMany({
     where: {
       workspaceId,
       inventoryItemId: filters?.inventoryItemId,
@@ -912,17 +912,17 @@ export async function listExtensionTasksForWorkspace(
   });
 }
 
-export async function updateExtensionTask(
+export async function updateAutomationTask(
   taskId: string,
-  data: Prisma.ExtensionTaskUpdateInput
+  data: Prisma.AutomationTaskUpdateInput
 ) {
-  return db.extensionTask.update({
+  return db.automationTask.update({
     where: { id: taskId },
     data
   });
 }
 
-export async function claimExtensionTaskForWorkspace(
+export async function claimAutomationTaskForWorkspace(
   workspaceId: string,
   taskId: string,
   input: {
@@ -936,7 +936,7 @@ export async function claimExtensionTaskForWorkspace(
     input.staleBefore ??
     new Date(now.getTime() - 2 * 60 * 1000);
 
-  const claimResult = await db.extensionTask.updateMany({
+  const claimResult = await db.automationTask.updateMany({
     where: {
       id: taskId,
       workspaceId,
@@ -975,7 +975,7 @@ export async function claimExtensionTaskForWorkspace(
     return null;
   }
 
-  return db.extensionTask.findFirst({
+  return db.automationTask.findFirst({
     where: {
       id: taskId,
       workspaceId
@@ -983,7 +983,7 @@ export async function claimExtensionTaskForWorkspace(
   });
 }
 
-export async function heartbeatExtensionTaskForWorkspace(
+export async function heartbeatAutomationTaskForWorkspace(
   workspaceId: string,
   taskId: string,
   runnerInstanceId: string,
@@ -993,7 +993,7 @@ export async function heartbeatExtensionTaskForWorkspace(
   }
 ) {
   const now = input?.now ?? new Date();
-  const updateResult = await db.extensionTask.updateMany({
+  const updateResult = await db.automationTask.updateMany({
     where: {
       id: taskId,
       workspaceId,
@@ -1010,7 +1010,7 @@ export async function heartbeatExtensionTaskForWorkspace(
     return null;
   }
 
-  return db.extensionTask.findFirst({
+  return db.automationTask.findFirst({
     where: {
       id: taskId,
       workspaceId
@@ -1354,3 +1354,7 @@ export async function incrementWorkspaceAiUsageForDay(workspaceId: string, day: 
     throw error;
   }
 }
+
+
+
+

@@ -4,7 +4,7 @@ import { applyOperatorResearch, buildCatalogSourceReferences, classifyIdentifier
 import {
   addInventoryImage,
   addInventoryImageForWorkspace,
-  createExtensionTaskForWorkspace,
+  createAutomationTaskForWorkspace,
   createExecutionLog,
   createInventoryItem,
   db,
@@ -33,6 +33,15 @@ import {
 import { imageInputSchema, inventoryBarcodeImportSchema, inventoryInputSchema, platforms, type LinkedPublishPlatformResult, type Platform } from "@reselleros/types";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
+
+function serializeInventoryItemForClient<T extends { automationTasks?: unknown }>(item: T) {
+  const { automationTasks, ...rest } = item;
+
+  return {
+    ...rest,
+    automationTasks: Array.isArray(automationTasks) ? automationTasks : []
+  };
+}
 
 function resolveApiPublicBaseUrl(request: {
   protocol?: string;
@@ -154,12 +163,83 @@ async function getPoshmarkPublishReadiness(workspaceId: string, inventoryItemId:
   };
 }
 
-async function ensurePendingPoshmarkListing(inventoryItemId: string, marketplaceAccountId: string) {
+async function getDepopPublishReadiness(workspaceId: string, inventoryItemId: string) {
+  const item = await findInventoryItemDetailForWorkspace(workspaceId, inventoryItemId);
+
+  if (!item) {
+    return {
+      item: null,
+      ready: false,
+      missingFields: ["inventory item"],
+      blockingReasons: ["Inventory item not found."]
+    };
+  }
+
+  const approvedDraft =
+    item.listingDrafts.find((draft) => draft.platform === "DEPOP" && draft.reviewStatus === "APPROVED") ?? null;
+  const itemAttributes =
+    item.attributesJson && typeof item.attributesJson === "object" ? (item.attributesJson as Record<string, unknown>) : {};
+  const marketplaceOverrides =
+    itemAttributes.marketplaceOverrides && typeof itemAttributes.marketplaceOverrides === "object"
+      ? (itemAttributes.marketplaceOverrides as Record<string, unknown>)
+      : {};
+  const depopOverride =
+    marketplaceOverrides.DEPOP && typeof marketplaceOverrides.DEPOP === "object"
+      ? (marketplaceOverrides.DEPOP as Record<string, unknown>)
+      : {};
+  const depopAttributes =
+    depopOverride.attributes && typeof depopOverride.attributes === "object"
+      ? (depopOverride.attributes as Record<string, unknown>)
+      : {};
+  const missingFields: string[] = [];
+  const blockingReasons: string[] = [];
+
+  if (!normalizeInventoryText(item.title)) {
+    missingFields.push("title");
+  }
+
+  if (!normalizeInventoryText(itemAttributes.description)) {
+    missingFields.push("description");
+  }
+
+  if (typeof item.priceRecommendation !== "number" || !Number.isFinite(item.priceRecommendation) || item.priceRecommendation <= 0) {
+    missingFields.push("price");
+  }
+
+  if (item.images.length === 0) {
+    missingFields.push("photos");
+  }
+
+  if (!normalizeInventoryText(depopAttributes.department)) {
+    missingFields.push("Depop department");
+  }
+
+  if (!normalizeInventoryText(depopAttributes.productType)) {
+    missingFields.push("Depop product type");
+  }
+
+  if (!normalizeInventoryText(depopAttributes.packageSize)) {
+    missingFields.push("Depop package size");
+  }
+
+  if (!approvedDraft) {
+    blockingReasons.push("Approve a Depop draft before publishing.");
+  }
+
+  return {
+    item,
+    ready: missingFields.length === 0 && blockingReasons.length === 0,
+    missingFields,
+    blockingReasons
+  };
+}
+
+async function ensurePendingMarketplaceListing(inventoryItemId: string, marketplaceAccountId: string, platform: Platform) {
   const existing = await db.platformListing.findFirst({
     where: {
       inventoryItemId,
       marketplaceAccountId,
-      platform: "POSHMARK"
+      platform
     }
   });
 
@@ -176,7 +256,7 @@ async function ensurePendingPoshmarkListing(inventoryItemId: string, marketplace
     data: {
       inventoryItemId,
       marketplaceAccountId,
-      platform: "POSHMARK",
+      platform,
       status: "PENDING"
     }
   });
@@ -240,8 +320,11 @@ async function queuePublish(
     throw app.httpErrors.preconditionFailed(`Connect a ${platform} account first`);
   }
 
-  if (platform === "POSHMARK") {
-    const readiness = await getPoshmarkPublishReadiness(workspaceId, inventoryItemId);
+  if (platform === "POSHMARK" || platform === "DEPOP") {
+    const readiness =
+      platform === "POSHMARK"
+        ? await getPoshmarkPublishReadiness(workspaceId, inventoryItemId)
+        : await getDepopPublishReadiness(workspaceId, inventoryItemId);
 
     if (!readiness.item) {
       throw app.httpErrors.notFound("Inventory item not found");
@@ -262,22 +345,24 @@ async function queuePublish(
       correlationId,
       requestPayload: {
         marketplaceAccountId: account.id,
-        mode: "remote-automation"
+        mode: "remote-automation",
+        platform
       }
     });
 
-    await ensurePendingPoshmarkListing(inventoryItemId, account.id);
+    await ensurePendingMarketplaceListing(inventoryItemId, account.id, platform);
 
-    const task = await createExtensionTaskForWorkspace(workspaceId, {
+    const task = await createAutomationTaskForWorkspace(workspaceId, {
       inventoryItemId,
       marketplaceAccountId: account.id,
-      platform: "POSHMARK",
+      platform,
       action: "PUBLISH_LISTING",
       payload: {
         remoteAutomation: true,
         remoteTaskType: "PUBLISH_LISTING",
         correlationId,
         executionLogId: executionLog.id,
+        runtime: "browser-grid",
         phase: "open_session"
       }
     });
@@ -426,7 +511,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const workspace = await context.requireWorkspace(auth);
     const items = await listWorkspaceInventory(workspace.id);
 
-    return { items };
+    return { items: items.map(serializeInventoryItemForClient) };
   });
 
   app.post("/api/inventory", async (request) => {
@@ -503,6 +588,21 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
         referenceUrls: body.referenceUrls,
         catalogIdentifierId: catalogRecord.id,
         acceptedCandidate: body.acceptedCandidate,
+        ...(body.description
+          ? {
+              description: body.description
+            }
+          : {}),
+        ...(body.labels.length > 0
+          ? {
+              labels: body.labels
+            }
+          : {}),
+        ...(body.internalNote
+          ? {
+              internalNote: body.internalNote
+            }
+          : {}),
         productLookup: body.acceptedCandidate
           ? {
               provider: body.acceptedCandidate.provider,
@@ -566,7 +666,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     const detail = await findInventoryItemDetailForWorkspace(workspace.id, item.id);
 
     return {
-      item: detail ?? item,
+      item: serializeInventoryItemForClient(detail ?? { ...item, automationTasks: [] }),
       draftsQueued: body.generateDrafts && body.draftPlatforms.length > 0,
       draftPlatforms: body.generateDrafts ? body.draftPlatforms : []
     };
@@ -582,7 +682,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       throw app.httpErrors.notFound("Inventory item not found");
     }
 
-    return { item };
+    return { item: serializeInventoryItemForClient(item) };
   });
 
   app.patch("/api/inventory/:id", async (request) => {
@@ -617,7 +717,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
       targetId: item.id
     });
 
-    return { item };
+    return { item: serializeInventoryItemForClient({ ...item, automationTasks: [] }) };
   });
 
   app.delete("/api/inventory/:id", async (request) => {
@@ -1126,3 +1226,7 @@ export function registerInventoryRoutes(app: ApiApp, context: ApiRouteContext) {
     return queuePublish(app, "WHATNOT", params.id, workspace.id);
   });
 }
+
+
+
+

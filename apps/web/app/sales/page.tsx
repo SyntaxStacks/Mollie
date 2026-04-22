@@ -65,9 +65,9 @@ export default function SalesPage() {
 
   return (
     <ProtectedView>
-      <AppShell title="Sales + P&L">
+      <AppShell title="Sales">
         <div className="grid-2">
-          <Card eyebrow="Manual fallback" title="Record sold inventory">
+          <Card eyebrow="Sales" title="Record a sold item">
             <form className="stack" onSubmit={handleManualSale}>
               <label className="label">
                 Inventory item
@@ -99,15 +99,15 @@ export default function SalesPage() {
             </form>
           </Card>
 
-          <Card eyebrow="Operator note" title="MVP sync strategy">
+          <Card eyebrow="Sync" title="Manual fallback">
             <p className="muted">
-              eBay sold sync can be layered in later. The manual entry fallback keeps pilot users operational while
-              connector sync hardens.
+              Automatic sold sync can keep improving later. Manual entry keeps payout tracking and inventory cleanup
+              moving today.
             </p>
           </Card>
         </div>
 
-        <Card eyebrow="Sales log" title="Recorded sales">
+        <Card eyebrow="History" title="Recorded sales">
           <table className="table">
             <thead>
               <tr>

@@ -113,7 +113,7 @@ export type VendorConnectState = (typeof vendorConnectStates)[number];
 export const vendorConnectPromptKinds = ["INFO", "LOGIN", "CODE", "APPROVAL"] as const;
 export type VendorConnectPromptKind = (typeof vendorConnectPromptKinds)[number];
 
-export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE", "EXTENSION_BROWSER"] as const;
+export const vendorConnectCaptureModes = ["WEB_POPUP_HELPER", "LOCAL_BRIDGE", "REMOTE_BROWSER"] as const;
 export type VendorConnectCaptureMode = (typeof vendorConnectCaptureModes)[number];
 export const inventoryImportRunStatuses = ["PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELED"] as const;
 export type InventoryImportRunStatus = (typeof inventoryImportRunStatuses)[number];
@@ -204,9 +204,8 @@ export type LinkedPublishSummary = {
 
 export const marketplaceAdapterCapabilities = [
   "API_IMPORT",
-  "EXTENSION_IMPORT",
   "API_PUBLISH",
-  "EXTENSION_PUBLISH",
+  "REMOTE_AUTOMATION",
   "BULK_IMPORT",
   "BULK_PUBLISH",
   "RELIST",
@@ -216,7 +215,7 @@ export const marketplaceAdapterCapabilities = [
 ] as const;
 export type MarketplaceAdapterCapability = (typeof marketplaceAdapterCapabilities)[number];
 
-export const extensionTaskActions = [
+export const automationTaskActions = [
   "IMPORT_LISTING",
   "PREPARE_DRAFT",
   "PUBLISH_LISTING",
@@ -224,14 +223,14 @@ export const extensionTaskActions = [
   "DELIST_LISTING",
   "RELIST_LISTING"
 ] as const;
-export type ExtensionTaskAction = (typeof extensionTaskActions)[number];
+export type AutomationTaskAction = (typeof automationTaskActions)[number];
 
-export const extensionTaskStates = ["QUEUED", "RUNNING", "NEEDS_INPUT", "FAILED", "SUCCEEDED", "CANCELED"] as const;
-export type ExtensionTaskState = (typeof extensionTaskStates)[number];
+export const automationTaskStates = ["QUEUED", "RUNNING", "NEEDS_INPUT", "FAILED", "SUCCEEDED", "CANCELED"] as const;
+export type AutomationTaskState = (typeof automationTaskStates)[number];
 
-export const extensionTaskFailureCodes = [
+export const automationTaskFailureCodes = [
   "AUTH_REQUIRED",
-  "EXTENSION_MISSING",
+  "REMOTE_RUNTIME_UNAVAILABLE",
   "MISSING_REQUIRED_FIELD",
   "UNSUPPORTED_FLOW",
   "SELECTOR_FAILED",
@@ -241,13 +240,8 @@ export const extensionTaskFailureCodes = [
   "RATE_LIMITED",
   "UNKNOWN"
 ] as const;
-export type ExtensionTaskFailureCode = (typeof extensionTaskFailureCodes)[number];
+export type AutomationTaskFailureCode = (typeof automationTaskFailureCodes)[number];
 
-export const extensionConnectionStates = ["INSTALLED", "NOT_INSTALLED", "DISCONNECTED"] as const;
-export type ExtensionConnectionState = (typeof extensionConnectionStates)[number];
-
-export const extensionBridgeTargets = ["MOLLIE_APP", "MOLLIE_EXTENSION"] as const;
-export type ExtensionBridgeTarget = (typeof extensionBridgeTargets)[number];
 export const aiProviders = ["null", "ollama"] as const;
 export type AiProviderName = (typeof aiProviders)[number];
 export const aiAssistOperations = ["title", "description", "price"] as const;
@@ -311,66 +305,48 @@ export type UniversalListing = z.infer<typeof universalListingSchema>;
 export type MarketplaceCapabilitySummary = {
   platform: Platform;
   capabilities: MarketplaceAdapterCapability[];
-  importMode: "API" | "EXTENSION" | "NONE";
-  publishMode: "API" | "EXTENSION" | "NONE";
+  importMode: "API" | "REMOTE" | "NONE";
+  publishMode: "API" | "REMOTE" | "NONE";
   bulkImport: boolean;
   bulkPublish: boolean;
 };
 
-export const extensionTaskCreateSchema = z.object({
+export const automationTaskCreateSchema = z.object({
   inventoryItemId: z.string().min(1),
   platform: z.enum(platforms),
-  action: z.enum(extensionTaskActions)
+  action: z.enum(automationTaskActions)
 });
 
-export const extensionTaskClaimSchema = z.object({
+export const automationTaskClaimSchema = z.object({
   runnerInstanceId: z.string().trim().min(8).max(120),
   browserName: z.string().trim().max(80).optional().nullable()
 });
 
-export const extensionTaskHeartbeatSchema = z.object({
+export const automationTaskHeartbeatSchema = z.object({
   runnerInstanceId: z.string().trim().min(8).max(120),
   message: z.string().trim().max(240).optional().nullable(),
   result: z.record(z.string(), z.any()).optional().nullable()
 });
 
-export const extensionTaskResultUpdateSchema = z.object({
-  state: z.enum(extensionTaskStates),
+export const automationTaskResultUpdateSchema = z.object({
+  state: z.enum(automationTaskStates),
   runnerInstanceId: z.string().trim().min(8).max(120).optional().nullable(),
-  lastErrorCode: z.enum(extensionTaskFailureCodes).optional().nullable(),
+  lastErrorCode: z.enum(automationTaskFailureCodes).optional().nullable(),
   lastErrorMessage: z.string().trim().max(500).optional().nullable(),
   needsInputReason: z.string().trim().max(240).optional().nullable(),
   retryAfterSeconds: z.number().int().positive().max(86_400).optional().nullable(),
   result: z.record(z.string(), z.any()).optional().nullable()
 });
 
-export const extensionEbayImportSchema = z.object({
-  externalListingId: z.string().trim().min(1).max(160),
-  externalUrl: z.string().url(),
-  title: z.string().trim().min(2).max(180),
-  description: z.string().trim().max(5000).optional().nullable(),
-  price: z.number().nonnegative().optional().nullable(),
-  category: z.string().trim().max(160).optional().nullable(),
-  condition: z.string().trim().max(120).optional().nullable(),
-  brand: z.string().trim().max(120).optional().nullable(),
-  quantity: z.number().int().positive().default(1),
-  photos: z.array(universalListingPhotoSchema).max(24).default([]),
-  sourceUrl: z.string().url().optional().nullable(),
-  sourceListingState: z.enum(["DRAFT", "PUBLISHED", "SOLD", "ENDED"]).default("PUBLISHED"),
-  attributes: z.record(z.string(), z.any()).default({})
-});
-
-export type ExtensionEbayImportPayload = z.infer<typeof extensionEbayImportSchema>;
-
-export type ExtensionTaskView = {
+export type AutomationTaskView = {
   id: string;
   workspaceId: string;
   inventoryItemId?: string | null;
   inventoryImportRunId?: string | null;
   marketplaceAccountId?: string | null;
   platform: Platform;
-  action: ExtensionTaskAction;
-  state: ExtensionTaskState;
+  action: AutomationTaskAction;
+  state: AutomationTaskState;
   queuedAt: string;
   attemptCount: number;
   runnerInstanceId?: string | null;
@@ -378,7 +354,7 @@ export type ExtensionTaskView = {
   lastHeartbeatAt?: string | null;
   retryAfter?: string | null;
   needsInputReason?: string | null;
-  lastErrorCode?: ExtensionTaskFailureCode | null;
+  lastErrorCode?: AutomationTaskFailureCode | null;
   lastErrorMessage?: string | null;
   payload: Record<string, unknown> | null;
   result: Record<string, unknown> | null;
@@ -386,13 +362,6 @@ export type ExtensionTaskView = {
   completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
-};
-
-export type ExtensionStatusView = {
-  connectionState: ExtensionConnectionState;
-  browserName: string;
-  latestTask?: ExtensionTaskView | null;
-  capabilitySummary: MarketplaceCapabilitySummary[];
 };
 
 export const remoteAutomationTaskPhases = [
@@ -813,6 +782,9 @@ export const inventoryBarcodeImportSchema = z.object({
   estimatedResaleMin: z.number().nonnegative().optional().nullable(),
   estimatedResaleMax: z.number().nonnegative().optional().nullable(),
   priceRecommendation: z.number().nonnegative().optional().nullable(),
+  description: z.string().trim().max(12000).optional().nullable(),
+  labels: z.array(z.string().trim().min(1).max(80)).max(24).default([]),
+  internalNote: z.string().trim().max(4000).optional().nullable(),
   primarySourceMarket: z.enum(catalogImportSources).default("AMAZON"),
   primarySourceUrl: z.string().url().optional().nullable(),
   referenceUrls: z.array(z.string().url()).max(8).default([]),

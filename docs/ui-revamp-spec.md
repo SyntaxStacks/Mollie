@@ -167,7 +167,7 @@ Rules:
 - The marketplace rail is the primary control plane, not a secondary status panel.
 - The universal listing form is the canonical place to prepare listing data.
 - Old generic publish buttons should be demoted where they conflict with marketplace-row actions.
-- Marketplace rows must stay honest about execution mode, blockers, and extension requirements.
+- Marketplace rows must stay honest about execution mode, blockers, and remote automation requirements.
 
 ### Marketplace rail
 The left-side marketplace rail should list each real repo-supported marketplace and show:
@@ -175,8 +175,8 @@ The left-side marketplace rail should list each real repo-supported marketplace 
 - listing state
 - execution mode:
   - `API`
-  - `Extension`
-- extension required or not
+  - `Remote automation`
+- remote automation required or not
 - marketplace account/session health
 - login-in-tab flow:
   - open marketplace in another tab
@@ -187,8 +187,8 @@ The left-side marketplace rail should list each real repo-supported marketplace 
 - primary CTA driven by real capability/state
 
 Row copy should remain operationally honest:
-- `Queued in browser extension`
-- `Needs extension session`
+- `Queued in remote automation`
+- `Needs remote session`
 - `Ready via API`
 - `Missing shipping weight`
 - `Generate draft first`

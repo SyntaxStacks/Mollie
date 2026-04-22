@@ -220,7 +220,7 @@ test("poshmark publish queues a remote automation task and pending listing", asy
 
   assert.equal(response.statusCode, 200);
 
-  const task = await db.extensionTask.findFirst({
+  const task = await db.automationTask.findFirst({
     where: {
       workspaceId: session.workspaceId,
       inventoryItemId: item.id,
@@ -237,6 +237,109 @@ test("poshmark publish queues a remote automation task and pending listing", asy
     where: {
       inventoryItemId: item.id,
       platform: "POSHMARK"
+    }
+  });
+  assert.ok(listing);
+  assert.equal(listing?.status, "PENDING");
+});
+
+test("depop publish queues a remote automation task", async () => {
+  const session = await createWorkspaceSession("remote-depop-publish");
+  const item = await db.inventoryItem.create({
+    data: {
+      workspaceId: session.workspaceId,
+      sku: `SKU-${crypto.randomUUID().slice(0, 8)}`,
+      title: "Vintage canvas jacket",
+      brand: "Mollie Test",
+      category: "Jackets",
+      condition: "Good used condition",
+      quantity: 1,
+      costBasis: 18,
+      priceRecommendation: 64,
+      attributesJson: {
+        description: "Vintage canvas jacket with light wear.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Jackets",
+              packageSize: "Medium"
+            }
+          }
+        }
+      },
+      imageManifestJson: []
+    }
+  });
+
+  await db.imageAsset.create({
+    data: {
+      inventoryItemId: item.id,
+      url: "https://images.example.com/jacket.jpg",
+      kind: "ORIGINAL",
+      position: 0
+    }
+  });
+
+  await db.listingDraft.create({
+    data: {
+      inventoryItemId: item.id,
+      platform: "DEPOP",
+      generatedTitle: "Vintage canvas jacket",
+      generatedDescription: "Vintage canvas jacket with light wear.",
+      generatedPrice: 64,
+      generatedTagsJson: [],
+      attributesJson: {},
+      reviewStatus: "APPROVED"
+    }
+  });
+
+  await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "DEPOP",
+      displayName: "Main Depop shop",
+      secretRef: "db-encrypted://marketplace-account/depop",
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      status: "CONNECTED",
+      credentialMetadataJson: {
+        mode: "remote-session-artifact",
+        publishMode: "remote",
+        accountHandle: "main-depop-shop"
+      }
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/publish/depop`,
+    headers: {
+      ...session.headers,
+      "content-type": "application/json"
+    }
+  });
+
+  assert.equal(response.statusCode, 200);
+
+  const task = await db.automationTask.findFirst({
+    where: {
+      workspaceId: session.workspaceId,
+      inventoryItemId: item.id,
+      platform: "DEPOP"
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  assert.ok(task);
+  assert.equal(task?.action, "PUBLISH_LISTING");
+  assert.equal(task?.state, "QUEUED");
+  assert.equal((task?.payloadJson as { remoteAutomation?: boolean } | null)?.remoteAutomation, true);
+  assert.equal((task?.payloadJson as { runtime?: string } | null)?.runtime, "browser-grid");
+
+  const listing = await db.platformListing.findFirst({
+    where: {
+      inventoryItemId: item.id,
+      platform: "DEPOP"
     }
   });
   assert.ok(listing);
@@ -301,7 +404,7 @@ test("poshmark social config saves and can queue a share closet task", async () 
   });
 
   assert.equal(runResponse.statusCode, 200);
-  const socialTask = await db.extensionTask.findFirst({
+  const socialTask = await db.automationTask.findFirst({
     where: {
       workspaceId: session.workspaceId,
       marketplaceAccountId: account.id,
@@ -314,3 +417,7 @@ test("poshmark social config saves and can queue a share closet task", async () 
   assert.ok(socialTask);
   assert.equal((socialTask?.payloadJson as { remoteTaskType?: string } | null)?.remoteTaskType, "SHARE_CLOSET");
 });
+
+
+
+

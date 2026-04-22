@@ -361,6 +361,88 @@ export function extractRankedProductImageUrlsFromHtml(html: string, options?: { 
   return rankProductImageUrls(urls, options);
 }
 
+function collectAmazonImageUrlsFromTag(tagHtml: string, pageUrl: string, urls: string[]) {
+  for (const pattern of [
+    /data-old-hires="([^"]+)"/gi,
+    /data-src="([^"]+)"/gi,
+    /data-image-src="([^"]+)"/gi,
+    /data-zoom-image="([^"]+)"/gi,
+    /src="([^"]+)"/gi
+  ]) {
+    for (const match of tagHtml.matchAll(pattern)) {
+      const resolved = resolveImageUrl(match[1] ?? null, pageUrl);
+      if (resolved) {
+        urls.push(resolved);
+      }
+    }
+  }
+
+  for (const match of tagHtml.matchAll(/srcset="([^"]+)"/gi)) {
+    urls.push(...parseSrcsetUrls(match[1], pageUrl));
+  }
+
+  for (const match of tagHtml.matchAll(/data-a-dynamic-image="({.*?})"/gi)) {
+    try {
+      const parsed = JSON.parse(decodeHtmlAttribute(match[1] ?? "")) as Record<string, unknown>;
+      urls.push(...Object.keys(parsed));
+    } catch {
+      // Ignore malformed image blobs.
+    }
+  }
+}
+
+function extractAmazonProductGalleryImageUrlsFromHtml(html: string, pageUrl: string) {
+  const urls: string[] = [];
+
+  for (const tagPattern of [
+    /<img[^>]+id="landingImage"[^>]*>/gi,
+    /<img[^>]+id="imgBlkFront"[^>]*>/gi,
+    /<img[^>]+id="ebooksImgBlkFront"[^>]*>/gi
+  ]) {
+    for (const match of html.matchAll(tagPattern)) {
+      collectAmazonImageUrlsFromTag(match[0] ?? "", pageUrl, urls);
+    }
+  }
+
+  for (const wrapperMatch of html.matchAll(/<div[^>]+id="imgTagWrapperId"[\s\S]*?<\/div>/gi)) {
+    collectAmazonImageUrlsFromTag(wrapperMatch[0] ?? "", pageUrl, urls);
+  }
+
+  for (const blockMatch of html.matchAll(/"colorImages"\s*:\s*\{\s*"initial"\s*:\s*\[(.*?)\]\s*\}/gis)) {
+    const block = blockMatch[1] ?? "";
+
+    for (const imageMatch of block.matchAll(/"(?:hiRes|large|mainUrl)"\s*:\s*"([^"]+)"/gi)) {
+      const resolved = resolveImageUrl(imageMatch[1] ?? null, pageUrl);
+      if (resolved) {
+        urls.push(resolved);
+      }
+    }
+  }
+
+  if (urls.length === 0) {
+    for (const property of ["og:image", "twitter:image"]) {
+      for (const match of html.matchAll(
+        new RegExp(`<meta[^>]+(?:property|name)=["']${escapeRegExp(property)}["'][^>]+content=["']([^"']+)["']`, "gi")
+      )) {
+        const resolved = resolveImageUrl(match[1] ?? null, pageUrl);
+        if (resolved) {
+          urls.push(resolved);
+        }
+      }
+      for (const match of html.matchAll(
+        new RegExp(`<meta[^>]+content=["']([^"']+)["'][^>]+(?:property|name)=["']${escapeRegExp(property)}["']`, "gi")
+      )) {
+        const resolved = resolveImageUrl(match[1] ?? null, pageUrl);
+        if (resolved) {
+          urls.push(resolved);
+        }
+      }
+    }
+  }
+
+  return rankProductImageUrls(urls, { pageUrl });
+}
+
 function normalizeAmazonProductUrl(url: string | null | undefined) {
   if (!url) {
     return null;
@@ -466,9 +548,6 @@ function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
   const hrefMatch = html.match(/href="(\/[^"]*\/dp\/[A-Z0-9]{10}[^"]*)"/i);
   const priceWhole = html.match(/a-price-whole[^>]*>([\d,]+)/i)?.[1] ?? null;
   const priceFraction = html.match(/a-price-fraction[^>]*>(\d{2})/i)?.[1] ?? "00";
-  const imageUrls = extractRankedProductImageUrlsFromHtml(html, {
-    pageUrl: "https://www.amazon.com"
-  });
 
   if (!titleMatch && !hrefMatch) {
     return null;
@@ -478,9 +557,7 @@ function parseAmazonSearchHtml(html: string): SourceResearchCandidate | null {
     market: "AMAZON",
     title: stripHtml(titleMatch?.[1]) ?? null,
     url: hrefMatch?.[1] ? normalizeAmazonProductUrl(`https://www.amazon.com${hrefMatch[1]}`) : null,
-    price: parseDecimalPrice(priceWhole, priceFraction),
-    imageUrl: imageUrls[0] ?? null,
-    imageUrls
+    price: parseDecimalPrice(priceWhole, priceFraction)
   };
 }
 
@@ -516,33 +593,7 @@ function parseAmazonProductHtml(html: string, url: string): SourceResearchCandid
     html.match(/class="a-price-fraction">(\d{2})/i)?.[1] ??
     html.match(/priceToPay[\s\S]*?a-price-fraction[^>]*>(\d{2})/i)?.[1] ??
     "00";
-  const dynamicImagesRaw = html.match(/data-a-dynamic-image="({.*?})"/i)?.[1] ?? null;
-  const dynamicImageUrls: string[] = [];
-
-  if (dynamicImagesRaw) {
-    try {
-      const decoded = decodeHtmlAttribute(dynamicImagesRaw);
-      const parsed = JSON.parse(decoded) as Record<string, unknown>;
-      for (const key of Object.keys(parsed)) {
-        const resolved = resolveImageUrl(key, url);
-        if (resolved) {
-          dynamicImageUrls.push(resolved);
-        }
-      }
-    } catch {
-      // Ignore malformed image blobs and fall back to regular img parsing.
-    }
-  }
-
-  const imageUrls = rankProductImageUrls(
-    [
-      ...dynamicImageUrls,
-      ...extractRankedProductImageUrlsFromHtml(html, {
-        pageUrl: url
-      })
-    ],
-    { pageUrl: url }
-  );
+  const imageUrls = extractAmazonProductGalleryImageUrlsFromHtml(html, url);
   const primaryImageUrl = imageUrls[0] ?? null;
 
   if (!title && !brand && !asin && !primaryImageUrl) {

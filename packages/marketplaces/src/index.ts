@@ -431,7 +431,7 @@ export function createAutomationVendorConnectAdapter(config: {
 export type AutomationMarketplaceReadiness = {
   state: AutomationOperationalState;
   status: "READY" | "BLOCKED";
-  publishMode: "automation" | "extension";
+  publishMode: "automation" | "remote";
   summary: string;
   detail: string;
   hint: OperatorHint;
@@ -537,18 +537,7 @@ export function getAutomationAccountReadiness(input: {
 }) {
   const accountStatus = input.accountStatus ?? input.account.status ?? "CONNECTED";
   const credentialMetadata = (input.account.credentialMetadata ?? {}) as Record<string, unknown>;
-  const vendorSessionArtifact =
-    credentialMetadata.vendorSessionArtifact && typeof credentialMetadata.vendorSessionArtifact === "object"
-      ? (credentialMetadata.vendorSessionArtifact as Record<string, unknown>)
-      : null;
-  const captureMode =
-      typeof vendorSessionArtifact?.captureMode === "string"
-        ? vendorSessionArtifact.captureMode
-        : typeof credentialMetadata.captureMode === "string"
-          ? credentialMetadata.captureMode
-          : null;
-    const extensionDraftPrepReady = input.account.platform === "DEPOP" && captureMode === "EXTENSION_BROWSER";
-    const remoteRuntimeReady = credentialMetadata.publishMode === "remote";
+  const remoteRuntimeReady = credentialMetadata.publishMode === "remote";
   const platformLabel =
     input.account.platform === "DEPOP"
       ? "Depop"
@@ -562,7 +551,7 @@ export function getAutomationAccountReadiness(input: {
     return {
       state: "AUTOMATION_ERROR",
       status: "BLOCKED",
-      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      publishMode: "automation" as const,
       summary: input.lastErrorMessage?.trim() || `${platformLabel} automation is in an error state.`,
       detail: "Reconnect or repair the automation session before publishing again.",
       hint: buildAutomationHint({
@@ -585,7 +574,7 @@ export function getAutomationAccountReadiness(input: {
     return {
       state: "AUTOMATION_BLOCKED",
       status: "BLOCKED",
-      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      publishMode: "automation" as const,
       summary: `${platformLabel} automation is disabled for this account.`,
       detail: "Reconnect or re-enable the account before publishing.",
       hint: buildAutomationHint({
@@ -604,7 +593,7 @@ export function getAutomationAccountReadiness(input: {
     return {
       state: "AUTOMATION_BLOCKED",
       status: "BLOCKED",
-      publishMode: extensionDraftPrepReady ? ("extension" as const) : ("automation" as const),
+      publishMode: "automation" as const,
       summary: `${platformLabel} session needs attention before automation can run.`,
       detail:
         input.account.validationStatus === "NEEDS_REFRESH"
@@ -628,27 +617,8 @@ export function getAutomationAccountReadiness(input: {
     };
   }
 
-  if (extensionDraftPrepReady) {
+  if (!simulatedMarketplacePathsAllowed() && !remoteRuntimeReady) {
     return {
-      state: "AUTOMATION_READY",
-      status: "READY",
-      publishMode: "extension" as const,
-      summary: `${platformLabel} browser session is ready for extension draft prep.`,
-      detail: "This account can prepare marketplace drafts through the Mollie browser extension in your current browser.",
-      hint: buildAutomationHint({
-        platform: input.account.platform,
-        platformLabel,
-        title: `${platformLabel} is ready for browser-extension draft prep.`,
-        explanation: "Mollie can open the live Depop listing flow in your browser and apply the supported draft fields there.",
-        severity: "SUCCESS",
-        nextActions: ["Return to an inventory item and choose Open in extension.", "Use Recheck login later if the browser session expires."],
-        canContinue: true
-      })
-    };
-  }
-
-    if (!simulatedMarketplacePathsAllowed() && !remoteRuntimeReady) {
-      return {
       state: "AUTOMATION_BLOCKED",
       status: "BLOCKED",
       publishMode: "automation" as const,
@@ -689,20 +659,20 @@ export function getAutomationAccountReadiness(input: {
     };
   }
 
-    return {
-      state: "AUTOMATION_READY",
-      status: "READY",
-      publishMode: "automation" as const,
-      summary: `${platformLabel} automation is ready for remote publish jobs.`,
-      detail: "This account will publish through Mollie's remote automation runtime.",
-      hint: buildAutomationHint({
-        platform: input.account.platform,
-        platformLabel,
-        title: `${platformLabel} is ready for remote automation.`,
-        explanation: "Mollie can queue publish work for this account through the shared remote automation runtime.",
-        severity: "SUCCESS",
-        nextActions: ["Continue from inventory detail to publish an item.", "Check Executions if a publish later needs support review."],
-        canContinue: true
-      })
+  return {
+    state: "AUTOMATION_READY",
+    status: "READY",
+    publishMode: "automation" as const,
+    summary: `${platformLabel} automation is ready for remote publish jobs.`,
+    detail: "This account will publish through Mollie's remote automation runtime.",
+    hint: buildAutomationHint({
+      platform: input.account.platform,
+      platformLabel,
+      title: `${platformLabel} is ready for remote automation.`,
+      explanation: "Mollie can queue publish work for this account through the shared remote automation runtime.",
+      severity: "SUCCESS",
+      nextActions: ["Continue from inventory detail to publish an item.", "Check Executions if a publish later needs support review."],
+      canContinue: true
+    })
   };
 }

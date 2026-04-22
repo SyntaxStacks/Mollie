@@ -63,7 +63,7 @@ function WorkspacePageContent() {
 
   return (
     <ProtectedView requireWorkspace={false}>
-      <AppShell title="Workspace Setup">
+      <AppShell title="Workspace">
         <div className="grid-2">
           <Card eyebrow="Status" title={auth.workspace ? auth.workspace.name : "Create your pilot workspace"}>
             {auth.workspace ? (
@@ -79,7 +79,7 @@ function WorkspacePageContent() {
             )}
           </Card>
 
-          <Card eyebrow="Create" title="Provision workspace and billing skeleton">
+          <Card eyebrow="Create" title="Create a workspace">
             <form className="stack" onSubmit={handleCreate}>
               <label className="label">
                 Workspace name
