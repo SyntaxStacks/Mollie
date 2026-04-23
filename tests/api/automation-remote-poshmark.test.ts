@@ -12,6 +12,8 @@ process.env.NEXT_PUBLIC_API_BASE_URL ??= "http://localhost:4000";
 process.env.API_PORT ??= "4000";
 process.env.GCS_BUCKET_UPLOADS ??= "reselleros-test-uploads";
 process.env.GCS_BUCKET_ARTIFACTS ??= "reselleros-test-artifacts";
+process.env.DEPOP_BROWSER_PUBLISH_ENABLED ??= "true";
+process.env.POSHMARK_BROWSER_PUBLISH_ENABLED ??= "true";
 
 type AppModule = typeof import("../../apps/api/src/index.js");
 type DbModule = typeof import("@reselleros/db");
@@ -243,8 +245,8 @@ test("poshmark publish queues a remote automation task and pending listing", asy
   assert.equal(listing?.status, "PENDING");
 });
 
-test("depop publish queues a remote automation task", async () => {
-  const session = await createWorkspaceSession("remote-depop-publish");
+test("depop remote runtime does not fabricate a live marketplace listing", async () => {
+  const session = await createWorkspaceSession("remote-depop-unconfirmed");
   const item = await db.inventoryItem.create({
     data: {
       workspaceId: session.workspaceId,
@@ -281,16 +283,98 @@ test("depop publish queues a remote automation task", async () => {
     }
   });
 
-  await db.listingDraft.create({
+  await db.marketplaceAccount.create({
+    data: {
+      workspaceId: session.workspaceId,
+      platform: "DEPOP",
+      displayName: "Main Depop shop",
+      secretRef: "db-encrypted://marketplace-account/depop-unconfirmed",
+      credentialType: "SECRET_REF",
+      validationStatus: "VALID",
+      status: "CONNECTED",
+      credentialMetadataJson: {
+        mode: "remote-session-artifact",
+        publishMode: "remote",
+        accountHandle: "main-depop-shop"
+      }
+    }
+  });
+
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/inventory/${item.id}/publish/depop`,
+    headers: session.headers
+  });
+  assert.equal(response.statusCode, 200);
+
+  const { processRemotePoshmarkAutomationCycle } = await import("../../apps/connector-runner/src/remote-poshmark-runtime.js");
+  const processed = await processRemotePoshmarkAutomationCycle({ workspaceId: session.workspaceId });
+  assert.equal(processed, true);
+
+  const task = await db.automationTask.findFirst({
+    where: {
+      workspaceId: session.workspaceId,
+      inventoryItemId: item.id,
+      platform: "DEPOP"
+    },
+    orderBy: { createdAt: "desc" }
+  });
+  assert.ok(task);
+  assert.equal(task.state, "FAILED");
+  assert.equal(task.lastErrorCode, "LIVE_RUNTIME_NOT_IMPLEMENTED");
+  assert.match(task.lastErrorMessage ?? "", /did not create a marketplace listing/i);
+
+  const result = task.resultJson as { externalUrl?: string | null; externalListingId?: string | null } | null;
+  assert.equal(result?.externalUrl ?? null, null);
+  assert.equal(result?.externalListingId ?? null, null);
+
+  const listing = await db.platformListing.findFirst({
+    where: {
+      inventoryItemId: item.id,
+      platform: "DEPOP"
+    }
+  });
+  assert.ok(listing);
+  assert.equal(listing.status, "FAILED");
+  assert.equal(listing.externalUrl, null);
+  assert.equal(listing.externalListingId, null);
+});
+
+test("depop publish queues a remote automation task", async () => {
+  const session = await createWorkspaceSession("remote-depop-publish");
+  const item = await db.inventoryItem.create({
+    data: {
+      workspaceId: session.workspaceId,
+      sku: `SKU-${crypto.randomUUID().slice(0, 8)}`,
+      title: "Vintage canvas jacket",
+      brand: "Mollie Test",
+      category: "Jackets",
+      condition: "Good used condition",
+      quantity: 1,
+      costBasis: 18,
+      priceRecommendation: 64,
+      attributesJson: {
+        description: "Vintage canvas jacket with light wear.",
+        marketplaceOverrides: {
+          DEPOP: {
+            attributes: {
+              department: "Men",
+              productType: "Jackets",
+              packageSize: "Medium"
+            }
+          }
+        }
+      },
+      imageManifestJson: []
+    }
+  });
+
+  await db.imageAsset.create({
     data: {
       inventoryItemId: item.id,
-      platform: "DEPOP",
-      generatedTitle: "Vintage canvas jacket",
-      generatedDescription: "Vintage canvas jacket with light wear.",
-      generatedPrice: 64,
-      generatedTagsJson: [],
-      attributesJson: {},
-      reviewStatus: "APPROVED"
+      url: "https://images.example.com/jacket.jpg",
+      kind: "ORIGINAL",
+      position: 0
     }
   });
 

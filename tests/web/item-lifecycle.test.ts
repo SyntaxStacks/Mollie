@@ -393,7 +393,7 @@ test("Depop rows offer remote publish when a ready draft exists", () => {
   assert.equal(depop.summary, "Ready for Depop publish");
 });
 
-test("Depop tags stay recommended instead of blocking draft prep", () => {
+test("Depop tags stay recommended and do not block direct publish", () => {
   const depop = getMarketplaceStatusSummaries(
     {
       id: "item-2b",
@@ -443,11 +443,11 @@ test("Depop tags stay recommended instead of blocking draft prep", () => {
   ).find((entry) => entry.platform === "DEPOP");
 
   assert.ok(depop);
-  assert.equal(depop.actionLabel, "Generate draft");
-  assert.equal(depop.actionKind, "generate_draft");
+  assert.equal(depop.actionLabel, "Publish now");
+  assert.equal(depop.actionKind, "publish_api");
   assert.deepEqual(depop.missingRequirements, []);
   assert.deepEqual(depop.recommendedRequirements, ["Depop discovery tags"]);
-  assert.equal(depop.summary, "Depop needs a little more listing detail");
+  assert.equal(depop.summary, "Ready for Depop publish");
 });
 
 test("eBay rows prioritize shipping and category readiness", () => {

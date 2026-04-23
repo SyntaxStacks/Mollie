@@ -13,17 +13,29 @@ Mollie is a TypeScript monorepo for the ResellerOS MVP: Mac.bid ingestion, AI va
 
 ## Local setup
 
+Use the local launcher for day-to-day testing:
+
+1. `pnpm local:start`
+2. Open `http://localhost:3000/inventory`
+3. `pnpm local:status` to inspect running services
+4. `pnpm local:logs` to inspect recent app logs
+5. `pnpm local:stop` when finished
+
+The launcher starts Docker infrastructure, installs dependencies, generates Prisma, and starts the API, worker, connector-runner, and web app with local logs. It does not run migrations or seed data unless requested directly:
+
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/mollie-local.ps1 start -Migrate`
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/mollie-local.ps1 start -Seed`
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/mollie-local.ps1 restart -SkipInfra -SkipInstall -SkipGenerate`
+
+Manual startup still works when needed:
+
 1. `docker compose up -d`
 2. `Copy-Item .env.example .env`
 3. `pnpm install`
 4. `pnpm db:generate`
 5. `pnpm db:migrate`
 6. `pnpm db:seed`
-7. In separate terminals run:
-   - `pnpm dev:api`
-   - `pnpm dev:worker`
-   - `pnpm dev:connector`
-   - `pnpm dev:web`
+7. In separate terminals run `pnpm dev:api`, `pnpm dev:worker`, `pnpm dev:connector`, and `pnpm dev:web`.
 
 The default local ports are:
 
@@ -44,6 +56,7 @@ If `DATABASE_URL`, `DIRECT_URL`, `REDIS_URL`, or `BROWSER_GRID_URL` are blank, t
 Helpers that derive local connection URLs automatically:
 
 - `powershell -ExecutionPolicy Bypass -File infra/scripts/start-local.ps1`
+- `powershell -ExecutionPolicy Bypass -File infra/scripts/mollie-local.ps1 status`
 - `powershell -ExecutionPolicy Bypass -File infra/scripts/test-e2e.ps1`
 
 ## Validation

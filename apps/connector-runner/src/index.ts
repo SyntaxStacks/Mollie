@@ -88,5 +88,5 @@ app.get("/health/queue", async () => {
 
 app.listen({
   host: "0.0.0.0",
-  port: Number(process.env.PORT ?? env.API_PORT)
+  port: Number(process.env.PORT ?? env.CONNECTOR_PORT)
 });

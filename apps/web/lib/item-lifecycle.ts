@@ -337,7 +337,15 @@ function isLegacyBrowserTransportMessage(message: string | null | undefined) {
 }
 
 function isRemoteGridPublishPlatform(platform: string, capability?: MarketplaceCapabilitySummary | null) {
-  return (platform === "DEPOP" || platform === "POSHMARK") && capability?.publishMode === "API";
+  return (platform === "DEPOP" || platform === "POSHMARK") && canPublishThroughMollie(capability);
+}
+
+function canPublishThroughMollie(capability?: MarketplaceCapabilitySummary | null) {
+  return capability?.publishMode === "API" || capability?.publishMode === "REMOTE";
+}
+
+function isUnsupportedRemoteRuntimeMessage(task?: AutomationTaskLike | null) {
+  return task?.lastErrorCode === "LIVE_RUNTIME_NOT_IMPLEMENTED";
 }
 
 function getPlatformLabel(platform: string) {
@@ -539,9 +547,9 @@ function describeCapabilities(platform: string, capability?: MarketplaceCapabili
     };
   }
 
-  if (capability.publishMode === "API") {
+  if (canPublishThroughMollie(capability)) {
     return {
-      executionMode: "API",
+      executionMode: capability.publishMode === "REMOTE" ? "Remote" : "API",
       capabilitySummary: "Publish through Mollie",
       automationRequired: false
     };
@@ -684,6 +692,15 @@ function summarizeMarketplaceReadiness(input: {
   }
 
   if (input.listingState === "failed") {
+    if (isUnsupportedRemoteRuntimeMessage(input.automationTask)) {
+      const platformLabel = getPlatformLabel(input.platform);
+
+      return {
+        summary: `${platformLabel} remote publish is not enabled yet`,
+        blocker: `${platformLabel} can be connected and checked, but Mollie will not publish until the live browser-grid executor is enabled.`
+      };
+    }
+
     const legacyTransportFailure =
       isLegacyBrowserTransportMessage(input.automationTask?.lastErrorMessage) ||
       isLegacyBrowserTransportMessage(input.automationTask?.needsInputReason);
@@ -747,15 +764,29 @@ function summarizeMarketplaceReadiness(input: {
         };
       }
 
+      if (input.requiredRequirements.length === 0 && canPublishThroughMollie(input.capability)) {
+        return {
+          summary: "Ready for Depop publish",
+          blocker: input.connectionBlocker
+        };
+      }
+
+      if (input.requiredRequirements.length === 0 && input.capability?.publishMode === "NONE") {
+        return {
+          summary: "Depop remote publish is not enabled yet",
+          blocker: "Mollie can check your Depop login, but live Depop posting is blocked until the browser-grid executor is enabled."
+        };
+      }
+
       if (input.draft) {
         return {
-          summary: input.draft.reviewStatus === "APPROVED" ? "Ready for Depop publish" : "Depop draft needs review",
+          summary: input.draft.reviewStatus === "APPROVED" ? "Ready for Depop publish" : "Depop needs publish setup",
           blocker: input.requiredRequirements.length > 0 ? fallbackBlocker : input.connectionBlocker
         };
       }
 
       return {
-        summary: primaryMissing ? `Finish ${primaryMissing} before Depop draft prep` : "Depop needs a little more listing detail",
+        summary: primaryMissing ? `Finish ${primaryMissing} before Depop publish` : "Depop needs a little more listing detail",
         blocker: fallbackBlocker ?? input.connectionBlocker
       };
     }
@@ -784,7 +815,7 @@ function summarizeMarketplaceReadiness(input: {
 
       return {
         summary:
-          input.capability?.publishMode === "API"
+          canPublishThroughMollie(input.capability)
             ? "Ready for Poshmark remote publish"
             : "Poshmark account is connected, but remote publish is not live yet",
         blocker: input.connectionBlocker
@@ -808,7 +839,7 @@ function summarizeMarketplaceReadiness(input: {
 
       return {
         summary:
-          input.capability?.publishMode === "API"
+          canPublishThroughMollie(input.capability)
             ? "Ready for Whatnot remote publish"
             : "Whatnot is connected, but listing prep is not live yet",
         blocker: input.connectionBlocker
@@ -898,6 +929,13 @@ function actionForState(input: {
       };
     }
 
+    if (input.capability?.publishMode === "NONE") {
+      return {
+        actionLabel: "Unavailable",
+        actionKind: "unavailable" as const
+      };
+    }
+
     return {
       actionLabel: "Retry",
       actionKind: "retry" as const
@@ -905,7 +943,7 @@ function actionForState(input: {
   }
 
   if (input.hasDraft || input.listingState === "draft") {
-    if (input.capability?.publishMode === "API") {
+    if (canPublishThroughMollie(input.capability)) {
       return {
         actionLabel:
           input.platform === "DEPOP" || input.platform === "POSHMARK" || input.platform === "WHATNOT"
@@ -921,6 +959,13 @@ function actionForState(input: {
     };
   }
 
+  if (input.platform === "DEPOP" && canPublishThroughMollie(input.capability) && !input.hasBlockingFields) {
+    return {
+      actionLabel: "Publish now",
+      actionKind: "publish_api" as const
+    };
+  }
+
   if (!input.hasDraft && input.capability?.publishMode !== "NONE" && !input.hasBlockingFields) {
     return {
       actionLabel: "Generate draft",
@@ -928,7 +973,7 @@ function actionForState(input: {
     };
   }
 
-  if (input.capability?.publishMode === "API") {
+  if (canPublishThroughMollie(input.capability)) {
     return {
       actionLabel: "Publish via API",
       actionKind: "publish_api" as const

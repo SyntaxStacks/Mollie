@@ -175,8 +175,6 @@ async function getDepopPublishReadiness(workspaceId: string, inventoryItemId: st
     };
   }
 
-  const approvedDraft =
-    item.listingDrafts.find((draft) => draft.platform === "DEPOP" && draft.reviewStatus === "APPROVED") ?? null;
   const itemAttributes =
     item.attributesJson && typeof item.attributesJson === "object" ? (item.attributesJson as Record<string, unknown>) : {};
   const marketplaceOverrides =
@@ -220,10 +218,6 @@ async function getDepopPublishReadiness(workspaceId: string, inventoryItemId: st
 
   if (!normalizeInventoryText(depopAttributes.packageSize)) {
     missingFields.push("Depop package size");
-  }
-
-  if (!approvedDraft) {
-    blockingReasons.push("Approve a Depop draft before publishing.");
   }
 
   return {
@@ -321,6 +315,14 @@ async function queuePublish(
   }
 
   if (platform === "POSHMARK" || platform === "DEPOP") {
+    const remotePublishEnabled = process.env[`${platform}_BROWSER_PUBLISH_ENABLED`] === "true";
+
+    if (!remotePublishEnabled) {
+      throw app.httpErrors.preconditionFailed(
+        `${platform === "DEPOP" ? "Depop" : "Poshmark"} remote publish is not enabled yet. Mollie will not queue a publish until the browser-grid executor is live.`
+      );
+    }
+
     const readiness =
       platform === "POSHMARK"
         ? await getPoshmarkPublishReadiness(workspaceId, inventoryItemId)

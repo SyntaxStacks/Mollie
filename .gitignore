@@ -3,6 +3,7 @@
 .env.local
 node_modules
 .turbo
+.codex-logs
 dist
 .next
 .next-ui-e2e

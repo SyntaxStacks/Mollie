@@ -1287,7 +1287,7 @@ export function InventoryDetailView({
                         : draftReadyPlatforms.length === 0 && postReadyPlatforms.length === 0
                           ? selectedBlockedCount > 0
                             ? "Selected marketplaces are still missing required fields. Fill those in Mollie first, then generate or post."
-                            : "Selected marketplaces need login, draft review, or browser follow-through before posting."
+                            : "Selected marketplaces need login or required marketplace setup before posting."
                           : `${draftReadyPlatforms.length} ready for draft generation and ${postReadyPlatforms.length} ready to post right now.`}
                     </div>
                   </div>

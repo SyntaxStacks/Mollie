@@ -31,40 +31,46 @@ import { getAutomationAccountReadiness } from "@reselleros/marketplaces";
 
 import type { ApiApp, ApiRouteContext } from "../lib/context.js";
 
-const capabilitySummary: MarketplaceCapabilitySummary[] = [
-  {
-    platform: "EBAY",
-    capabilities: ["API_PUBLISH", "UPDATE", "DELIST", "RELIST"],
-    importMode: "NONE",
-    publishMode: "API",
-    bulkImport: false,
-    bulkPublish: false
-  },
-  {
-    platform: "DEPOP",
-    capabilities: ["API_PUBLISH", "REMOTE_AUTOMATION"],
-    importMode: "NONE",
-    publishMode: "API",
-    bulkImport: false,
-    bulkPublish: false
-  },
-  {
-    platform: "POSHMARK",
-    capabilities: ["API_PUBLISH", "REMOTE_AUTOMATION", "UPDATE"],
-    importMode: "NONE",
-    publishMode: "API",
-    bulkImport: false,
-    bulkPublish: false
-  },
-  {
-    platform: "WHATNOT",
-    capabilities: ["REMOTE_AUTOMATION"],
-    importMode: "NONE",
-    publishMode: "NONE",
-    bulkImport: false,
-    bulkPublish: false
-  }
-];
+function remotePublishEnabled(platform: "DEPOP" | "POSHMARK") {
+  return process.env[`${platform}_BROWSER_PUBLISH_ENABLED`] === "true";
+}
+
+function getCapabilitySummary(): MarketplaceCapabilitySummary[] {
+  return [
+    {
+      platform: "EBAY",
+      capabilities: ["API_PUBLISH", "UPDATE", "DELIST", "RELIST"],
+      importMode: "NONE",
+      publishMode: "API",
+      bulkImport: false,
+      bulkPublish: false
+    },
+    {
+      platform: "DEPOP",
+      capabilities: ["REMOTE_AUTOMATION"],
+      importMode: "NONE",
+      publishMode: remotePublishEnabled("DEPOP") ? "REMOTE" : "NONE",
+      bulkImport: false,
+      bulkPublish: false
+    },
+    {
+      platform: "POSHMARK",
+      capabilities: ["REMOTE_AUTOMATION", "UPDATE"],
+      importMode: "NONE",
+      publishMode: remotePublishEnabled("POSHMARK") ? "REMOTE" : "NONE",
+      bulkImport: false,
+      bulkPublish: false
+    },
+    {
+      platform: "WHATNOT",
+      capabilities: ["REMOTE_AUTOMATION"],
+      importMode: "NONE",
+      publishMode: "NONE",
+      bulkImport: false,
+      bulkPublish: false
+    }
+  ];
+}
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
@@ -338,7 +344,7 @@ export function registerAutomationRoutes(app: ApiApp, context: ApiRouteContext) 
     await context.requireWorkspace(await context.requireAuth(request));
 
     return {
-      capabilitySummary
+      capabilitySummary: getCapabilitySummary()
     };
   });
 

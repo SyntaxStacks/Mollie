@@ -6,7 +6,7 @@ import {
   type PublishListingInput
 } from "@reselleros/marketplaces";
 
-function simulateDepopPublish(input: PublishListingInput) {
+function assertDepopPublishUnavailable(input: PublishListingInput): never {
   if (!input.images.length) {
     throw new ConnectorError({
       code: "PREREQUISITE_MISSING",
@@ -18,22 +18,15 @@ function simulateDepopPublish(input: PublishListingInput) {
     });
   }
 
-  const externalListingId = `depop_${crypto.randomUUID().slice(0, 12)}`;
-
-  return {
-    externalListingId,
-    externalUrl: `https://www.depop.com/products/${externalListingId}`,
-    title: input.title,
-    price: input.price,
-    rawResponse: {
-      mode: "simulated",
-      platform: "DEPOP",
-      account: input.marketplaceAccount.displayName
-    },
-    artifactUrls: [
-      `${process.env.GCS_BUCKET_ARTIFACTS ?? "local-artifacts"}/screenshots/${externalListingId}-step-1.png`
-    ]
-  };
+  throw new ConnectorError({
+    code: "AUTOMATION_FAILED",
+    message: "Depop live publish is not enabled for the legacy connector adapter. Use the remote browser-grid publish runtime.",
+    retryable: false,
+    metadata: {
+      inventoryItemId: input.inventoryItemId,
+      marketplaceAccountId: input.marketplaceAccount.id
+    }
+  });
 }
 
 export const depopConnectAdapter: AutomationVendorConnectAdapter = createAutomationVendorConnectAdapter({
@@ -50,7 +43,7 @@ export const depopAdapter: MarketplaceAdapter = {
   descriptor: {
     platform: "DEPOP",
     displayName: "Depop",
-    executionMode: "SIMULATED",
+    executionMode: "BROWSER_SESSION",
     riskLevel: "HIGH",
     fallbackMode: "MANUAL",
     rateLimitStrategy: "SESSION_PACED",
@@ -87,8 +80,8 @@ export const depopAdapter: MarketplaceAdapter = {
       },
       {
         capability: "CREATE_LISTING",
-        support: "SIMULATED",
-        detail: "Publish currently runs as a pilot-safe simulated automation adapter through connector-runner."
+        support: "PLANNED",
+        detail: "Publish is handled by the remote browser-grid runtime once enabled; this adapter does not fabricate live listings."
       },
       {
         capability: "UPDATE_LISTING",
@@ -135,7 +128,7 @@ export const depopAdapter: MarketplaceAdapter = {
     ]
   },
   async publishListing(input) {
-    return simulateDepopPublish(input);
+    return assertDepopPublishUnavailable(input);
   },
   async syncListing({ currentStatus }) {
     return { status: currentStatus === "PUBLISHED" ? "SYNCED" : currentStatus };

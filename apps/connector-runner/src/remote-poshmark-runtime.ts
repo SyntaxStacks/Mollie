@@ -38,9 +38,10 @@ function getExecutionLogId(payloadJson: unknown) {
   return typeof candidate === "string" ? candidate : null;
 }
 
-async function listCandidateTasks() {
+async function listCandidateTasks(input: { workspaceId?: string } = {}) {
   const tasks = await db.automationTask.findMany({
     where: {
+      workspaceId: input.workspaceId,
       platform: {
         in: ["DEPOP", "POSHMARK"]
       },
@@ -81,24 +82,7 @@ async function markExecutionLogFailure(task: AutomationTaskRecord | null, messag
   });
 }
 
-async function markExecutionLogSuccess(task: AutomationTaskRecord | null, responsePayload: Record<string, unknown>) {
-  const executionLogId = getExecutionLogId(task?.payloadJson);
-
-  if (!executionLogId) {
-    return;
-  }
-
-  await db.executionLog.update({
-    where: { id: executionLogId },
-    data: {
-      status: "SUCCEEDED",
-      responsePayloadJson: asJsonValue(responsePayload),
-      finishedAt: new Date()
-    }
-  });
-}
-
-async function updatePublishedListing(task: AutomationTaskRecord | null, result: Record<string, unknown>) {
+async function markPlatformListingFailed(task: AutomationTaskRecord | null, result: Record<string, unknown>) {
   if (!task?.inventoryItemId || !task.marketplaceAccountId) {
     return;
   }
@@ -111,40 +95,18 @@ async function updatePublishedListing(task: AutomationTaskRecord | null, result:
     }
   });
 
-  if (existing) {
-    await db.platformListing.update({
-      where: { id: existing.id },
-      data: {
-        status: "PUBLISHED",
-        externalListingId: typeof result.externalListingId === "string" ? result.externalListingId : existing.externalListingId,
-        externalUrl: typeof result.externalUrl === "string" ? result.externalUrl : existing.externalUrl,
-        publishedTitle: typeof result.publishedTitle === "string" ? result.publishedTitle : existing.publishedTitle,
-        publishedPrice: typeof result.publishedPrice === "number" ? result.publishedPrice : existing.publishedPrice,
-        rawLastResponseJson: asJsonValue(result),
-        lastSyncAt: new Date()
-      }
-    });
-  } else {
-    await db.platformListing.create({
-      data: {
-        inventoryItemId: task.inventoryItemId,
-        marketplaceAccountId: task.marketplaceAccountId,
-        platform: task.platform,
-        status: "PUBLISHED",
-        externalListingId: typeof result.externalListingId === "string" ? result.externalListingId : null,
-        externalUrl: typeof result.externalUrl === "string" ? result.externalUrl : null,
-        publishedTitle: typeof result.publishedTitle === "string" ? result.publishedTitle : null,
-        publishedPrice: typeof result.publishedPrice === "number" ? result.publishedPrice : null,
-        rawLastResponseJson: asJsonValue(result),
-        lastSyncAt: new Date()
-      }
-    });
+  if (!existing) {
+    return;
   }
 
-  await db.inventoryItem.update({
-    where: { id: task.inventoryItemId },
+  await db.platformListing.update({
+    where: { id: existing.id },
     data: {
-      status: "LISTED"
+      status: "FAILED",
+      externalListingId: null,
+      externalUrl: null,
+      lastSyncAt: new Date(),
+      rawLastResponseJson: asJsonValue(result)
     }
   });
 }
@@ -230,20 +192,6 @@ async function processPublishTask(task: AutomationTaskRecord) {
     return;
   }
 
-  const approvedDraft =
-    item.listingDrafts.find((draft) => draft.platform === task.platform && draft.reviewStatus === "APPROVED") ?? null;
-  const draftPrice =
-    typeof approvedDraft?.generatedPrice === "number" && Number.isFinite(approvedDraft.generatedPrice) ? approvedDraft.generatedPrice : null;
-  const publishedPrice =
-    draftPrice ??
-    (typeof item.priceRecommendation === "number" && Number.isFinite(item.priceRecommendation) ? item.priceRecommendation : 0);
-  const publishedTitle = approvedDraft?.generatedTitle ?? item.title;
-  const externalListingId = `${task.platform.toLowerCase()}_${crypto.randomUUID().slice(0, 12)}`;
-  const externalUrl =
-    task.platform === "DEPOP"
-      ? `https://www.depop.com/products/${externalListingId}`
-      : `https://poshmark.com/listing/${externalListingId}`;
-
   await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
     result: asJsonValue({
       phase: "open_session",
@@ -254,58 +202,26 @@ async function processPublishTask(task: AutomationTaskRecord) {
   });
   await sleep(150);
 
-  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
-    result: asJsonValue({
-      phase: "upload_photos",
-      retryClass: "NONE",
-      runtime: "browser-grid",
-      statusMessage: `Uploading ${platformLabel} listing photos`
-    })
-  });
-  await sleep(150);
-
-  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
-    result: asJsonValue({
-      phase: "fill_fields",
-      retryClass: "NONE",
-      runtime: "browser-grid",
-      statusMessage: `Filling ${platformLabel} listing fields`
-    })
-  });
-  await sleep(150);
-
-  await heartbeatAutomationTaskForWorkspace(task.workspaceId, task.id, runnerInstanceId, {
-    result: asJsonValue({
-      phase: "submit",
-      retryClass: "NONE",
-      runtime: "browser-grid",
-      statusMessage: `Submitting ${platformLabel} listing`
-    })
-  });
-  await sleep(150);
-
+  const message = `${platformLabel} live publish is not wired to a confirmed remote browser executor yet. Mollie did not create a marketplace listing.`;
   const result = {
     phase: "confirm_live",
-    retryClass: "NONE",
+    retryClass: "UNSUPPORTED_RUNTIME",
     runtime: "browser-grid",
-    externalListingId,
-    externalUrl,
-    publishedTitle,
-    publishedPrice,
+    statusMessage: message,
     artifactUrls: []
   };
 
   await updateAutomationTask(task.id, {
-    state: "SUCCEEDED",
+    state: "FAILED",
     lastHeartbeatAt: new Date(),
     completedAt: new Date(),
     resultJson: asJsonValue(result),
-    lastErrorCode: null,
-    lastErrorMessage: null,
-    needsInputReason: null
+    lastErrorCode: "LIVE_RUNTIME_NOT_IMPLEMENTED",
+    lastErrorMessage: message,
+    needsInputReason: message
   });
-  await updatePublishedListing(task, result);
-  await markExecutionLogSuccess(task, result);
+  await markPlatformListingFailed(task, result);
+  await markExecutionLogFailure(task, message);
 }
 
 async function processSocialTask(task: AutomationTaskRecord, action: string) {
@@ -340,8 +256,8 @@ async function processSocialTask(task: AutomationTaskRecord, action: string) {
   await updateSocialStatus(task, action);
 }
 
-export async function processRemotePoshmarkAutomationCycle() {
-  const candidates = await listCandidateTasks();
+export async function processRemotePoshmarkAutomationCycle(input: { workspaceId?: string } = {}) {
+  const candidates = await listCandidateTasks(input);
   const nextTask = candidates[0];
 
   if (!nextTask) {
